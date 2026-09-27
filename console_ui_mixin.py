@@ -62,6 +62,17 @@ class ConsoleUiMixin:
             )
             self.check_vnc_embedded.blockSignals(False)
 
+        # Reevaluar el combo Gráficos con la elección recién aplicada.
+        # Sin esto, abrir una VM con VNC embebido dejaba VirGL/Venus/Auto
+        # deshabilitadas "pegadas", y abrir otra VM con SPICE externo NO
+        # las rehabilitaba (el checkbox legacy se mueve con blockSignals,
+        # así que nadie dispara la reevaluación).
+        if hasattr(self, "_on_vnc_embedded_changed"):
+            try:
+                self._on_vnc_embedded_changed()
+            except Exception:
+                pass
+
     def _refresh_console_help(self):
         """Actualiza el texto de ayuda con pros y contras de cada modo.
 
@@ -188,7 +199,8 @@ class ConsoleUiMixin:
             "<hr>"
             f"{vnc_block}<br><br>"
             f"{spice_block}<br><br>"
-            f"{hybrid_block}"
+            f"{hybrid_block}<br><br>"
+            f"{hybrid_gl_block}"
             "<hr>"
             f"{graphics_block}"
         )

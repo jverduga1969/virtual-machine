@@ -937,65 +937,88 @@ class SnapshotsMixin:
         return data
 
     def _snapshot_qmp_nodes(self):
-        """Resuelve los nodos QCOW2 reales del grafo de bloques de QEMU.
+        """Resuelve identificadores de bloque para cada disco QCOW2 de la VM.
 
-        QEMU puede crear nodos implícitos cuyo nombre comienza por ``#``. Ese
-        prefijo NO significa que el nodo sea necesariamente un nodo ``file``:
-        un nodo implícito puede ser precisamente el nodo de formato ``qcow2``
-        conectado al BlockBackend. Por ello no debemos descartar los ``#...``
-        por nombre; debemos distinguirlos por ``drv`` y por el archivo asociado.
+        Devuelve `(state_ref, [dict, ...])` donde cada dict tiene:
+          • "device"    → id del BlockBackend (disk0, cdrom_0, ...). Es lo
+                          que espera `blockdev-snapshot-internal-sync` en su
+                          campo `device`.
+          • "node_name" → nombre del nodo en el grafo de bloques. Es lo que
+                          esperan `snapshot-save`, `snapshot-load` y
+                          `snapshot-delete` en su campo `devices`.
+          • "path"      → ruta absoluta del archivo del disco.
+          • "name"      → etiqueta amigable para logs.
+
+        `state_ref` es el identificador (node_name) que se usará para el
+        vmstate: preferimos el disco que la readiness marca como
+        `state_disk` y caemos al primero de la lista.
         """
         vm_dir = self.current_vm_dir
         storage = self._snapshot_candidate_disks()
         storage_by_path = {os.path.abspath(d["path"]): d for d in storage if d.get("path")}
         storage_by_base = {os.path.basename(os.path.abspath(d["path"])): d for d in storage if d.get("path")}
 
-        # Preferimos query-named-block-nodes porque devuelve explícitamente el
-        # driver de cada nodo (qcow2/file/raw/etc.) y su archivo asociado.
-        named = self._qmp_named_block_nodes(vm_dir)
-        candidates = []
-        for row in named:
-            node = str(row.get("node") or "").strip()
-            drv = str(row.get("driver") or "").lower().strip()
-            raw_path = str(row.get("file") or "").strip()
-            if not node or drv != "qcow2" or not raw_path:
-                continue
-            path = os.path.abspath(raw_path)
-            d = storage_by_path.get(path)
-            if not d:
-                d = storage_by_base.get(os.path.basename(path))
-            if not d:
-                continue
-            if d.get("format") != "qcow2" or not d.get("exists") or not d.get("writable"):
-                continue
-            # Un nodo qcow2 es apto para snapshot; el nodo file que está debajo
-            # no se selecciona porque su driver sería 'file'.
-            candidates.append({"node": node, "path": os.path.abspath(d["path"]), "driver": drv, "name": d.get("name") or os.path.basename(d["path"])})
+        # query-block da simultáneamente:
+        #   • device              → id del BlockBackend (lo que necesita
+        #                           blockdev-snapshot-internal-sync)
+        #   • inserted.node-name  → nombre del nodo (lo que necesitan
+        #                           snapshot-save/load/delete)
+        #   • inserted.file       → ruta del archivo
+        #   • inserted.drv        → driver (qcow2, raw, …)
+        result = self._qmp_command(vm_dir, {"execute": "query-block"})
+        rows = result.get("return") or []
 
-        # Fallback para QEMU/versiones que no expongan correctamente los nombres
-        # mediante query-named-block-nodes: query-block describe la raíz del
-        # dispositivo virtual y su campo inserted.drv debe ser qcow2.
+        candidates = []
+        seen_paths = set()
+        for row in rows:
+            device = str(row.get("device") or "").strip()
+            inserted = row.get("inserted") or {}
+            node_name = str(inserted.get("node-name") or inserted.get("node_name") or "").strip()
+            path = str(inserted.get("file") or "").strip()
+            drv = str(inserted.get("drv") or inserted.get("driver") or "").lower().strip()
+            if not device or drv != "qcow2" or not path:
+                continue
+            apath = os.path.abspath(path)
+            if apath in seen_paths:
+                continue
+            seen_paths.add(apath)
+            d = storage_by_path.get(apath) or storage_by_base.get(os.path.basename(apath))
+            if not d or d.get("format") != "qcow2" or not d.get("exists") or not d.get("writable"):
+                continue
+            candidates.append({
+                "device": device,
+                # Si QEMU no expone node-name (nodo implícito sin nombre), usamos
+                # el propio device id. QEMU lo acepta como node-name en esos casos.
+                "node_name": node_name or device,
+                "path": apath,
+                "name": d.get("name") or os.path.basename(apath),
+            })
+
+        # Fallback: en algunos builds muy antiguos, query-block no trae
+        # inserted.drv para discos no removibles. Probamos query-named-block-nodes
+        # para no quedarnos sin candidatos.
         if not candidates:
-            result = self._qmp_command(vm_dir, {"execute": "query-block"})
-            rows = result.get("return") or []
-            for row in rows:
-                inserted = row.get("inserted") or {}
-                node = str(inserted.get("node-name") or inserted.get("node_name") or "").strip()
-                path = str(inserted.get("file") or "").strip()
-                drv = str(inserted.get("drv") or inserted.get("driver") or "").lower().strip()
-                if not node or not path or drv != "qcow2":
+            for row in self._qmp_named_block_nodes(vm_dir):
+                node = str(row.get("node") or "").strip()
+                drv = str(row.get("driver") or "").lower().strip()
+                raw_path = str(row.get("file") or "").strip()
+                if not node or drv != "qcow2" or not raw_path:
                     continue
-                apath = os.path.abspath(path)
+                apath = os.path.abspath(raw_path)
                 d = storage_by_path.get(apath) or storage_by_base.get(os.path.basename(apath))
                 if not d or d.get("format") != "qcow2" or not d.get("exists") or not d.get("writable"):
                     continue
-                candidates.append({"node": node, "path": os.path.abspath(d["path"]), "driver": drv, "name": d.get("name") or os.path.basename(d["path"])})
+                candidates.append({
+                    "device": node,        # último recurso
+                    "node_name": node,
+                    "path": apath,
+                    "name": d.get("name") or os.path.basename(apath),
+                })
 
         if not candidates:
-            # Diagnóstico detallado para no volver a ocultar el problema detrás de
-            # "no hay QCOW2". Se muestran los nodos que QEMU sí expone.
+            # Diagnóstico detallado (igual que antes del fix).
             seen = []
-            for row in named:
+            for row in self._qmp_named_block_nodes(vm_dir):
                 seen.append(f"{row.get('node','?')}[{row.get('driver','?')}] → {row.get('file','')}")
             detail = "\n".join(seen[:40]) or "(QEMU no devolvió nodos nombrados)"
             detail += "\n\nDiagnóstico query-block:\n" + self._snapshot_dump_block_graph()
@@ -1004,23 +1027,20 @@ class SnapshotsMixin:
                 "Nodos detectados por QEMU:\n" + detail
             )
 
-        # Deduplicar por ruta y conservar el primer nodo QCOW2 real.
-        unique = []
-        seen_paths = set()
-        for item in candidates:
-            if item["path"] in seen_paths:
-                continue
-            seen_paths.add(item["path"])
-            unique.append(item)
-
+        # Elegir state_ref entre los candidatos: preferimos el disco que la
+        # readiness marca como state_disk; si no, el primero.
         state_disk = (self._snapshot_readiness().get("state_disk") or {})
         state_path = os.path.abspath(state_disk.get("path") or "")
-        state_node = next((r["node"] for r in unique if r["path"] == state_path), None)
-        if not state_node:
-            state_node = unique[0]["node"]
+        state_ref = None
+        for c in candidates:
+            if c["path"] == state_path:
+                state_ref = c["node_name"]
+                break
+        if not state_ref:
+            state_ref = candidates[0]["node_name"]
 
-        device_nodes = [r["node"] for r in unique]
-        return state_node, device_nodes
+        return state_ref, candidates
+
 
     def _qmp_launch_snapshot_job(self, vm_dir, command, arguments, operation_label, timeout=1800, log_callback=None):
         """Ejecuta snapshot-save/load con una sola conexión QMP.
@@ -1440,14 +1460,18 @@ class SnapshotsMixin:
         No guarda RAM/CPU; es una alternativa segura al snapshot completo en vivo.
         """
         self._snapshot_log("[SNAPSHOT] Modo: SOLO DISCOS (VM en ejecución).")
-        _, device_nodes = self._snapshot_qmp_nodes()
-        if not device_nodes:
+        _state_ref, device_list = self._snapshot_qmp_nodes()
+        if not device_list:
             raise RuntimeError("No hay nodos QCOW2 elegibles para crear el snapshot de disco.")
-        self._snapshot_log(f"[SNAPSHOT] Nodos QCOW2: {', '.join(device_nodes)}")
+        _names = [d.get('name') or d.get('device') for d in device_list]
+        self._snapshot_log(f"[SNAPSHOT] Nodos QCOW2: {', '.join(_names)}")
+        # blockdev-snapshot-internal-sync exige el campo 'device' con el
+        # id del BlockBackend (disk0, cdrom_0, ...). Pasar 'node-name'
+        # provoca "Parameter 'actions[0].data.device' is missing" en QEMU 11.
         actions = [{
             "type": "blockdev-snapshot-internal-sync",
-            "data": {"node-name": node, "name": name},
-        } for node in device_nodes]
+            "data": {"device": d["device"], "name": name},
+        } for d in device_list]
         result = self._qmp_command(self.current_vm_dir, {
             "execute": "transaction",
             "arguments": {"actions": actions},
@@ -1486,27 +1510,38 @@ class SnapshotsMixin:
         return mode in ("virtio", "virgl", "venus", "auto")
 
     def _warn_virtio_gpu_snapshot(self):
-        """Muestra un aviso si la VM usa gráficos problemáticos para
-        snapshots. Devuelve True si el usuario decide continuar."""
+        """Avisa si los gráficos actuales impiden RESTAURAR snapshots completos.
+
+        IMPORTANTE: este aviso es solo para snapshots COMPLETOS (RAM +
+        dispositivos). Los snapshots SOLO DE DISCOS sí funcionan con
+        cualquier gráfico y se pueden restaurar con la VM apagada.
+
+        Devuelve True si el usuario decide continuar.
+        """
         if not self._vm_graphics_is_problematic_for_snapshots():
             return True
         mode = self._vm_graphics_mode() or "?"
         resp = QMessageBox.warning(
             self, "Snapshot con VirtIO-GPU",
-            f"Esta VM está configurada con gráficos '{mode}', que no "
-            "permiten restaurar snapshots completos en QEMU.\n\n"
-            "El snapshot se puede crear, pero al intentar restaurarlo "
-            "QEMU fallará con un error del tipo:\n"
-            "  'Failed to load element of type virtio for virtio'.\n\n"
-            "Para snapshots restaurables:\n"
-            "  1. Cambia Gráficos/GPU a 'QXL' en Configuración → Pantalla.\n"
-            "  2. Reinicia la VM con el nuevo modo gráfico.\n"
-            "  3. Crea el snapshot entonces.\n\n"
+            f"Esta VM está configurada con gráficos '{mode}', que no permiten\n"
+            "RESTAURAR snapshots completos en QEMU (RAM + dispositivos).\n"
+            "\n"
+            "El snapshot se puede crear, pero al intentar restaurarlo QEMU\n"
+            "fallará con: 'Failed to load element of type virtio for virtio'.\n"
+            "\n"
+            "Opciones:\n"
+            "  • Usar snapshot SOLO DE DISCOS (elegir 'No' en el siguiente\n"
+            "    diálogo). No guarda RAM ni estado de ventanas, pero se\n"
+            "    restaura sin problema con la VM apagada.\n"
+            "  • Cambiar Gráficos/GPU a 'Red Hat QXL 2D' o 'VMware SVGA II',\n"
+            "    reiniciar la VM y crear snapshots completos.\n"
+            "\n"
             "¿Crear el snapshot igualmente?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         return resp == QMessageBox.StandardButton.Yes
+
 
     def create_snapshot_from_page(self):
         if not self._vm_is_selected():
@@ -1589,10 +1624,11 @@ class SnapshotsMixin:
                 self._snapshot_log("[SNAPSHOT] Modo: SNAPSHOT COMPLETO (VM + RAM + dispositivos + discos).")
                 self._snapshot_log("[SNAPSHOT] VM en ejecución: usando QMP moderno 'snapshot-save'.")
                 self._snapshot_log("[SNAPSHOT] Consultando nodos de bloque expuestos por QEMU...")
-                state_node, device_nodes = self._snapshot_qmp_nodes()
+                state_ref, device_list = self._snapshot_qmp_nodes()
+                node_names = [d["node_name"] for d in device_list]
                 job_id = "snap_save_" + re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:40] + "_" + str(int(time.time()))
-                self._snapshot_log(f"[SNAPSHOT] Nodo para VM state: {state_node}")
-                self._snapshot_log(f"[SNAPSHOT] Nodos QCOW2 incluidos: {', '.join(device_nodes)}")
+                self._snapshot_log(f"[SNAPSHOT] Nodo para VM state: {state_ref}")
+                self._snapshot_log(f"[SNAPSHOT] Nodos QCOW2 incluidos: {', '.join(node_names)}")
                 try:
                     ram_gb = float(re.sub(r"[^0-9.]", "", str(readiness['ram']))) if readiness.get('ram') else None
                 except Exception:
@@ -1618,7 +1654,7 @@ class SnapshotsMixin:
                 self._snapshot_log(f"[SNAPSHOT] Solicitando snapshot-save '{name}'...")
                 self._start_snapshot_worker(
                     self.current_vm_dir, "snapshot-save",
-                    {"job-id":job_id,"tag":name,"vmstate":state_node,"devices":device_nodes},
+                    {"job-id":job_id,"tag":name,"vmstate":state_ref,"devices":node_names},
                     f"Creando '{name}'",
                     name, "create"
                 )
@@ -1882,16 +1918,17 @@ class SnapshotsMixin:
             self._snapshot_log(f"[SNAPSHOT] Estado actual de la VM: {state}")
             if state in ('running','paused'):
                 self._snapshot_log(f"[SNAPSHOT] VM en ejecución: usando QMP moderno 'snapshot-load' para '{tag}'.")
-                state_node, device_nodes = self._snapshot_qmp_nodes()
+                state_ref, device_list = self._snapshot_qmp_nodes()
+                node_names = [d["node_name"] for d in device_list]
                 job_id = "snap_load_" + re.sub(r"[^A-Za-z0-9_.-]", "_", tag)[:40] + "_" + str(int(time.time()))
-                self._snapshot_log(f"[SNAPSHOT] Nodo para VM state: {state_node}")
-                self._snapshot_log(f"[SNAPSHOT] Nodos QCOW2 incluidos: {', '.join(device_nodes)}")
+                self._snapshot_log(f"[SNAPSHOT] Nodo para VM state: {state_ref}")
+                self._snapshot_log(f"[SNAPSHOT] Nodos QCOW2 incluidos: {', '.join(node_names)}")
                 self._snapshot_log(f"[SNAPSHOT] Solicitando snapshot-load '{tag}'...")
                 try:
                     self._qmp_launch_snapshot_job(
                         self.current_vm_dir,
                         "snapshot-load",
-                        {"job-id":job_id,"tag":tag,"vmstate":state_node,"devices":device_nodes},
+                        {"job-id":job_id,"tag":tag,"vmstate":state_ref,"devices":node_names},
                         f"Restaurando '{tag}'"
                     )
                 except Exception as modern_error:
@@ -2016,12 +2053,13 @@ class SnapshotsMixin:
             if state in ('running','paused'):
                 self._snapshot_log(f"\n========== ELIMINACIÓN DE SNAPSHOT ==========")
                 self._snapshot_log(f"[SNAPSHOT] Iniciando eliminación de '{tag}'...")
-                state_node, device_nodes = self._snapshot_qmp_nodes()
+                _state_ref, device_list = self._snapshot_qmp_nodes()
+                node_names = [d["node_name"] for d in device_list]
                 # snapshot-delete solo debe recibir los nodos QCOW2 reales; nunca pflash/OVMF.
                 job_id = "snap_delete_" + re.sub(r"[^A-Za-z0-9_.-]", "_", tag)[:40] + "_" + str(int(time.time()))
-                self._snapshot_log(f"[SNAPSHOT] QCOW2 afectados: {', '.join(device_nodes)}")
+                self._snapshot_log(f"[SNAPSHOT] QCOW2 afectados: {', '.join(node_names)}")
                 self._start_snapshot_worker(self.current_vm_dir, "snapshot-delete",
-                    {"job-id":job_id,"tag":tag,"devices":device_nodes},
+                    {"job-id":job_id,"tag":tag,"devices":node_names},
                     f"Eliminando '{tag}'", tag, "delete")
                 return
             else:

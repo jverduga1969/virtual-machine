@@ -33,7 +33,8 @@ from network_utils import network_interface_exists, sanitize_tap_name
 from host_deps import find_ovmf_files
 from shared_folders import bash_squote, find_virtiofsd
 from console_backend import (
-    PROTOCOL_VNC, PROTOCOL_SPICE, MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID,
+    PROTOCOL_VNC, PROTOCOL_SPICE, MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE,
+    MODE_HYBRID, MODE_HYBRID_GL,
     DEFAULT_PROTOCOL, DEFAULT_MODE, qemu_console_args, socket_path as _cb_socket_path,
 )
 
@@ -254,6 +255,11 @@ class InstallWorker(QThread):
         _console_uses_socket = self.console_mode in (
             MODE_EMBEDDED, MODE_EXTERNAL, MODE_HYBRID,
         )
+        # Híbrida 3D: el widget VNC sigue embebido (2D), pero la
+        # ventana GL propia de QEMU se encarga del render 3D. En
+        # este modo NO se rebaja graphics_mode a virtio: necesitamos
+        # VirGL/Venus activos para que la ventana GL sirva de algo.
+        _is_hybrid_gl = (self.console_mode == MODE_HYBRID_GL)
         # Windows con graphics_mode="auto" resuelve a VGA std (no
         # GL), así que no hay conflicto con -display none: no lo
         # rebajamos a virtio.
@@ -267,6 +273,12 @@ class InstallWorker(QThread):
                 "sin aceleración OpenGL y sin ventana local de QEMU."
             )
             self.graphics_mode = "virtio"
+        elif _is_hybrid_gl and self.graphics_mode in ("virgl", "venus", "auto"):
+            self.log_signal.emit(
+                "==> Híbrida 3D: el widget VNC muestra la VM en 2D; "
+                "la ventana GL de QEMU mostrará el render 3D "
+                "(VirGL/Venus). El 3D NO se ve dentro de la app."
+            )
 
         # hostmem es una ventana de memoria del dispositivo, no VRAM clásica.
         try:

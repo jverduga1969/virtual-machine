@@ -97,7 +97,8 @@ from async_ui_mixin import AsyncUiMixin
 from snapshots_graph import SnapshotsGraphView
 from console_ui_mixin import ConsoleUiMixin
 from console_backend import (
-    PROTOCOL_VNC, PROTOCOL_SPICE, MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID,
+    PROTOCOL_VNC, PROTOCOL_SPICE, MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE,
+    MODE_HYBRID, MODE_HYBRID_GL,
     DEFAULT_PROTOCOL, DEFAULT_MODE, describe_requirements,
     find_viewer, console_uri, socket_path as _cb_socket_path,
 )
@@ -1106,15 +1107,19 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         lay.addWidget(QLabel("<b>Gráficos / GPU</b>"))
         self.combo_graphics = QComboBox()
         self.combo_graphics.addItem("Automático (recomendado)", "auto")
-        self.combo_graphics.addItem("VirtIO-GPU 2D (compatible • snapshots ✓)", "virtio")
+        self.combo_graphics.addItem("VirtIO-GPU 2D (compatible • snap. discos ✓ • snap. completo ✗)", "virtio")
         self.combo_graphics.addItem("VirtIO-GPU + VirGL 3D (OpenGL • snapshots ✗)", "virgl")
         self.combo_graphics.addItem("VirtIO-GPU + Venus/Vulkan 3D (experimental • snapshots ✗)", "venus")
-        self.combo_graphics.addItem("Red Hat QXL 2D (3D ✗ • snapshots ✓ • macOS ⚠)", "qxl")
-        self.combo_graphics.addItem("VMware SVGA II (3D acelerado ✗ • snapshots ✓ • macOS ⚠)", "vmware")
+        self.combo_graphics.addItem("Red Hat QXL 2D (3D ✗ • snap. completo ✓ • macOS ⚠)", "qxl")
+        self.combo_graphics.addItem("VMware SVGA II (3D acelerado ✗ • snap. completo ✓ • macOS ⚠)", "vmware")
         self.combo_graphics.addItem("Sin video / Headless", "none")
         self.combo_graphics.setToolTip(
-            "Automático detecta las capacidades del host y usa aceleración 3D "
-            "cuando es segura; si no, vuelve a VirtIO-GPU 2D."
+"Automático detecta las capacidades del host y usa aceleración 3D "
+            "cuando es segura; si no, vuelve a VirtIO-GPU 2D.\n\n"
+            "Snapshots:\n"
+            "  • VirtIO-GPU 2D → solo snap. de discos.\n"
+            "  • QXL y VMware SVGA → snap. completo (RAM + dispositivos).\n"
+            "  • VirGL / Venus → no soportan ningún tipo de snapshot."
         )
         self.combo_graphics.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         self.combo_graphics.currentIndexChanged.connect(self.update_graphics_options)

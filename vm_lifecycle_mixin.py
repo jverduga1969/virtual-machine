@@ -35,7 +35,8 @@ except Exception as _spice_exc:
     _SPICE_WIDGET_ERROR = _spice_exc
 
 from console_backend import (
-    PROTOCOL_VNC, PROTOCOL_SPICE, MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID,
+    PROTOCOL_VNC, PROTOCOL_SPICE, MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE,
+    MODE_HYBRID, MODE_HYBRID_GL,
     socket_path as _cb_socket_path,
     find_viewer, console_uri, build_viewer_args,
     can_embed_spice,
@@ -4097,12 +4098,9 @@ class VmLifecycleMixin:
         graphics_vram_idx = self.combo_graphics_vram.findData(data.get("graphics_vram", "256M"))
         if graphics_vram_idx >= 0:
             self.combo_graphics_vram.setCurrentIndex(graphics_vram_idx)
-        if hasattr(self, "check_vnc_embedded"):
-            vnc_embedded = bool((data.get("extra") or {}).get("vnc_embedded", True))
-            self.check_vnc_embedded.blockSignals(True)
-            self.check_vnc_embedded.setChecked(vnc_embedded)
-            self.check_vnc_embedded.blockSignals(False)
-            self._on_vnc_embedded_changed()
+        # La elección de consola se aplica más abajo con
+        # _apply_console_choice_from_vm(data). Ese método llama a
+        # _on_vnc_embedded_changed() al final, así que no duplicamos aquí.
         self.update_graphics_options()
         _nets = data.get("network_devices") or []
         self.refresh_network_devices_ui(_nets)
@@ -4203,12 +4201,118 @@ class VmLifecycleMixin:
         if file_name:
             line_edit_target.setText(file_name)
 
-    def _on_vnc_embedded_changed(self, *args):
+    def _auto_graphics_effective_label(self):
+        """Devuelve (mode_id, texto_corto) que elegiría "Automático" AHORA.
+
+        Tiene en cuenta:
+          • El SO invitado (Windows usa VGA estándar; macOS usa VGA OSX-KVM).
+          • Si VNC embebido está activo (VNC no soporta OpenGL → VirtIO-GPU 2D
+            o VGA estándar).
+          • Las capacidades del host (OpenGL, VirGL, soporte de QEMU).
+        """
+        try:
+            os_type = self.combo_main_os.currentData() or "linux"
+        except Exception:
+            os_type = "linux"
+
+        if os_type == "windows":
+            return "std", "VGA estándar (QEMU -vga std)"
+        if os_type == "macos":
+            return "vga-macos", "VGA de OSX-KVM (VGA virtual)"
+
+        # ¿VNC embebido activo? → 3D prohibido.
+        try:
+            _proto, _mode = self._current_console_choice()
+            vnc_embedded = (_proto == "vnc" and _mode in ("embedded", "hybrid"))
+        except Exception:
+            vnc_embedded = False
+
+        # Capacidades del host (con caché dentro de host_deps).
+        try:
+            _qcaps = qemu_graphics_capabilities()
+            qemu_virtio = bool(_qcaps.get("virtio"))
+            qemu_virgl = bool(_qcaps.get("virgl"))
+            display_gl_ok = bool(_qcaps.get("display_gl"))
+        except Exception:
+            qemu_virtio = qemu_virgl = display_gl_ok = False
+
+        if vnc_embedded:
+            if qemu_virtio:
+                return "virtio", "VirtIO-GPU 2D (VNC no soporta 3D)"
+            return "std", "VGA estándar de QEMU (VNC no soporta 3D)"
+
+        # Sin VNC embebido: intentar VirGL si el host lo soporta del todo.
+        try:
+            caps = detect_host_graphics()
+            gl_ok = bool(caps.get("opengl"))
+            virgl_installed = bool(caps.get("virgl"))
+        except Exception:
+            gl_ok = virgl_installed = False
+
+        virgl_ok = gl_ok and virgl_installed and qemu_virgl and display_gl_ok
+        if virgl_ok:
+            return "virgl", "VirtIO-GPU + VirGL 3D"
+        if qemu_virtio:
+            return "virtio", "VirtIO-GPU 2D"
+        return "std", "VGA estándar de QEMU"
+
+    def _refresh_auto_graphics_label(self):
+        """Actualiza el TEXTO del item "Automático" del combo Gráficos para
+        reflejar qué opción concreta va a usarse. No toca su habilitación:
+        "Automático" nunca se deshabilita.
+        """
         if not hasattr(self, "combo_graphics"):
             return
-        vnc_on = getattr(self, "check_vnc_embedded", None) and self.check_vnc_embedded.isChecked()
+        try:
+            idx = self.combo_graphics.findData("auto")
+            if idx < 0:
+                return
+            _mode_id, label = self._auto_graphics_effective_label()
+            new_text = f"Automático (recomendado) → {label}"
+            if self.combo_graphics.itemText(idx) != new_text:
+                # Bloquear señales: cambiar el texto no debe re-disparar
+                # currentIndexChanged ni update_graphics_options.
+                self.combo_graphics.blockSignals(True)
+                self.combo_graphics.setItemText(idx, new_text)
+                self.combo_graphics.blockSignals(False)
+        except Exception:
+            pass
 
-        incompatible = {"virgl", "venus", "auto"}
+    def _on_vnc_embedded_changed(self, *args):
+        """Rehabilita / deshabilita opciones gráficas según el modo de consola.
+
+        Reglas:
+          • "Automático" NUNCA se deshabilita: siempre se puede elegir.
+            Su texto se actualiza para decir qué opción va a usar.
+          • VirGL y Venus SÍ se deshabilitan con VNC embebido / híbrido,
+            porque QEMU no puede embeber su salida OpenGL en un socket VNC.
+
+        El estado de VNC embebido se deriva de los combos VISIBLES
+        (protocolo + modo), no del checkbox legacy oculto. Esto evita la
+        incoherencia de antes (unos VMs deshabilitaban y otros no, sin
+        relación aparente con VNC/SPICE).
+        """
+        if not hasattr(self, "combo_graphics"):
+            return
+
+        # Derivar de los combos visibles.
+        try:
+            _proto, _mode = self._current_console_choice()
+            vnc_on = (_proto == "vnc" and _mode in ("embedded", "hybrid"))
+        except Exception:
+            vnc_on = bool(
+                getattr(self, "check_vnc_embedded", None)
+                and self.check_vnc_embedded.isChecked()
+            )
+
+        # Sincronizar el checkbox legacy (oculto) sin disparar señales.
+        if hasattr(self, "check_vnc_embedded"):
+            self.check_vnc_embedded.blockSignals(True)
+            self.check_vnc_embedded.setChecked(bool(vnc_on))
+            self.check_vnc_embedded.blockSignals(False)
+
+        # "auto" NO está en esta lista: nunca se deshabilita.
+        incompatible = {"virgl", "venus"}
         model = self.combo_graphics.model()
         for i in range(self.combo_graphics.count()):
             data = self.combo_graphics.itemData(i)
@@ -4216,13 +4320,22 @@ class VmLifecycleMixin:
             if item is not None:
                 item.setEnabled(not (vnc_on and data in incompatible))
 
-        if vnc_on and self.combo_graphics.currentData() in incompatible:
-            virtio_idx = self.combo_graphics.findData("virtio")
-            if virtio_idx >= 0:
-                self.combo_graphics.setCurrentIndex(virtio_idx)
+        # Si la opción ACTUALMENTE seleccionada quedó deshabilitada,
+        # caer a "auto" (que ahora siempre está disponible).
+        current = self.combo_graphics.currentData()
+        if vnc_on and current in incompatible:
+            auto_idx = self.combo_graphics.findData("auto")
+            if auto_idx >= 0:
+                self.combo_graphics.blockSignals(True)
+                self.combo_graphics.setCurrentIndex(auto_idx)
+                self.combo_graphics.blockSignals(False)
+
+        # Actualizar el texto de "Automático" para reflejar la elección real.
+        self._refresh_auto_graphics_label()
 
         if hasattr(self, "_update_graphics_compat_hint"):
             self._update_graphics_compat_hint()
+
 
     def update_graphics_options(self, *args):
         is_macos = self.combo_main_os.currentData() == "macos"
@@ -4291,6 +4404,14 @@ class VmLifecycleMixin:
 
         self.combo_graphics.setEnabled(True)
         self.combo_graphics_vram.setEnabled(True)
+
+        # Refrescar el texto del item "Automático" para que diga
+        # qué opción concreta se usará (nunca se deshabilita).
+        if hasattr(self, "_refresh_auto_graphics_label"):
+            try:
+                self._refresh_auto_graphics_label()
+            except Exception:
+                pass
 
     def _save_hardware_lists(self):
         if not self.current_vm_dir: return

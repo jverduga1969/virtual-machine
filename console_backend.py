@@ -30,7 +30,8 @@ MODE_EMBEDDED = "embedded"   # widget dentro de la pestaña "Consola Gráfica"
 MODE_EXTERNAL = "external"   # visor del sistema en ventana aparte
 MODE_NATIVE = "native"       # ventana nativa de QEMU (-display gtk/sdl)
 MODE_HYBRID = "hybrid"       # VNC embebido + SPICE externo a la vez
-ALL_MODES = (MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID)
+MODE_HYBRID_GL = "hybrid_gl" # VNC embebido (2D) + ventana GL propia de QEMU (3D)
+ALL_MODES = (MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID, MODE_HYBRID_GL)
 
 DEFAULT_PROTOCOL = PROTOCOL_VNC
 DEFAULT_MODE = MODE_EMBEDDED
@@ -89,6 +90,14 @@ def qemu_console_args(vm_dir: str, protocol: str, mode: str) -> tuple:
             f'-spice port={port},addr=127.0.0.1,ipv4=on,ipv6=off,disable-ticketing=on '
             f'-display none'
         )
+        return args, info
+
+    if mode == MODE_HYBRID_GL:
+        vnc_sock = vnc_socket_path(vm_dir)
+        info["socket"] = vnc_sock
+        info["vnc_socket"] = vnc_sock
+        info["gl_window"] = True
+        args = f'-vnc unix:"{vnc_sock}"'
         return args, info
 
     if protocol == PROTOCOL_VNC:

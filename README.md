@@ -10,6 +10,29 @@ invitados Linux, Windows y macOS.
 
 ---
 
+## Capturas
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/main-resumen.png" alt="Pantalla principal"></td>
+    <td width="50%"><img src="docs/screenshots/config-console.png" alt="Configuracion de la consola"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Pantalla principal y panel de recursos</em></td>
+    <td align="center"><em>Configuracion de la consola VNC/SPICE</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/console-vnc.png" alt="Consola VNC embebida"></td>
+    <td width="50%"><img src="docs/screenshots/snapshots-graph.png" alt="Organigrama de snapshots"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Consola VNC embebida dentro de la app</em></td>
+    <td align="center"><em>Organigrama de snapshots</em></td>
+  </tr>
+</table>
+
+---
+
 ## Plataforma soportada
 
 **Virtual.Machine funciona únicamente en Linux con KVM.**
