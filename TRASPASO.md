@@ -6,12 +6,13 @@ Retomo un proyecto en curso. Léelo entero antes de responder.
 
 Administrador gráfico de VMs QEMU/KVM en Python + PyQt6, tipo VirtualBox.
 Soporta Linux, Windows y macOS. Autor: Jimmy Verduga. GPL-3.0-or-later.
+Repo: https://github.com/jverduga1969/virtual-machine
 
-## Estructura
+## Estructura del proyecto (raíz)
 
-Raíz del proyecto:
+Modulos reales (se importan al arrancar):
 - virtual_machine.py       → ventana principal, combos, layout, señales
-- workers.py               → InstallWorker (construye comando QEMU), snapshots
+- workers.py               → InstallWorker (construye comando QEMU)
 - console_backend.py       → constantes/helpers VNC/SPICE
 - console_ui_mixin.py      → UI consola (protocolo, modo, ayuda contextual)
 - vm_lifecycle_mixin.py    → ciclo de vida VM + opciones gráficas
@@ -19,19 +20,21 @@ Raíz del proyecto:
 - diagnostics_mixin.py     → log, salud VM, dependencias
 - performance_mixin.py     → panel de recursos en vivo
 - suggestions_mixin.py     → panel de sugerencias contextuales
-- host_deps.py             → detección GPU/OpenGL/Vulkan/VirGL/KVM/OVMF
-- async_ui_mixin.py        → helper run_async
-- snapshots_graph.py       → organigrama de snapshots
-- principal_cdrom.py       → lógica del CD/DVD "Principal"
+- install_flow_mixin.py    → flujo de arranque completo (macOS/Win/Linux)
+- mac_recovery_mixin.py    → descarga del Recovery de macOS
+- guest_integration_mixin.py, network_config_mixin.py, passthrough_mixin.py
+- storage_mixin.py, async_ui_mixin.py, snapshots_graph.py, principal_cdrom.py
 - network_utils.py, vm_config.py, shared_folders.py, guest_tools_iso.py
-- vm_icons.py, spice_widget.py, vnc_widget.py, vnc_focus_filter.py
-- x11_keyboard_grab.py, bootstrap_vnc.py, system_deps.py
+- vm_icons.py, spice_widget.py, vnc_widget_centered.py, vnc_focus_filter.py
+- x11_keyboard_grab.py, bootstrap_vnc.py, system_deps.py, host_deps.py
+- dialogs.py, task_progress.py, iso_sources.py, iso_versions.py
 
-Archivos de contexto (leer primero si existen):
-- SESION.md                → resumen de la sesión anterior
+Archivos de contexto:
+- SESION.md                → resumen del proyecto y decisiones
 - CONVENCIONES.md          → cómo trabajar en este proyecto
-- SESSION_LOG.md           → bitácora de fixes aplicados
-- scripts/                 → fix_*.py, add_*.py (idempotentes, con backup)
+- SESSION_LOG.md           → bitácora detallada de fixes aplicados
+- TRASPASO.md              → este archivo (se pega en cada chat nuevo)
+- scripts/                 → fix_*.py, add_*.py (locales, NO subidos a Git)
 
 ## Arquitectura
 
@@ -71,6 +74,21 @@ Archivos de contexto (leer primero si existen):
    si muere. Se marca la VM en self._external_viewer_failed y se espera
    acción explícita del usuario (botón "Abrir en ventana externa").
 
+## Reglas de macOS (no romper)
+
+Modelo de OSX-KVM: tres discos fijos.
+  - OpenCoreBoot  → OpenCore.qcow2 (master en OSX-KVM/, snapshot mode)
+  - InstallMedia  → BaseSystem.img (RAW, descargado del Recovery)
+  - MacHDD        → mac_hdd_ng.qcow2 (QCOW2, 128G, creado por la app)
+
+Instalación de macOS:
+  - El flujo de arranque (install_flow_mixin.py) IGNORA storage_devices
+    del usuario para elegir el disco del sistema. Usa siempre mac_hdd_ng.qcow2.
+  - Si falta BaseSystem.img, descarga el Recovery con un diálogo modal
+    bloqueante (_macos_recovery_download_blocking). Al terminar, el arranque
+    continúa automáticamente.
+  - Cancelar la descarga aborta el arranque sin diálogo de error.
+
 ## Bugs resueltos (no reintroducir)
 
 1. Deshabilitación intermitente del combo Gráficos → resuelto derivando
@@ -85,6 +103,15 @@ Archivos de contexto (leer primero si existen):
 
 4. Spicy reaparecía solo cada 30s robando foco → flag _external_viewer_failed.
 
+5. macOS fallaba con "Image is not in qcow2 format" → install_flow_mixin.py
+   fuerza mac_hdd_ng.qcow2 como disco del sistema, no BaseSystem.img.
+
+6. Descarga del Recovery bloqueaba al usuario pidiendo pulsar Iniciar dos
+   veces → ahora es bloqueante con diálogo modal y continúa sola.
+
+7. install_flow_mixin.py no estaba en GitHub → la regla 'install_*.py' del
+   .gitignore lo capturaba. Añadidas excepciones al final del .gitignore.
+
 ## Convenciones
 
 - Comentarios/docstrings en español. Código en inglés/spanglish.
@@ -92,6 +119,7 @@ Archivos de contexto (leer primero si existen):
 - Scripts de fix: idempotentes, con backup (.bak_before_<tag>),
   verificación de sintaxis antes de escribir, salida con colores.
 - Backups nunca se borran.
+- Los scripts de fix viven en scripts/ y NO se suben a Git.
 
 ## Cómo se construye el comando QEMU
 
@@ -106,14 +134,34 @@ En InstallWorker._run_impl():
 ## Estado actual
 
 Todo funciona: crear/abrir/editar/eliminar VMs Linux/Windows/macOS,
-4+1 modos de consola, snapshots, passthrough PCI/VFIO y USB, carpetas
+5 modos de consola, snapshots, passthrough PCI/VFIO y USB, carpetas
 compartidas VirtioFS/9p/SMB, Guest Agent, panel de recursos, sugerencias.
+La app arranca macOS con Recovery descargándose on-demand.
+
+Pendientes menores conocidos:
+- Ninguno crítico.
+
+## Sobre el .gitignore (leer si se añade un archivo nuevo)
+
+El .gitignore tiene muchos patrones wildcard peligrosos: install_*.py,
+fix_*.py, add_*.py, refactor_*.py, rename_*.py, cleanup_*.py, probe_*.py,
+integrate_*.py, switch_*.py, snapshot_*.py, tune_*.py, etc.
+
+Cada vez que se cree un archivo REAL del proyecto con alguno de esos
+prefijos, comprobar:
+  git check-ignore -v archivo.py
+Si sale una regla, añadir excepción al final del .gitignore:
+  !archivo.py
+
+Y revisar SIEMPRE con:
+  git status --ignored --short | grep '^!!' | grep '.py$'
+que ningún archivo real quede atrapado.
 
 ## Cómo trabajar conmigo
 
 1. Si te pido algo, revisa primero los archivos relevantes.
-2. Para cambios en varios archivos, dáme scripts .py idempotentes que
-   yo pegue en la terminal con heredoc (cat > archivo.py << 'EOF').
+2. Para cambios en varios archivos, dame scripts .py idempotentes que
+   yo pegue en la terminal con heredoc (cat > archivo.py << 'PYEOF').
 3. Nunca modifiques sin backup ni verificación de sintaxis.
 4. Si el chat se está llenando, pídeme un resumen de traspaso y avísame.
 

@@ -158,3 +158,68 @@ Los patrones wildcard en .gitignore son peligrosos. Cada vez que se
 añade un patrón, ejecutar:
   git status --ignored --short | grep '^!!' | grep '.py$'
 y revisar que ningún archivo real quede atrapado.
+
+---
+
+## 2026-09-27 — Fix macOS: disco dedicado + Recovery bloqueante + .gitignore
+
+### Problema 1
+Arrancar macOS fallaba con:
+  qemu-system-x86_64: -drive id=MacHDD,...format=qcow2: Image is not in qcow2 format
+Porque el BaseSystem.img (RAW) estaba registrado como disco SATA y se usaba
+como MacHDD.
+
+### Fix 1
+install_flow_mixin.py: branch para macOS que usa siempre mac_hdd_ng.qcow2
+(QCOW2, 128G) como disco del sistema. Ignora storage_devices del usuario.
+Sigue el modelo de OSX-KVM: OpenCore (bootloader) + BaseSystem (instalacion)
++ MacHDD (disco del sistema).
+
+### Problema 2
+Al faltar el Recovery, la app lanzaba la descarga en segundo plano y
+mostraba un dialogo critical pidiendo al usuario que volviera a pulsar
+Iniciar al terminar.
+
+### Fix 2
+install_flow_mixin.py: nueva funcion _macos_recovery_download_blocking.
+Usa QEventLoop + TaskProgressDialog modal + _BackgroundCallThread para
+bloquear el flujo de arranque hasta que la descarga termine. Al terminar,
+continua automaticamente. Cancelar aborta sin dialogo de error.
+
+### Problema 3 (critico)
+install_flow_mixin.py NUNCA estaba en GitHub. El .gitignore tenia la regla
+'install_*.py' para ignorar scripts temporales, pero capturaba tambien
+este archivo real. Cualquiera que clonara el repo obtenia una app rota.
+
+### Fix 3
+Anadidas excepciones al final del .gitignore:
+  !install_flow_mixin.py
+  !*_mixin.py
+Se sube install_flow_mixin.py por primera vez.
+
+### Archivos tocados
+- install_flow_mixin.py
+- .gitignore
+- docs/screenshots/install-macos.png (nueva captura)
+- README.md (anadida la captura)
+
+### Scripts aplicados
+- scripts/fix_macos_disk_logic.py
+- scripts/fix_macos_recovery_flow.py
+- scripts/fix_gitignore_install_flow.py
+
+### Leccion aprendida sobre .gitignore
+Los patrones wildcard son peligrosos. Cada vez que se anade uno, ejecutar:
+  git status --ignored --short | grep '^!!' | grep '.py$'
+y revisar que ningun archivo real del proyecto quede atrapado.
+
+Patrones actuales en .gitignore que podrian ser peligrosos si se anaden
+archivos reales con esos nombres: fix_*.py, add_*.py, refactor_*.py,
+rename_*.py, cleanup_*.py, probe_*.py, install_*.py, integrate_*.py,
+switch_*.py, shorten_*.py, snapshot_*.py, stack_*.py, tune_*.py,
+reorder_*.py, reorganize_*.py, implement_*.py, enhance_*.py, export_*.py,
+help_*.py, improve_*.py, apply_*.py, setup_console_*.py.
+
+Si en el futuro se crea un modulo real del proyecto con alguno de estos
+prefijos (por ejemplo "install_helpers.py"), hay que anadir su excepcion
+correspondiente (!install_helpers.py) al final del .gitignore.
