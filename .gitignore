@@ -91,3 +91,7 @@ setup_console_*.py
 # con los patrones de scripts temporales de arriba.
 !install_flow_mixin.py
 !*_mixin.py
+
+# Re-ignorar scripts temporales con sufijo _mixin.py que la excepcion
+# !*_mixin.py desbloqueaba por error.
+scripts/refactor_console_to_mixin.py
