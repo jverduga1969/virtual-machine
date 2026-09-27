@@ -12,6 +12,12 @@ invitados Linux, Windows y macOS.
 
 ## Capturas
 
+### Instalacion de macOS en curso
+
+<p align="center">
+  <img src="docs/screenshots/install-macos.png" alt="Instalacion de macOS" width="720">
+</p>
+
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/main-resumen.png" alt="Pantalla principal"></td>
