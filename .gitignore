@@ -86,3 +86,8 @@ setup_console_*.py
 *.zip
 *-log.txt
 *-log.*
+
+# Excepciones: archivos reales del proyecto que coinciden por error
+# con los patrones de scripts temporales de arriba.
+!install_flow_mixin.py
+!*_mixin.py
