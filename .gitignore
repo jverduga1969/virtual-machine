@@ -1,0 +1,88 @@
+# ---- VMs y discos ----
+VirtualMachines/
+OSX-KVM/
+*.qcow2
+*.qcow
+*.img
+*.raw
+*.vdi
+*.vmdk
+*.vhd
+*.vhdx
+*.iso
+*.dmg
+*.chunklist
+*.part
+
+# ---- Backups y limpieza ----
+*.bak
+*.bak_before_*
+*.bak_after_*
+_backups/
+_patches_aplicados/
+*.broken
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Entorno y caché ----
+.cache/
+.virtual-machine/
+*.log
+Fido.ps1
+
+# ---- Sistema ----
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ---- Scripts de parcheo one-shot ----
+# Todos estos ya se ejecutaron y no forman parte del proyecto.
+# Excepciones marcadas abajo con "!".
+add_*.py
+fix_*.py
+refactor_*.py
+rename_*.py
+cleanup_*.py
+probe_*.py
+recover*.py
+move_*.py
+polish_*.py
+install_*.py
+integrate_*.py
+switch_*.py
+shorten_*.py
+snapshot_*.py
+stack_*.py
+tune_*.py
+reorder_*.py
+reorganize_*.py
+implement_*.py
+enhance_*.py
+export_*.py
+help_*.py
+improve_*.py
+apply_*.py
+setup_console_*.py
+
+# Excepción: esta utilidad sí forma parte del proyecto
+!add_license_headers.py
+
+# ---- Archivos personales / no del proyecto ----
+*.pdf
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*-log.txt
+*-log.*

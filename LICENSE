@@ -1,0 +1,21 @@
+Virtual.Machine — Asistente gráfico para QEMU/KVM
+Copyright (C) 2025 Jimmy Verduga
+
+Este programa es software libre: puedes redistribuirlo y/o modificarlo
+bajo los términos de la GNU General Public License tal como la publica
+la Free Software Foundation, ya sea la versión 3 de la Licencia, o (a
+tu elección) cualquier versión posterior.
+
+Este programa se distribuye con la esperanza de que sea útil, pero SIN
+NINGUNA GARANTÍA; ni siquiera la garantía implícita de COMERCIABILIDAD
+o IDONEIDAD PARA UN PROPÓSITO PARTICULAR. Consulta la GNU General
+Public License para más detalles.
+
+Deberías haber recibido una copia de la GNU General Public License
+junto con este programa. Si no, consulta
+<https://www.gnu.org/licenses/>.
+
+El texto completo de la licencia se encuentra a continuación.
+
+--------------------------------------------------------------------------------
+

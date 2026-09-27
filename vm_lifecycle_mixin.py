@@ -1,0 +1,4317 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2025 Jimmy Verduga
+
+"""Mixin: ciclo de vida de la VM — lista lateral, abrir/clonar/eliminar,
+iniciar/pausar/apagar, resumen de la VM, y el wizard de "Nueva VM"
+(perfiles de SO, firmware, gráficos, red por defecto).
+"""
+import os
+import re
+import json
+import shutil
+import subprocess
+import time
+import configparser
+from PyQt6.QtWidgets import (
+    QMessageBox, QFileDialog, QInputDialog, QLineEdit,
+    QSizePolicy, QWidget,
+)
+
+import vm_config
+from vm_config import load_vm_config, get_os_profile, list_existing_vms
+from host_deps import detect_host_graphics, qemu_graphics_capabilities
+from workers import _BackgroundCallThread
+# Import defensivo del widget SPICE (opcional: solo si spice-gtk tiene
+# binding Python). Se hace aquí, al inicio del módulo, porque el mixin
+# lo usa en _sync_spice_widget; antes vivía por error solo en
+# virtual_machine.py, provocando NameError al llegar a SPICE.
+try:
+    from spice_widget import SpiceConsoleWidget
+    _HAS_SPICE_WIDGET = True
+    _SPICE_WIDGET_ERROR = None
+except Exception as _spice_exc:
+    SpiceConsoleWidget = None
+    _HAS_SPICE_WIDGET = False
+    _SPICE_WIDGET_ERROR = _spice_exc
+
+from console_backend import (
+    PROTOCOL_VNC, PROTOCOL_SPICE, MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID,
+    socket_path as _cb_socket_path,
+    find_viewer, console_uri, build_viewer_args,
+    can_embed_spice,
+)
+import principal_cdrom
+
+
+class VmLifecycleMixin:
+    def _update_manager_details(self):
+        """Actualiza el panel principal de detalles sin ejecutar diagnósticos pesados."""
+        try:
+            name = os.path.basename(self.current_vm_dir) if self.current_vm_dir else self.input_vm_name.text().strip()
+            if not name:
+                self.manager_vm_title.setText("Nueva máquina virtual")
+                self.manager_vm_state.setText("● Nueva VM")
+                self.manager_details_label.setText("No hay una máquina virtual seleccionada.\n\nPulsa 'Nueva máquina virtual' para comenzar.")
+                self.manager_quick_hint.setText("Configura el sistema en la pestaña 'Configuración'.")
+                return
+            state = self._runtime_state(name) if self.current_vm_dir else "stopped"
+            state_map = {
+                "running": ("● Ejecutándose", "#2e7d32"),
+                "paused": ("● Pausada", "#f57c00"),
+                "stopped": ("● Apagada", "#757575"),
+            }
+            state_text, state_color = state_map.get(state, ("● Nueva VM", "#757575"))
+            self.manager_vm_title.setText(name)
+            self.manager_vm_state.setText(state_text)
+            self.manager_vm_state.setStyleSheet(f"font-weight:bold; color:{state_color};")
+            if self.current_vm_dir:
+                data = load_vm_config(self.current_vm_dir)
+                os_type = data.get("os_type", "")
+                system = "macOS" if os_type == "macos" else (data.get("extra", {}).get("win_ver", "Windows") if os_type == "windows" else data.get("extra", {}).get("distro", "Linux"))
+                firmware = data.get("firmware", "bios").upper()
+                sb = "Sí" if data.get("secure_boot") else "No"
+                tpm = "Sí" if data.get("tpm") else "No"
+                gpu = data.get("graphics_mode", "auto")
+                audio = data.get("audio_device", "intel-hda")
+                # En Detalles, red/almacenamiento/arranque son solo información.
+                net_devices = data.get("network_devices") or []
+                if not isinstance(net_devices, list):
+                    net_devices = []
+                if not net_devices:
+                    net_devices = [{
+                        "name": "Red 1",
+                        "model": data.get("network_model", "virtio-net-pci"),
+                        "mode": data.get("network_mode", "nat"),
+                        "interface": data.get("network_interface", ""),
+                        "mac": "",
+                    }]
+                net_lines = []
+                for nd in net_devices:
+                    mode = {"nat": "NAT", "bridge": "Bridge", "tap": "TAP"}.get(nd.get("mode"), nd.get("mode", "NAT"))
+                    line = f"{nd.get('name', 'Red')} — {nd.get('model', 'virtio-net-pci')} — {mode}"
+                    if nd.get("interface"):
+                        line += f" [{nd.get('interface')}]"
+                    net_lines.append(line)
+                net_info = "<br>".join(net_lines) if net_lines else "Sin adaptadores configurados"
+
+                storage_lines = []
+                for s_name, s_type, s_path in self._storage_entries_with_types(self.current_vm_dir):
+                    # Etiqueta neutra: SATA y NVMe se muestran como
+                    # "Disco Duro" (el bus real lo decide workers).
+                    icon = {"sata": "💽", "nvme": "💽", "floppy": "💾"}.get(s_type, "💽")
+                    label = {"sata": "Disco Duro", "nvme": "Disco Duro"}.get(
+                        s_type, s_type.upper())
+                    storage_lines.append(f"{icon} {label} — {s_name}")
+                cd_devices = [d for d in self._storage_devices_all(self.current_vm_dir) if d.get("device") == "cdrom"]
+                for cd in cd_devices:
+                    cd_path = cd.get("path", "")
+                    storage_lines.append(f"📀 CD/DVD — {cd.get('name', 'CD/DVD')} — {os.path.basename(cd_path) if cd_path else 'vacío'}")
+                storage_info = "<br>".join(storage_lines) if storage_lines else "Sin dispositivos"
+                boot_info = " → ".join(self._boot_token_label(tok) for tok in self._current_boot_order_tokens())
+
+                self.manager_details_label.setText(
+                    f"<b>Sistema:</b> {system}<br>"
+                    f"<b>CPU:</b> {data.get('cores', '-')} núcleos &nbsp;&nbsp; <b>RAM:</b> {data.get('ram', '-')}<br>"
+                    f"<b>Firmware:</b> {firmware} &nbsp;&nbsp; <b>Secure Boot:</b> {sb} &nbsp;&nbsp; <b>TPM:</b> {tpm}<br>"
+                    f"<b>Gráficos:</b> {gpu}<br>"
+                    f"<b>Audio:</b> {audio}<br>"
+                    f"<b>Red:</b><br>{net_info}<br>"
+                    f"<b>Almacenamiento:</b><br>{storage_info}<br>"
+                    f"<b>Orden de arranque:</b> {boot_info}<br>"
+                    f"<b>Ubicación:</b> {self.current_vm_dir}"
+                )
+                self.manager_quick_hint.setText("Usa 'Configuración' para modificar hardware y opciones avanzadas.")
+            else:
+                self.manager_details_label.setText("VM nueva: todavía no se ha guardado una configuración.")
+                self.manager_quick_hint.setText("Configura la VM en la pestaña 'Configuración' y pulsa el botón de inicio.")
+        except Exception as e:
+            if hasattr(self, "manager_details_label"):
+                self.manager_details_label.setText(f"No se pudo cargar el resumen: {e}")
+
+    def _update_vm_summary(self):
+        """Compatibilidad con señales antiguas: el resumen vive ahora en Detalles."""
+        return
+
+    def _set_vm_status(self, state="new"):
+        styles = {
+            "new": ("● Nueva VM", "#757575"),
+            "saved": ("● Configurada", "#1565c0"),
+            "running": ("● Ejecutándose", "#2e7d32"),
+            "error": ("● Error", "#c62828"),
+        }
+        text, color = styles.get(state, styles["new"])
+        self.vm_status_label.setText(text)
+        self.vm_status_label.setStyleSheet(f"color: {color}; font-weight: bold; padding: 2px 6px;")
+
+    def open_vm_folder(self):
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Carpeta", "Primero selecciona una máquina virtual existente.")
+            return
+        folder = os.path.abspath(self.current_vm_dir)
+        try:
+            if shutil.which("xdg-open"):
+                subprocess.Popen(["xdg-open", folder], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                QMessageBox.information(self, "Carpeta de la VM", folder)
+        except Exception as e:
+            QMessageBox.warning(self, "Carpeta", f"No se pudo abrir la carpeta.\n\n{folder}\n\n{e}")
+
+    def show_vm_summary(self):
+        if not self.input_vm_name.text().strip():
+            QMessageBox.information(self, "Resumen", "No hay una máquina virtual seleccionada todavía.")
+            return
+        QMessageBox.information(self, "Resumen de la máquina virtual", self._build_vm_summary_text())
+
+    def _build_vm_summary_text(self):
+        os_type = self.combo_main_os.currentData()
+        if os_type == "macos":
+            sistema = self.combo_macos_ver.currentText()
+        elif os_type == "windows":
+            sistema = self.combo_win_ver.currentText()
+        else:
+            sistema = self.combo_lin_distro.currentText()
+            _ver = self._selected_lin_version() if hasattr(self, "_selected_lin_version") else ""
+            if _ver:
+                sistema = f"{sistema} {_ver}"
+        return (
+            f"Nombre: {self.input_vm_name.text().strip()}\n"
+            f"Sistema: {sistema}\n"
+            f"CPU: {self.slider_cores.value()} núcleos / {self.combo_cpu_model.currentText() if hasattr(self, 'combo_cpu_model') else 'Automático'}\n"
+            f"RAM: {self.slider_ram.value()} GB\n"
+            f"Firmware: {self.combo_firmware.currentText()}\n"
+            f"Secure Boot: {'Sí' if self.check_secure_boot.isChecked() else 'No'}\n"
+            f"TPM 2.0: {'Sí' if self.check_tpm.isChecked() else 'No'}\n"
+            f"GPU: {self.combo_graphics.currentText()} / {self.combo_graphics_vram.currentData()}\n"
+            f"Redes: {len(self._network_devices()) if hasattr(self, 'network_devices_list') else 1} adaptador(es)\n"
+            f"Audio: {self.combo_audio.currentText()}"
+        )
+
+    # ==================================================================
+    # Importar / Exportar VM
+    # ==================================================================
+    # Archivos de runtime que NO se exportan: son específicos de la sesión
+    # en la que se creó la VM. Si se copian tal cual, la VM importada
+    # arrastraría pids/sockets muertos que confunden a QEMU o a la propia
+    # aplicación. run_temp.sh se regenera en cada arranque. launch.log se
+    # omite porque puede crecer sin control y no es necesario para que la
+    # VM funcione.
+    _VM_EXPORT_EXCLUDED_NAMES = (
+        "qemu.pid", "qemu.qmp", "qemu.vnc.sock", "qga.sock", "swtpm.sock",
+        "run_temp.sh", "launch.log",
+    )
+    _VM_EXPORT_EXCLUDED_SUFFIXES = (".sock", ".pid", ".qmp")
+    _VM_EXPORT_EXCLUDED_DIRS = ("__pycache__",)
+
+    @classmethod
+    def _is_export_excluded(cls, path):
+        """True si el path (archivo o carpeta) debe omitirse al exportar."""
+        name = os.path.basename(path)
+        if name in cls._VM_EXPORT_EXCLUDED_NAMES:
+            return True
+        if any(name.endswith(s) for s in cls._VM_EXPORT_EXCLUDED_SUFFIXES):
+            return True
+        if name in cls._VM_EXPORT_EXCLUDED_DIRS:
+            return True
+        return False
+
+    def _walk_vm_files(self, vm_dir):
+        """Devuelve lista de (abs_path, rel_path, size) omitiendo excluidos."""
+        out = []
+        vm_dir = os.path.abspath(vm_dir)
+        for root, dirs, files in os.walk(vm_dir):
+            # Filtrar directorios in-place para que os.walk no entre.
+            dirs[:] = [d for d in dirs if not self._is_export_excluded(os.path.join(root, d))]
+            for f in files:
+                ab = os.path.join(root, f)
+                if self._is_export_excluded(ab):
+                    continue
+                try:
+                    sz = os.path.getsize(ab)
+                except OSError:
+                    sz = 0
+                rel = os.path.relpath(ab, vm_dir)
+                out.append((ab, rel, sz))
+        return out
+
+    def export_vm(self):
+        """Exporta la VM seleccionada. Ver cabecera del módulo."""
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Exportar VM", "Primero selecciona una máquina virtual.")
+            return
+
+        vm_name = os.path.basename(self.current_vm_dir)
+        state = self._runtime_state(vm_name)
+        if state != "stopped":
+            resp = QMessageBox.warning(
+                self, "Exportar VM",
+                f"La VM '{vm_name}' está {state}.\n\n"
+                "Se recomienda apagarla antes de exportar: si está corriendo, "
+                "los discos pueden estar en un estado inconsistente (cambios "
+                "sin sincronizar a disco, locks activos…).\n\n"
+                "¿Continuar de todos modos?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if resp != QMessageBox.StandardButton.Yes:
+                return
+
+        # Formato.
+        formats = [
+            ("Copia de carpeta (más rápido, editable)", "folder"),
+            ("Archivo .tar.gz (comprimido, portable)", "tar.gz"),
+            ("Archivo .zip (compatible con Windows)", "zip"),
+        ]
+        labels = [f[0] for f in formats]
+        item, ok_choice = QInputDialog.getItem(
+            self, "Exportar VM",
+            f"Formato para exportar '{vm_name}':",
+            labels, 0, False,
+        )
+        if not ok_choice:
+            return
+        fmt = dict(zip(labels, [f[1] for f in formats]))[item]
+
+        # Calcular tamaño aproximado (para el warning en el diálogo).
+        try:
+            files = self._walk_vm_files(self.current_vm_dir)
+            total_bytes = sum(sz for _, _, sz in files)
+            total_txt = self._format_bytes_iexport(total_bytes)
+            file_count = len(files)
+        except Exception:
+            total_bytes = 0
+            total_txt = "?"
+            file_count = 0
+
+        # Destino.
+        if fmt == "folder":
+            dest_parent = QFileDialog.getExistingDirectory(
+                self, "Elige la carpeta donde crear la copia",
+                os.path.expanduser("~"),
+            )
+            if not dest_parent:
+                return
+            dest_path = os.path.join(dest_parent, vm_name)
+            if os.path.exists(dest_path):
+                resp = QMessageBox.question(
+                    self, "Ya existe",
+                    f"En la carpeta destino ya existe '{vm_name}'.\n\n"
+                    "¿Sobrescribir? (se borrará la carpeta destino existente)",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if resp != QMessageBox.StandardButton.Yes:
+                    return
+        else:
+            ext = ".tar.gz" if fmt == "tar.gz" else ".zip"
+            suggested = os.path.join(os.path.expanduser("~"), f"{vm_name}{ext}")
+            dest_path, _ = QFileDialog.getSaveFileName(
+                self, "Guardar archivo de exportación",
+                suggested,
+                "Archivo tar.gz (*.tar.gz);;Archivo zip (*.zip)" if fmt == "tar.gz"
+                else "Archivo zip (*.zip);;Archivo tar.gz (*.tar.gz)",
+            )
+            if not dest_path:
+                return
+            if not dest_path.endswith(ext):
+                dest_path += ext
+            if os.path.exists(dest_path):
+                resp = QMessageBox.question(
+                    self, "Ya existe",
+                    f"El archivo destino ya existe:\n{dest_path}\n\n¿Sobrescribir?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if resp != QMessageBox.StandardButton.Yes:
+                    return
+
+        # Confirmación final con resumen.
+        confirm = QMessageBox.question(
+            self, "Confirmar exportación",
+            f"Exportar '{vm_name}' como:\n\n"
+            f"  • Formato: {item}\n"
+            f"  • Contenido: {file_count} archivo(s), {total_txt}\n"
+            f"  • Destino: {dest_path}\n\n"
+            "Los archivos de bloqueo (pids, sockets) y logs se omitirán.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        vm_dir = self.current_vm_dir
+        fmt_key = fmt
+
+        def _work(log_emit, is_cancelled, progress_emit):
+            log_emit(f"==> Iniciando exportación de '{vm_name}' → {dest_path}")
+            return self._export_vm_impl(
+                vm_dir, vm_name, fmt_key, dest_path,
+                log_emit, is_cancelled, progress_emit,
+            )
+
+        self.run_async(
+            _work,
+            f"Exportando VM '{vm_name}'",
+            on_success=lambda result: self._on_export_success(result, vm_name),
+            on_error=lambda e: self._show_selectable_error(
+                "Exportar VM", f"No se pudo completar la exportación.\n\n{e}"
+            ),
+            cancelable=True,
+            show_log=True,
+            subtitle=f"{file_count} archivo(s), {total_txt} en total",
+        )
+
+    def _export_vm_impl(self, vm_dir, vm_name, fmt, dest_path,
+                        log_emit, is_cancelled, progress_emit):
+        """Cuerpo de la exportación. Corre en hilo de fondo.
+
+        El progreso se reporta con percent=-1 (barra indeterminada, animación
+        continua) para que el usuario sepa que la operación sigue viva aunque
+        cada archivo tarde lo suyo. El texto de estado muestra el número
+        de archivo actual y su nombre:
+
+            [N/M] nombre_del_archivo
+        """
+        import shutil as _sh
+        import tarfile as _tar
+        import zipfile as _zip
+
+        log_emit(f"==> Exportando '{vm_name}' como {fmt} → {dest_path}")
+
+        files = self._walk_vm_files(vm_dir)
+        total_files = len(files)
+        total_bytes = sum(sz for _, _, sz in files) or 1
+        total_txt = self._format_bytes_iexport(total_bytes)
+
+        log_emit(
+            f"==> {total_files} archivo(s) a procesar, {total_txt} en total."
+        )
+
+        # Nombre amigable para el log según el modo.
+        _verb = {"folder": "Copiando", "tar.gz": "Comprimiendo", "zip": "Comprimiendo"}.get(fmt, "Procesando")
+
+        # Índice del archivo actual (1-based para mostrar).
+        state = {"idx": 0}
+
+        def _tick(rel, size):
+            """Avanza el contador y emite progreso indeterminado con info."""
+            state["idx"] += 1
+            i = state["idx"]
+            # Texto compacto: "[12/47] BaseSystem.img" — truncamos el nombre
+            # si es muy largo para que la barra no se estire.
+            name = rel if len(rel) <= 60 else ("…" + rel[-57:])
+            progress_emit(-1, f"[{i}/{total_files}] {name}")
+
+        if fmt == "folder":
+            # Copia recursiva preservando permisos y sin seguir symlinks.
+            if os.path.exists(dest_path):
+                _sh.rmtree(dest_path)
+            os.makedirs(dest_path, exist_ok=True)
+            for ab, rel, sz in files:
+                if is_cancelled():
+                    raise RuntimeError("Exportación cancelada por el usuario.")
+                _tick(rel, sz)
+                dest_file = os.path.join(dest_path, rel)
+                os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                _sh.copy2(ab, dest_file, follow_symlinks=False)
+
+        elif fmt == "tar.gz":
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            with _tar.open(dest_path, "w:gz", dereference=False) as tar:
+                for ab, rel, sz in files:
+                    if is_cancelled():
+                        raise RuntimeError("Exportación cancelada por el usuario.")
+                    _tick(rel, sz)
+                    arcname = os.path.join(vm_name, rel)
+                    tar.add(ab, arcname=arcname, recursive=False)
+
+        elif fmt == "zip":
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            with _zip.ZipFile(dest_path, "w", _zip.ZIP_DEFLATED) as zf:
+                for ab, rel, sz in files:
+                    if is_cancelled():
+                        raise RuntimeError("Exportación cancelada por el usuario.")
+                    _tick(rel, sz)
+                    arcname = os.path.join(vm_name, rel)
+                    zf.write(ab, arcname=arcname)
+        else:
+            raise RuntimeError(f"Formato de exportación desconocido: {fmt}")
+
+        # Al terminar: barra determinada a 100%.
+        progress_emit(100, f"Exportación completada ({total_files} archivo(s)).")
+
+        # Tamaño final del resultado.
+        try:
+            if os.path.isfile(dest_path):
+                size_out = os.path.getsize(dest_path)
+            else:
+                size_out = sum(
+                    os.path.getsize(os.path.join(r, f))
+                    for r, _, fs in os.walk(dest_path) for f in fs
+                )
+        except Exception:
+            size_out = 0
+
+        log_emit(
+            f"==> Exportación terminada: {total_files} archivo(s), "
+            f"{self._format_bytes_iexport(size_out)} en el destino."
+        )
+        return dest_path
+
+
+    def _on_export_success(self, dest_path, vm_name):
+        QMessageBox.information(
+            self, "Exportar VM",
+            f"'{vm_name}' exportada correctamente.\n\n"
+            f"Destino: {dest_path}",
+        )
+
+    @staticmethod
+    def _format_bytes_iexport(n):
+        try:
+            n = float(n)
+        except (TypeError, ValueError):
+            return "—"
+        for u in ("B", "KB", "MB", "GB", "TB"):
+            if n < 1024 or u == "TB":
+                return f"{n:.1f} {u}" if u != "B" else f"{int(n)} B"
+            n /= 1024.0
+
+    def import_vm(self):
+        """Importa una VM desde una carpeta o un archivo comprimido."""
+        # 1. Elegir carpeta o archivo.
+        box = QMessageBox(self)
+        box.setWindowTitle("Importar VM")
+        box.setText(
+            "¿Cómo quieres importar la máquina virtual?\n\n"
+            "  • Desde carpeta: selecciona una carpeta que contenga vm_config.ini.\n"
+            "  • Desde archivo: selecciona un .tar.gz, .tar o .zip exportado\n"
+            "    previamente desde otra instalación de Virtual.Machine."
+        )
+        btn_folder = box.addButton("📁 Desde carpeta…", QMessageBox.ButtonRole.AcceptRole)
+        btn_archive = box.addButton("🗜️ Desde archivo…", QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == btn_folder:
+            source = QFileDialog.getExistingDirectory(
+                self, "Selecciona la carpeta de la VM a importar",
+                os.path.expanduser("~"),
+            )
+            if not source:
+                return
+            is_archive = False
+        elif clicked == btn_archive:
+            source, _ = QFileDialog.getOpenFileName(
+                self, "Selecciona el archivo a importar",
+                os.path.expanduser("~"),
+                "Archivos de VM (*.tar.gz *.tgz *.tar *.zip);;Todos los archivos (*)",
+            )
+            if not source:
+                return
+            is_archive = True
+        else:
+            return
+
+        # 2. Validación previa rápida para dar feedback temprano.
+        if is_archive:
+            low = source.lower()
+            if not (low.endswith(".tar.gz") or low.endswith(".tgz")
+                    or low.endswith(".tar") or low.endswith(".zip")):
+                QMessageBox.warning(
+                    self, "Importar VM",
+                    "Formato de archivo no reconocido. Usa .tar.gz, .tgz, .tar o .zip.",
+                )
+                return
+        else:
+            cfg = os.path.join(source, "vm_config.ini")
+            if not os.path.isfile(cfg):
+                QMessageBox.warning(
+                    self, "Importar VM",
+                    f"La carpeta seleccionada no contiene vm_config.ini:\n\n{source}\n\n"
+                    "Asegúrate de elegir la carpeta raíz de la VM, no una subcarpeta.",
+                )
+                return
+
+        # 3. Nombre destino.
+        if is_archive:
+            base = os.path.basename(source)
+            for ext in (".tar.gz", ".tgz", ".tar", ".zip"):
+                if base.lower().endswith(ext):
+                    base = base[: -len(ext)]
+                    break
+            suggested_name = base or "VM-importada"
+        else:
+            suggested_name = os.path.basename(os.path.abspath(source))
+
+        # Sanear.
+        suggested_name = re.sub(r'[\\/:*?"<>|]', "_", suggested_name).strip() or "VM-importada"
+
+        # Ajustar si ya existe.
+        existing = set(list_existing_vms())
+        name = suggested_name
+        i = 2
+        while name in existing or os.path.exists(os.path.join(vm_config.BASE_VM_DIR, name)):
+            name = f"{suggested_name}-{i}"
+            i += 1
+
+        name, ok_name = QInputDialog.getText(
+            self, "Importar VM",
+            f"Nombre para la VM importada:\n\n"
+            f"(se importará desde {os.path.basename(source)})",
+            QLineEdit.EchoMode.Normal,
+            name,
+        )
+        if not ok_name or not name.strip():
+            return
+        name = re.sub(r'[\\/:*?"<>|]', "_", name.strip())
+        if not name:
+            QMessageBox.warning(self, "Importar VM", "Nombre inválido.")
+            return
+
+        # 4. Confirmar si colisiona.
+        target_dir = os.path.join(vm_config.BASE_VM_DIR, name)
+        if os.path.exists(target_dir):
+            resp = QMessageBox.question(
+                self, "Ya existe",
+                f"Ya existe una VM llamada '{name}'.\n\n"
+                "¿Reemplazarla? (se eliminará la existente)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if resp != QMessageBox.StandardButton.Yes:
+                return
+
+        # 5. Ejecutar en segundo plano.
+        def _work(log_emit, is_cancelled, progress_emit):
+            return self._import_vm_impl(
+                source, is_archive, name, target_dir,
+                log_emit, is_cancelled, progress_emit,
+            )
+
+        self.run_async(
+            _work,
+            f"Importando VM '{name}'",
+            on_success=lambda result: self._on_import_success(result),
+            on_error=lambda e: self._show_selectable_error(
+                "Importar VM", f"No se pudo completar la importación.\n\n{e}"
+            ),
+            cancelable=True,
+            show_log=True,
+            subtitle=("Copiando/desempaquetando en el sistema de archivos "
+                      "del destino (no en /tmp)…"),
+        )
+
+    def _import_vm_impl(self, source, is_archive, name, target_dir,
+                        log_emit, is_cancelled, progress_emit):
+        """Cuerpo de la importación. Corre en hilo de fondo."""
+        import shutil as _sh
+        import tarfile as _tar
+        import zipfile as _zip
+        import tempfile as _tmp
+
+        log_emit(f"==> Importando desde: {source}")
+        log_emit(f"==> Destino: {target_dir}")
+
+        extracted_root = None
+
+        try:
+            # --- 1. Obtener una carpeta fuente con vm_config.ini dentro ---
+            if not is_archive:
+                src_vm_dir = source
+            else:
+                progress_emit(0, "Desempaquetando archivo…")
+                # NO usar /tmp: en la mayoría de sistemas /tmp es un tmpfs
+                # pequeño (5-8 GB aquí) que no puede contener una VM completa.
+                # Extraemos en el mismo sistema de archivos que el destino para
+                # no llenar /tmp y para que el 'move' final sea un rename
+                # instantáneo (mismo FS, sin duplicar espacio).
+                os.makedirs(vm_config.BASE_VM_DIR, exist_ok=True)
+                _parent_fs_dir = os.path.dirname(os.path.abspath(vm_config.BASE_VM_DIR))
+                tmp_extract = _tmp.mkdtemp(prefix=".vm_import_", dir=_parent_fs_dir)
+
+                extracted_root = tmp_extract
+
+                low = source.lower()
+                if low.endswith(".zip"):
+                    with _zip.ZipFile(source, "r") as zf:
+                        names = zf.namelist()
+                        total = len(names) or 1
+                        for i, n in enumerate(names):
+                            if is_cancelled():
+                                raise RuntimeError("Importación cancelada por el usuario.")
+                            zf.extract(n, tmp_extract)
+                            if i % 20 == 0:
+                                progress_emit(
+                                    int(i * 100 / total),
+                                    f"Extrayendo {i+1}/{total}…",
+                                )
+                elif low.endswith(".tar.gz") or low.endswith(".tgz") or low.endswith(".tar"):
+                    mode = "r:gz" if (low.endswith(".tar.gz") or low.endswith(".tgz")) else "r:"
+                    with _tar.open(source, mode) as tar:
+                        members = tar.getmembers()
+                        total = len(members) or 1
+                        for i, m in enumerate(members):
+                            if is_cancelled():
+                                raise RuntimeError("Importación cancelada por el usuario.")
+                            tar.extract(m, tmp_extract)
+                            if i % 20 == 0:
+                                progress_emit(
+                                    int(i * 100 / total),
+                                    f"Extrayendo {i+1}/{total}…",
+                                )
+                else:
+                    raise RuntimeError(f"Formato no soportado: {source}")
+
+                # Localizar la carpeta con vm_config.ini.
+                candidates = []
+                for root, dirs, files in os.walk(tmp_extract):
+                    if "vm_config.ini" in files:
+                        candidates.append(root)
+                if not candidates:
+                    raise RuntimeError(
+                        "El archivo no contiene ninguna VM válida "
+                        "(no se encontró vm_config.ini)."
+                    )
+                # Si hay varias, elegir la más "superficial".
+                candidates.sort(key=lambda p: p.count(os.sep))
+                src_vm_dir = candidates[0]
+                log_emit(f"==> VM localizada en: {src_vm_dir}")
+
+            # --- 2. Validar contenido ---
+            cfg_in = os.path.join(src_vm_dir, "vm_config.ini")
+            if not os.path.isfile(cfg_in):
+                raise RuntimeError("La fuente no contiene vm_config.ini.")
+
+            # --- 3. Preparar destino ---
+            if os.path.exists(target_dir):
+                log_emit(f"==> Eliminando VM existente '{os.path.basename(target_dir)}'…")
+                _sh.rmtree(target_dir)
+            os.makedirs(target_dir, exist_ok=True)
+
+            # --- 4. Copiar archivos (sin excluidos) ---
+            files = self._walk_vm_files(src_vm_dir)
+            total_bytes = sum(sz for _, _, sz in files) or 1
+            done = 0
+            for ab, rel, sz in files:
+                if is_cancelled():
+                    raise RuntimeError("Importación cancelada por el usuario.")
+                dest_file = os.path.join(target_dir, rel)
+                os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                _sh.copy2(ab, dest_file, follow_symlinks=False)
+                done += sz
+                if done and (done % (5 * 1024 * 1024) < sz or rel == files[-1][1]):
+                    pct = min(99, int(done * 100 / total_bytes))
+                    progress_emit(pct, f"Copiando {rel}")
+
+            # --- 5. Ajustar el nombre interno en vm_config.ini si cambió ---
+            try:
+                import configparser as _cfg
+                c = _cfg.ConfigParser()
+                c.read(os.path.join(target_dir, "vm_config.ini"), encoding="utf-8")
+                if c.has_section("general"):
+                    old = c.get("general", "name", fallback="")
+                    if old != name:
+                        c.set("general", "name", name)
+                        with open(os.path.join(target_dir, "vm_config.ini"),
+                                  "w", encoding="utf-8") as f:
+                            c.write(f)
+                        log_emit(f"==> Nombre interno actualizado: '{old}' → '{name}'.")
+            except Exception as e:
+                log_emit(f"[AVISO] No se pudo actualizar el nombre interno: {e}")
+
+            progress_emit(100, "Importación completada.")
+            log_emit(f"==> Importación terminada: {target_dir}")
+            return target_dir
+
+        finally:
+            # Limpiar el directorio temporal de extracción, si lo hubo.
+            if extracted_root and os.path.isdir(extracted_root):
+                try:
+                    import shutil as _sh2
+                    _sh2.rmtree(extracted_root, ignore_errors=True)
+                except Exception:
+                    pass
+
+    def _on_import_success(self, target_dir):
+        name = os.path.basename(target_dir)
+        self.refresh_vm_list(select_name=name)
+        try:
+            self.open_vm(name)
+        except Exception:
+            pass
+        QMessageBox.information(
+            self, "Importar VM",
+            f"VM '{name}' importada correctamente.\n\n"
+            "Revisa su configuración en la pestaña Configuración antes de "
+            "arrancarla, especialmente si la importaste desde otro host: "
+            "puede referenciar rutas que no existan aquí (carpetas compartidas, "
+            "ISOs externas, dispositivos de passthrough).",
+        )
+
+
+    def clone_current_vm(self):
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Clonar VM", "Primero selecciona una máquina virtual existente.")
+            return
+
+        source = self.current_vm_dir
+        base_name = os.path.basename(source)
+        existing = set(list_existing_vms())
+
+        while True:
+            clone_name, ok = QInputDialog.getText(
+                self,
+                "Clonar máquina virtual",
+                f"Nombre para el clon de '{base_name}':",
+                QLineEdit.EchoMode.Normal,
+                f"{base_name}-copia",
+            )
+            if not ok:
+                return
+
+            clone_name = clone_name.strip()
+            if not clone_name:
+                QMessageBox.warning(self, "Nombre inválido", "Debes escribir un nombre para el clon.")
+                continue
+            if clone_name in existing or os.path.exists(os.path.join(vm_config.BASE_VM_DIR, clone_name)):
+                QMessageBox.warning(
+                    self, "Nombre ya existente",
+                    f"La máquina virtual '{clone_name}' ya existe en el listado.\n\n"
+                    "Elige otro nombre para el clon."
+                )
+                continue
+            if clone_name in ("Nueva Máquina Virtual", ".", ".."):
+                QMessageBox.warning(self, "Nombre inválido", "Ese nombre no puede utilizarse para una máquina virtual.")
+                continue
+            break
+
+        destination = os.path.join(vm_config.BASE_VM_DIR, clone_name)
+        try:
+            shutil.copytree(source, destination)
+            cfg = os.path.join(destination, "vm_config.ini")
+            if os.path.isfile(cfg):
+                parser = configparser.ConfigParser()
+                parser.read(cfg, encoding="utf-8")
+                if parser.has_section("general"):
+                    parser.set("general", "name", clone_name)
+                with open(cfg, "w", encoding="utf-8") as f:
+                    parser.write(f)
+            self.refresh_vm_list(select_name=clone_name)
+            self.open_vm(clone_name)
+            self._set_vm_status("saved")
+            self.log_message(f"==> VM clonada: '{base_name}' → '{clone_name}'")
+            QMessageBox.information(self, "Clon creado", f"La máquina virtual '{clone_name}' fue clonada correctamente.")
+        except Exception as e:
+            if os.path.isdir(destination):
+                try:
+                    shutil.rmtree(destination)
+                except Exception:
+                    pass
+            QMessageBox.critical(self, "Clonar VM", f"No se pudo clonar la máquina virtual.\n\n{e}")
+
+    def delete_current_vm(self):
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Eliminar VM", "Primero selecciona una máquina virtual existente.")
+            return
+        vm_dir = os.path.abspath(self.current_vm_dir)
+        name = os.path.basename(vm_dir)
+
+        # Los medios adjuntados desde otras ubicaciones nunca se borran.
+        external_media = []
+        try:
+            data = load_vm_config(vm_dir)
+            for d in (data.get("extra") or {}).get("storage_devices", []):
+                path = os.path.abspath(d.get("path", "")) if d.get("path") else ""
+                if path and os.path.exists(path) and os.path.commonpath([vm_dir, path]) != vm_dir:
+                    external_media.append(path)
+            cd_path = os.path.abspath((data.get("extra") or {}).get("cdrom_path", "")) if (data.get("extra") or {}).get("cdrom_path") else ""
+            if cd_path and os.path.exists(cd_path) and os.path.commonpath([vm_dir, cd_path]) != vm_dir:
+                external_media.append(cd_path)
+        except Exception:
+            pass
+
+        details = f"Se eliminará únicamente la carpeta de la máquina virtual:\n\n{vm_dir}\n\n"
+        if external_media:
+            details += "Los siguientes medios están fuera de la carpeta de la VM y NO se eliminarán:\n" + "\n".join(f"• {p}" for p in sorted(set(external_media))) + "\n\n"
+        details += "¿Deseas continuar?"
+        resp = QMessageBox.warning(
+            self, "Eliminar máquina virtual", details,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            shutil.rmtree(vm_dir)
+            self.current_vm_dir = None
+            self.refresh_vm_list()
+            self.new_vm()
+            self.log_message(f"==> VM eliminada: '{name}'. Los medios externos fueron conservados.")
+        except Exception as e:
+            QMessageBox.critical(self, "Eliminar VM", f"No se pudo eliminar '{name}'.\n\n{e}")
+
+    def change_os_panel(self, index):
+        """Cambia la página activa del selector de versión (macOS/Windows/Linux).
+
+        Defensivo: usa stack_pages si existe, version_selector_stack como
+        respaldo, y si ninguno existe no falla — simplemente evita tocar
+        widgets que aún no se han creado. Esto permite que la app siga
+        funcionando aunque la construcción de la UI haya quedado a medias
+        por un error previo.
+        """
+        stack = getattr(self, "stack_pages", None)
+        if stack is None:
+            stack = getattr(self, "version_selector_stack", None)
+        if stack is not None:
+            try:
+                stack.setCurrentIndex(index)
+            except Exception:
+                pass
+        # Aplicar defaults del perfil del SO solo si los widgets necesarios
+        # ya existen.
+        try:
+            self.apply_os_profile_defaults()
+        except Exception as e:
+            import sys as _sys
+            print(f"[AVISO] apply_os_profile_defaults: {e}", file=_sys.stderr)
+        try:
+            self.update_firmware_options_visibility()
+        except Exception:
+            pass
+
+
+    def apply_os_profile_defaults(self, *args):
+        os_type = self.combo_main_os.currentData()
+        if os_type == "macos":
+            version_name = self.combo_macos_ver.currentText()
+        elif os_type == "windows":
+            version_name = self.combo_win_ver.currentText()
+        else:
+            version_name = self.combo_lin_distro.currentText()
+        profile = get_os_profile(os_type, version_name, version_name if os_type == "linux" else "")
+
+        def set_combo(combo, value):
+            idx = combo.findData(value)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+
+        set_combo(self.combo_chipset, profile.get("chipset", "q35"))
+        set_combo(self.combo_firmware, profile.get("firmware", "uefi"))
+        if hasattr(self, "combo_cpu_model"):
+            set_combo(self.combo_cpu_model, "auto")
+        set_combo(self.combo_graphics, "auto")
+        is_win11 = os_type == "windows" and version_name == "Windows 11"
+        self.check_secure_boot.setChecked(bool(profile.get("secure_boot", False) or is_win11))
+        self.check_tpm.setChecked(bool(profile.get("tpm", False) or is_win11))
+        self.update_firmware_options_visibility()
+        self._update_vm_summary()
+
+    def update_firmware_options_visibility(self, *args):
+        os_type = self.combo_main_os.currentData()
+        is_macos = os_type == "macos"
+        is_uefi = self.combo_firmware.currentData() == "uefi"
+        is_win11 = os_type == "windows" and self.combo_win_ver.currentText() == "Windows 11"
+
+        if is_macos or is_win11:
+            idx = self.combo_firmware.findData("uefi")
+            if idx >= 0 and self.combo_firmware.currentIndex() != idx:
+                self.combo_firmware.blockSignals(True)
+                self.combo_firmware.setCurrentIndex(idx)
+                self.combo_firmware.blockSignals(False)
+            self.combo_firmware.setEnabled(False)
+            is_uefi = True
+        else:
+            self.combo_firmware.setEnabled(True)
+
+        if is_macos:
+            q35_idx = self.combo_chipset.findData("q35")
+            if q35_idx >= 0 and self.combo_chipset.currentIndex() != q35_idx:
+                self.combo_chipset.blockSignals(True)
+                self.combo_chipset.setCurrentIndex(q35_idx)
+                self.combo_chipset.blockSignals(False)
+            self.combo_chipset.setEnabled(False)
+        else:
+            self.combo_chipset.setEnabled(True)
+
+        if is_macos:
+            nat_idx = self.combo_network_mode.findData("nat")
+            if nat_idx >= 0:
+                self.combo_network_mode.setCurrentIndex(nat_idx)
+            self.combo_network_mode.setEnabled(False)
+            self.combo_network_count.setCurrentIndex(self.combo_network_count.findData(1))
+            self.combo_network_count.setEnabled(False)
+            self.update_network_options()
+        else:
+            self.combo_network_mode.setEnabled(True)
+            self.combo_network_count.setEnabled(True)
+
+        show_security = is_uefi and not is_macos
+        self.security_options_widget.setVisible(show_security)
+        if not show_security:
+            self.check_secure_boot.setChecked(False)
+            self.check_tpm.setChecked(False)
+
+        if is_win11:
+            self.check_secure_boot.setChecked(True)
+            self.check_tpm.setChecked(True)
+
+    @staticmethod
+    def _vm_name_from_list_text(text):
+        name = text.split("  ", 1)[-1].strip()
+        # Quitar todos los sufijos de aviso (por si hay más de uno).
+        while name.endswith(" ⚠️"):
+            name = name[: -len(" ⚠️")].strip()
+        return name
+
+    def _vm_has_shared_folder_issue(self, vm_dir):
+        try:
+            cfg = load_vm_config(vm_dir)
+            folders = (cfg.get("extra") or {}).get("shared_folders", [])
+            folders = folders if isinstance(folders, list) else []
+        except Exception:
+            return False
+        for i, f in enumerate(folders):
+            if not isinstance(f, dict) or str(f.get("method", "")).lower() != "virtiofs":
+                continue
+            pidfile = os.path.join(vm_dir, f"virtiofs-{i}.pid")
+            try:
+                with open(pidfile, encoding="utf-8") as fh:
+                    pid = int(fh.read().strip())
+                os.kill(pid, 0)
+            except Exception:
+                return True
+        return False
+
+    def _detect_spice_vdagent(self, vm_dir):
+        """Devuelve True/False/None según si spice-vdagent responde.
+
+        None → no se pudo determinar (VM apagada, sin QGA, etc.).
+        """
+        try:
+            data = load_vm_config(vm_dir)
+            os_type = (data.get("os_type") or "linux").lower()
+        except Exception:
+            os_type = "linux"
+
+        if os_type == "windows":
+            # tasklist devuelve línea con "spice-vdagent.exe" si existe.
+            try:
+                r = self._qga_request({
+                    "execute": "guest-exec",
+                    "arguments": {
+                        "path": "cmd.exe",
+                        "arg": ["/c", "tasklist", "/FI", "IMAGENAME eq spice-vdagent.exe"],
+                        "capture-output": True,
+                    },
+                }, timeout=4)
+                pid = (r.get("return") or {}).get("pid")
+                if not pid:
+                    return None
+                import time as _t
+                for _ in range(10):
+                    _t.sleep(0.15)
+                    r2 = self._qga_request({
+                        "execute": "guest-exec-status",
+                        "arguments": {"pid": pid},
+                    }, timeout=3)
+                    status = r2.get("return") or {}
+                    if status.get("exited"):
+                        # out-data viene base64-encoded.
+                        import base64
+                        out = base64.b64decode(status.get("out-data") or "").decode("utf-8", "ignore")
+                        return "spice-vdagent.exe" in out.lower()
+                return None
+            except Exception:
+                return None
+        else:
+            # Linux: pgrep -f spice-vdagentd (o spice-vdagent para sesiones).
+            for pattern in ("spice-vdagentd", "spice-vdagent"):
+                try:
+                    r = self._qga_request({
+                        "execute": "guest-exec",
+                        "arguments": {
+                            "path": "/bin/sh",
+                            "arg": ["-c", f"pgrep -f {pattern} >/dev/null 2>&1 && echo YES || echo NO"],
+                            "capture-output": True,
+                        },
+                    }, timeout=4)
+                    pid = (r.get("return") or {}).get("pid")
+                    if not pid:
+                        continue
+                    import time as _t
+                    for _ in range(10):
+                        _t.sleep(0.15)
+                        r2 = self._qga_request({
+                            "execute": "guest-exec-status",
+                            "arguments": {"pid": pid},
+                        }, timeout=3)
+                        status = r2.get("return") or {}
+                        if status.get("exited"):
+                            import base64
+                            out = base64.b64decode(status.get("out-data") or "").decode("utf-8", "ignore").strip()
+                            if out.endswith("YES"):
+                                return True
+                            # Si el patrón es "spice-vdagentd" y no está,
+                            # probamos "spice-vdagent" antes de dar NO.
+                            break
+                except Exception:
+                    continue
+            return False
+
+    def _compute_live_integration_status(self, vm_dir):
+        result = {"guest_agent": False, "shared_folders": True,
+                  "clipboard": None, "spice_vdagent": None}
+        try:
+            qga_result = self._qga_request({"execute": "guest-info"}, timeout=2)
+            result["guest_agent"] = "return" in (qga_result or {})
+        except Exception:
+            result["guest_agent"] = False
+
+        # Detección de spice-vdagent dentro del guest.
+        if result["guest_agent"]:
+            try:
+                result["spice_vdagent"] = self._detect_spice_vdagent(vm_dir)
+            except Exception:
+                result["spice_vdagent"] = None
+
+        result["shared_folders"] = not self._vm_has_shared_folder_issue(vm_dir)
+
+        try:
+            cfg = load_vm_config(vm_dir)
+            mode = (cfg.get("extra") or {}).get("clipboard", {}).get("mode", "disabled")
+        except Exception:
+            mode = "disabled"
+        result["clipboard"] = mode if mode != "disabled" else None
+        return result
+
+    def _refresh_live_integration_status(self):
+        if not hasattr(self, "label_live_guest_agent"):
+            return
+        off_color = "#9e9e9e"
+        if not self.current_vm_dir:
+            self.label_live_guest_agent.setText("Guest Agent: —")
+            self.label_live_shared_folders.setText("Carpetas: —")
+            self.label_live_clipboard.setText("Clipboard: —")
+            if hasattr(self, "label_live_vdagent"):
+                self.label_live_vdagent.setText("spice-vdagent: —")
+            for lbl in (self.label_live_guest_agent, self.label_live_shared_folders, self.label_live_clipboard):
+                lbl.setStyleSheet(f"font-size:11px; color:{off_color};")
+            return
+        vm_name = os.path.basename(self.current_vm_dir)
+        if self._runtime_state(vm_name) != "running":
+            self.label_live_guest_agent.setText("Guest Agent: apagado")
+            self.label_live_shared_folders.setText("Carpetas: apagado")
+            self.label_live_clipboard.setText("Clipboard: apagado")
+            if hasattr(self, "label_live_vdagent"):
+                self.label_live_vdagent.setText("spice-vdagent: apagado")
+            for lbl in (self.label_live_guest_agent, self.label_live_shared_folders, self.label_live_clipboard):
+                lbl.setStyleSheet(f"font-size:11px; color:{off_color};")
+            return
+        if getattr(self, "_live_integration_thread", None) is not None and self._live_integration_thread.isRunning():
+            return
+        vm_dir = self.current_vm_dir
+
+        def _work(_log_emit):
+            return self._compute_live_integration_status(vm_dir)
+
+        thread = _BackgroundCallThread(_work, parent=self)
+
+        def _on_done(result, error):
+            self._live_integration_thread = None
+            if error is not None or result is None or self.current_vm_dir != vm_dir:
+                return
+            ok_color, bad_color = "#2e7d32", "#c62828"
+            ga_ok = result.get("guest_agent")
+            self.label_live_guest_agent.setText(f"Guest Agent: {'activo' if ga_ok else 'sin respuesta'}")
+            self.label_live_guest_agent.setStyleSheet(f"font-size:11px; color:{ok_color if ga_ok else bad_color};")
+            sf_ok = result.get("shared_folders")
+            self.label_live_shared_folders.setText(f"Carpetas: {'OK' if sf_ok else 'con problemas'}")
+            self.label_live_shared_folders.setStyleSheet(f"font-size:11px; color:{ok_color if sf_ok else bad_color};")
+            if result.get("clipboard"):
+                self.label_live_clipboard.setText("Clipboard: activo")
+                self.label_live_clipboard.setStyleSheet(f"font-size:11px; color:{ok_color};")
+            else:
+                self.label_live_clipboard.setText("Clipboard: desactivado")
+                self.label_live_clipboard.setStyleSheet(f"font-size:11px; color:{off_color};")
+
+            # spice-vdagent: activo / no detectado / —
+            vd = result.get("spice_vdagent")
+            if hasattr(self, "label_live_vdagent"):
+                if vd is True:
+                    self.label_live_vdagent.setText("spice-vdagent: activo")
+                    self.label_live_vdagent.setStyleSheet(
+                        f"font-size:11px; color:{ok_color};")
+                elif vd is False:
+                    self.label_live_vdagent.setText(
+                        "spice-vdagent: no detectado")
+                    self.label_live_vdagent.setStyleSheet(
+                        f"font-size:11px; color:{off_color};")
+                else:
+                    self.label_live_vdagent.setText("spice-vdagent: —")
+                    self.label_live_vdagent.setStyleSheet(
+                        f"font-size:11px; color:{off_color};")
+
+        thread.done_signal.connect(_on_done)
+        self._live_integration_thread = thread
+        thread.start()
+
+    def _vm_os_icon(self, vm_name):
+        """Devuelve el QIcon correspondiente al SO de la VM `vm_name`.
+
+        Usa iconos SVG embebidos (vm_icons.py), por lo que NO depende del
+        tema del sistema: se ven igual en KDE, GNOME, XFCE, etc., y no hay
+        que instalar ningún paquete de iconos adicional.
+        """
+        from vm_icons import icon_for_vm
+
+        try:
+            cfg_path = os.path.join(vm_config.BASE_VM_DIR, vm_name, "vm_config.ini")
+            if not os.path.isfile(cfg_path):
+                return icon_for_vm("", "")
+            cfg = load_vm_config(os.path.join(vm_config.BASE_VM_DIR, vm_name))
+        except Exception:
+            return icon_for_vm("", "")
+
+        os_type = cfg.get("os_type") or ""
+        extra = cfg.get("extra") or {}
+        distro = extra.get("distro") or ""
+
+        try:
+            return icon_for_vm(os_type, distro, size=32)
+        except Exception:
+            return icon_for_vm("", "")
+
+
+    def _vm_list_label(self, name, state):
+        """Etiqueta de la VM en la lista lateral.
+
+        Los avisos (carpeta compartida caída, muerte inesperada detectada
+        por el watchdog) se marcan con ⚠️ — un solo símbolo, sin duplicar
+        aunque las dos condiciones se cumplan a la vez.
+        """
+        icon = "●" if state == "running" else ("◐" if state == "paused" else "○")
+        warning = False
+        if state == "running" and self._vm_has_shared_folder_issue(
+                os.path.join(vm_config.BASE_VM_DIR, name)):
+            warning = True
+        if name in getattr(self, "_vm_death_flag", set()):
+            warning = True
+        suffix = " ⚠️" if warning else ""
+        return f"{icon}  {name}{suffix}"
+
+
+    def refresh_vm_list(self, select_name=None):
+        vms = list_existing_vms()
+        if select_name is None:
+            select_name = os.path.basename(self.current_vm_dir) if self.current_vm_dir else None
+        self.vm_list.blockSignals(True)
+        self.vm_list.clear()
+        from PyQt6.QtWidgets import QListWidgetItem as _QListWidgetItem
+        for name in vms:
+            state = self._runtime_state(name)
+            # Creamos el item explícitamente para poder asignarle un
+            # icono por SO (setIcon). El texto del item sigue llevando
+            # el símbolo de estado (● / ◐ / ○) más el nombre.
+            item = _QListWidgetItem(self._vm_list_label(name, state))
+            try:
+                icon = self._vm_os_icon(name)
+                if icon is not None and not icon.isNull():
+                    item.setIcon(icon)
+            except Exception:
+                pass
+            self.vm_list.addItem(item)
+        if select_name:
+            for i in range(self.vm_list.count()):
+                if self._vm_name_from_list_text(self.vm_list.item(i).text()) == select_name:
+                    self.vm_list.setCurrentRow(i)
+                    break
+        self.vm_list.blockSignals(False)
+        self.refresh_vm_runtime_status()
+
+    def on_vm_list_item_clicked(self, item):
+        """Re-enfoca la consola de la VM clicada, aunque ya estuviera
+        seleccionada.
+
+        currentTextChanged solo dispara cuando cambia la selección.
+        itemClicked dispara siempre. Solo actuamos si el ítem clicado ES
+        la VM ya seleccionada (el cambio en sí lo maneja
+        on_vm_list_changed → open_vm → _focus_console_for_vm).
+        """
+        if item is None:
+            return
+        name = self._vm_name_from_list_text(item.text())
+        if not name or not self.current_vm_dir:
+            return
+        if os.path.basename(self.current_vm_dir) != name:
+            return  # es un cambio: lo cubre on_vm_list_changed
+        if hasattr(self, "_focus_console_for_vm"):
+            try:
+                self._focus_console_for_vm(name)
+            except Exception:
+                pass
+
+    def on_vm_list_changed(self, text):
+        if not text:
+            self.current_vm_dir = None
+            self.vm_control_status.setText("● Sin VM seleccionada")
+            return
+        name = self._vm_name_from_list_text(text)
+        if name in list_existing_vms():
+            self.open_vm(name)
+
+    def _runtime_paths(self, vm_dir=None):
+        vm_dir = vm_dir or self.current_vm_dir
+        if not vm_dir:
+            return None, None
+        return os.path.join(vm_dir, "qemu.pid"), os.path.join(vm_dir, "qemu.qmp")
+
+    def _runtime_state(self, vm_name):
+        vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
+        pid_path, qmp_path = self._runtime_paths(vm_dir)
+        if not pid_path or not os.path.isfile(pid_path):
+            return "stopped"
+        try:
+            with open(pid_path, encoding="utf-8") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)
+        except Exception:
+            return "stopped"
+        try:
+            result = self._qmp_command(vm_dir, {"execute":"query-status"})
+            status = (result.get("return") or {}).get("status", "running")
+            return "paused" if status in ("paused", "prelaunch", "inmigrate") else "running"
+        except Exception:
+            return "running"
+
+    def _qmp_command(self, vm_dir, payload):
+        import socket, json as _json, time
+        qmp = os.path.join(vm_dir, "qemu.qmp")
+        if not os.path.exists(qmp):
+            raise RuntimeError("El monitor QMP de la VM no está disponible.")
+
+        def recv_json_message(sock, buffer):
+            while True:
+                pos = buffer.find(b"\r\n")
+                if pos >= 0:
+                    raw, buffer = buffer[:pos], buffer[pos + 2:]
+                    if not raw:
+                        continue
+                    try:
+                        return _json.loads(raw.decode()), buffer
+                    except Exception:
+                        continue
+                chunk = sock.recv(4096)
+                if not chunk:
+                    raise RuntimeError("QMP cerró la conexión antes de responder.")
+                buffer += chunk
+                if len(buffer) > 524288:
+                    raise RuntimeError("Respuesta QMP demasiado grande.")
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(4.0)
+        buffer = b""
+        try:
+            sock.connect(qmp)
+            _hello, buffer = recv_json_message(sock, buffer)
+
+            cap = {"execute": "qmp_capabilities", "id": "capabilities"}
+            sock.sendall((_json.dumps(cap) + "\r\n").encode())
+            while True:
+                msg, buffer = recv_json_message(sock, buffer)
+                if msg.get("id") == "capabilities":
+                    if "error" in msg:
+                        raise RuntimeError(str(msg["error"]))
+                    break
+
+            command_id = f"cmd_{int(time.time() * 1000000)}"
+            request = dict(payload)
+            request["id"] = command_id
+            sock.sendall((_json.dumps(request) + "\r\n").encode())
+
+            deadline = time.monotonic() + 4.0
+            while time.monotonic() < deadline:
+                msg, buffer = recv_json_message(sock, buffer)
+                if msg.get("id") != command_id:
+                    continue
+                if "error" in msg:
+                    err = msg.get("error") or {}
+                    desc = err.get("desc") if isinstance(err, dict) else str(err)
+                    raise RuntimeError(desc or str(err))
+                return msg
+            raise RuntimeError("QMP agotó el tiempo de espera para la respuesta.")
+        finally:
+            sock.close()
+
+    def _qmp_hmp(self, vm_dir, command_line):
+        result = self._qmp_command(vm_dir, {"execute":"human-monitor-command", "arguments":{"command-line":command_line}})
+        text = str(result.get("return") or "")
+        low = text.lower()
+        if any(token in low for token in ("error:", "failed", "cannot", "could not", "not found", "invalid")):
+            raise RuntimeError(text.strip())
+        return result
+
+    def _get_fullscreen_exit_value(self):
+        from PyQt6.QtCore import QSettings
+        from virtual_machine import DEFAULT_FULLSCREEN_EXIT_SHORTCUT
+
+        combo = getattr(self, "combo_fullscreen_exit", None)
+        if combo is not None:
+            value = combo.currentData()
+        else:
+            value = None
+        if not value:
+            value = QSettings().value(
+                "console/fullscreen_exit_shortcut", DEFAULT_FULLSCREEN_EXIT_SHORTCUT
+            )
+        return value
+
+    def _fullscreen_exit_display_text(self):
+        value = self._get_fullscreen_exit_value()
+        if value == "RCTRL":
+            return "Ctrl derecho"
+        from PyQt6.QtGui import QKeySequence
+        return QKeySequence(value).toString()
+
+    def _event_matches_fullscreen_exit(self, event):
+        value = self._get_fullscreen_exit_value()
+
+        if value == "RCTRL":
+            from PyQt6.QtCore import Qt as _Qt
+            if event.key() != _Qt.Key.Key_Control:
+                return False
+            try:
+                if event.nativeScanCode() == 105:
+                    return True
+            except Exception:
+                pass
+            try:
+                if event.nativeVirtualKey() == 0xFFE4:
+                    return True
+            except Exception:
+                pass
+            return False
+
+        from PyQt6.QtGui import QKeySequence
+        combo = event.keyCombination() if hasattr(event, "keyCombination") else None
+        if combo is None:
+            return False
+        return QKeySequence(combo) == QKeySequence(value)
+
+    def _on_fullscreen_exit_shortcut_changed(self, _index):
+        from PyQt6.QtCore import QSettings
+
+        combo = getattr(self, "combo_fullscreen_exit", None)
+        if combo is None:
+            return
+        value = combo.currentData()
+        QSettings().setValue("console/fullscreen_exit_shortcut", value)
+        self._update_fullscreen_button_tooltip()
+
+    def _update_fullscreen_button_tooltip(self):
+        btn = getattr(self, "btn_vnc_fullscreen", None)
+        if btn is None:
+            return
+        btn.setToolTip(
+            f"Muestra la consola gráfica a pantalla completa.\n"
+            f"Pulsa {self._fullscreen_exit_display_text()} para salir."
+        )
+
+    def _toggle_vnc_fullscreen(self):
+        if getattr(self, "vnc_widget", None) is None:
+            return
+        if getattr(self, "_vnc_fullscreen_window", None) is not None:
+            self._close_vnc_fullscreen()
+        else:
+            self._open_vnc_fullscreen()
+
+    def _open_vnc_fullscreen(self):
+        from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout
+        from PyQt6.QtCore import Qt, QEvent, QObject
+
+        self._vnc_fullscreen_container = getattr(self, "vnc_scroll_area", None) or self.vnc_widget
+        self._vnc_original_layout = self.console_page.layout()
+        self._vnc_original_layout.removeWidget(self._vnc_fullscreen_container)
+        self._vnc_fullscreen_container.setParent(None)
+
+        self.vnc_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        self._vnc_fullscreen_window = QMainWindow()
+        vm_name = os.path.basename(self.current_vm_dir) if self.current_vm_dir else "VM"
+        self._vnc_fullscreen_window.setWindowTitle(f"Consola Gráfica — {vm_name}")
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._vnc_fullscreen_container)
+        self._vnc_fullscreen_window.setCentralWidget(central)
+
+        class _FullscreenKeyFilter(QObject):
+            def __init__(self, mixin_self):
+                super().__init__()
+                self._m = mixin_self
+
+            def _matches_exit(self, event):
+                return self._m._event_matches_fullscreen_exit(event)
+
+            def eventFilter(self, obj, event):
+                etype = event.type()
+
+                if etype == QEvent.Type.ShortcutOverride:
+                    event.accept()
+                    return True
+
+                if etype == QEvent.Type.KeyPress:
+                    if self._matches_exit(event):
+                        self._m._close_vnc_fullscreen()
+                        event.accept()
+                        return True
+                    if self._m.vnc_widget is not None:
+                        self._m.vnc_widget.keyPressEvent(event)
+                    return True
+
+                if etype == QEvent.Type.KeyRelease:
+                    if self._matches_exit(event):
+                        event.accept()
+                        return True
+                    if self._m.vnc_widget is not None:
+                        self._m.vnc_widget.keyReleaseEvent(event)
+                    return True
+
+                return False
+
+        self._vnc_fullscreen_filter = _FullscreenKeyFilter(self)
+        self.vnc_widget.installEventFilter(self._vnc_fullscreen_filter)
+
+        self._vnc_fullscreen_window.showFullScreen()
+        self.vnc_widget.setFocus()
+        self.vnc_widget.grabKeyboard()
+
+        from PyQt6.QtCore import QTimer as _QTimer
+        import x11_keyboard_grab as _x11kb
+
+        def _try_x11_grab(attempts_left, delay_ms):
+            if getattr(self, "_vnc_fullscreen_window", None) is None:
+                return
+            ok = _x11kb.grab_keyboard(int(self._vnc_fullscreen_window.winId()))
+            if not ok and attempts_left > 0:
+                _QTimer.singleShot(
+                    delay_ms, lambda: _try_x11_grab(attempts_left - 1, delay_ms)
+                )
+
+        _QTimer.singleShot(150, lambda: _try_x11_grab(3, 200))
+
+        if getattr(self, "btn_vnc_fullscreen", None) is not None:
+            self.btn_vnc_fullscreen.setText("⛶ Salir de pantalla completa")
+
+    def _close_vnc_fullscreen(self):
+        if getattr(self, "_vnc_fullscreen_window", None) is None:
+            return
+
+        import x11_keyboard_grab as _x11kb
+        _x11kb.ungrab_keyboard()
+
+        vnc_filter = getattr(self, "_vnc_fullscreen_filter", None)
+        if self.vnc_widget is not None:
+            self.vnc_widget.releaseKeyboard()
+            if vnc_filter is not None:
+                self.vnc_widget.removeEventFilter(vnc_filter)
+        self._vnc_fullscreen_filter = None
+
+        container = getattr(self, "_vnc_fullscreen_container", None) or self.vnc_widget
+        if container is not None:
+            container.setParent(None)
+
+        self._vnc_fullscreen_window.close()
+        self._vnc_fullscreen_window.deleteLater()
+        self._vnc_fullscreen_window = None
+
+        if container is not None and self._vnc_original_layout is not None:
+            self._vnc_original_layout.addWidget(container, 1)
+            container.show()
+        if self.vnc_widget is not None:
+            self.vnc_widget.setFocus()
+        self._vnc_fullscreen_container = None
+
+        if getattr(self, "btn_vnc_fullscreen", None) is not None:
+            self.btn_vnc_fullscreen.setText("⛶ Pantalla completa")
+
+    def _start_vnc_resize_watcher(self):
+        """Arranca un watcher ligero que reajusta el widget VNC cuando el
+        framebuffer del guest cambia de tamaño.
+
+        Esto ocurre por ejemplo al restaurar un snapshot creado con otra
+        resolución: el widget VNC recibía el nuevo framebuffer pero quedaba
+        con el tamaño de la resolución anterior, y se veía "muy grande" o
+        descentrado. En vez de depender de una señal del widget (que puede
+        emitirse solo en el handshake inicial), comprobamos periódicamente
+        las dimensiones del framebuffer y reaplicamos el modo de visualización.
+        """
+        from PyQt6.QtCore import QTimer as _QTimer
+        if not hasattr(self, "_vnc_resize_timer"):
+            self._vnc_resize_timer = _QTimer(self)
+            self._vnc_resize_timer.setInterval(300)
+            self._vnc_resize_timer.timeout.connect(self._check_vnc_guest_resolution)
+        self._vnc_last_size = (0, 0)
+        self._vnc_resize_timer.start()
+
+    def _recreate_vnc_backbuffer(self, w):
+        """Recrea el QImage backbuffer del widget VNC con las dimensiones
+        actuales del framebuffer remoto.
+
+        Se llama cuando detectamos que el guest cambió de resolución. El
+        QVNCWidget original no recrea su backbuffer en ese caso: sigue
+        escribiendo sobre un QImage del tamaño anterior. Al recrearlo
+        (y pedir al servidor un frame completo), la parte "nueva" de la
+        pantalla por fin se dibuja.
+
+        Es seguro llamarlo aunque el atributo no exista: se registra en
+        el log y se sigue con el resto del flujo.
+        """
+        try:
+            from PyQt6.QtGui import QImage
+        except Exception:
+            return
+        try:
+            vw = int(getattr(w, "vncWidth", 0) or 0)
+            vh = int(getattr(w, "vncHeight", 0) or 0)
+            if vw <= 0 or vh <= 0:
+                return
+
+            # Recrear el backbuffer con el mismo formato que usa el widget.
+            fmt = getattr(w, "PIX_FORMAT", None)
+            if fmt is None:
+                fmt = QImage.Format.Format_RGB32
+            new_back = QImage(vw, vh, fmt)
+            new_back.fill(0)
+
+            # Asignar y limpiar referencias al frontbuffer anterior.
+            try:
+                w.backbuffer = new_back
+            except Exception:
+                pass
+            try:
+                w.frontbuffer = None
+            except Exception:
+                pass
+
+            # Forzar al servidor VNC a enviarnos un frame completo.
+            # El QVNCWidget original no expone un método público para
+            # esto, pero internamente RFBClient tiene uno. Probamos los
+            # nombres habituales.
+            requested = False
+            for attr in ("requestFullFrame", "request_full_update",
+                         "requestFramebufferUpdate", "requestUpdate",
+                         "refresh", "forceRefresh"):
+                fn = getattr(w, attr, None)
+                if callable(fn):
+                    try:
+                        fn()
+                        requested = True
+                        break
+                    except Exception:
+                        continue
+            # Si no hay método directo, probamos sobre el hilo RFB.
+            if not requested:
+                for child_attr in ("connectionThread", "_rfb",
+                                   "rfbClient", "_client"):
+                    child = getattr(w, child_attr, None)
+                    if child is None:
+                        continue
+                    for attr in ("requestFullFrame", "request_full_update",
+                                 "requestFramebufferUpdate", "requestUpdate",
+                                 "refresh"):
+                        fn = getattr(child, attr, None)
+                        if callable(fn):
+                            try:
+                                fn()
+                                requested = True
+                                break
+                            except Exception:
+                                continue
+                    if requested:
+                        break
+
+            # Limpiar también el caché interno de updates si existe.
+            for attr in ("updateRect", "lastUpdateRect", "dirtyRect"):
+                try:
+                    if hasattr(w, attr):
+                        setattr(w, attr, None)
+                except Exception:
+                    pass
+
+            self.log_message(
+                f"==> VNC: nueva resolución detectada "
+                f"({vw}x{vh}); backbuffer recreado"
+                + (" y frame completo solicitado." if requested
+                   else " (sin método de refresco disponible en el cliente).")
+            )
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] VNC: error al recrear backbuffer: {e}")
+            except Exception:
+                pass
+
+    def _check_vnc_guest_resolution(self):
+        """Watcher del framebuffer del guest con reconexión automática.
+
+        Detecta cambios de resolución del guest y, tras un periodo de
+        estabilidad (debounce), reconecta el widget VNC para que el
+        cliente obtenga un ServerInit actualizado.
+
+        Por qué reconectar: el protocolo VNC básico fija el tamaño en el
+        ServerInit. Tras el handshake, los cambios de resolución del
+        guest NO son compatibles con el framebuffer del cliente (aunque
+        pyQVNCWidget actualice vncWidth/vncHeight, los datos gráficos
+        siguen llegando con el tamaño original). Un reconnect obtiene un
+        ServerInit nuevo con la resolución actual.
+
+        Por qué con debounce: durante el arranque del guest la
+        resolución cambia varias veces (BIOS → bootloader → kernel →
+        sesión de usuario). Si reconectáramos en cada cambio, tendríamos
+        parpadeo continuo. En su lugar, un timer se REINICIA con cada
+        cambio. Solo cuando la resolución se mantiene estable ~1.5 s se
+        dispara una única reconexión.
+        """
+        w = getattr(self, "vnc_widget", None)
+        if w is None:
+            timer = getattr(self, "_vnc_resize_timer", None)
+            if timer is not None:
+                timer.stop()
+            return
+        try:
+            size = (int(getattr(w, "vncWidth", 0) or 0),
+                    int(getattr(w, "vncHeight", 0) or 0))
+        except Exception:
+            return
+        if size == (0, 0):
+            return
+
+        last = getattr(self, "_vnc_last_size", (0, 0))
+        if size == last:
+            return
+
+        is_initial = (last == (0, 0))
+        self._vnc_last_size = size
+
+        if is_initial:
+            # Handshake inicial: no tocar el backbuffer, solo registrar.
+            try:
+                self.log_message(
+                    f"==> VNC: framebuffer inicial {size[0]}x{size[1]}."
+                )
+            except Exception:
+                pass
+            try:
+                self._apply_vnc_display_mode()
+            except Exception:
+                pass
+            return
+
+        # Cambio real de resolución del guest: programar reconexión con
+        # debounce (se reinicia con cada cambio siguiente).
+        try:
+            self.log_message(
+                f"==> VNC: cambio de resolución del guest: "
+                f"{size[0]}x{size[1]} (reconexión tras estabilizar)."
+            )
+        except Exception:
+            pass
+        self._schedule_vnc_reconnect(
+            1500, reason=f"cambio de resolución a {size[0]}x{size[1]}"
+        )
+
+    def _schedule_vnc_reconnect(self, delay_ms, reason=""):
+        """Programa una reconexión del widget VNC con debounce.
+
+        Si ya había un timer pendiente, lo REINICIA. Así, si el guest
+        cambia de resolución varias veces seguidas (típico durante el
+        arranque), solo se reconecta una vez al final, cuando la
+        resolución se mantiene estable.
+        """
+        try:
+            from PyQt6.QtCore import QTimer
+        except Exception:
+            return
+        timer = getattr(self, "_vnc_reconnect_debounce", None)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._do_scheduled_vnc_reconnect)
+            self._vnc_reconnect_debounce = timer
+        self._vnc_reconnect_reason = reason
+        timer.start(int(delay_ms))
+
+    def _auto_reconnect_vnc_late(self):
+        """Reconexión diferida tardía (8 s tras arranque).
+
+        Cubre el caso de guests lentos (Windows, macOS con OpenCore) que
+        tardan más de 3.5 s en establecer su resolución final. Solo
+        reconecta si sigue habiendo una VM activa y si no ha habido ya
+        una reconexión automática reciente (flag compartido con
+        _do_scheduled_vnc_reconnect).
+        """
+        if not self._vm_is_selected():
+            return
+        try:
+            state = self._runtime_state(os.path.basename(self.current_vm_dir))
+        except Exception:
+            return
+        if state not in ("running", "paused"):
+            return
+        w = getattr(self, "vnc_widget", None)
+        if w is None:
+            return
+        # Si el usuario ya reconectó manualmente hace poco, no molestar.
+        last = getattr(self, "_vnc_last_manual_reconnect_ts", 0)
+        import time as _t
+        if (_t.monotonic() - last) < 6:
+            return
+        try:
+            self.log_message(
+                "==> VNC: reconexión tardía (8 s) para asegurar la "
+                "resolución final del guest."
+            )
+        except Exception:
+            pass
+        self._manual_refresh_vnc()
+
+    def _do_scheduled_vnc_reconnect(self):
+        """Ejecuta la reconexión diferida, si sigue habiendo VM activa."""
+        w = getattr(self, "vnc_widget", None)
+        if w is None:
+            return
+        if not self._vm_is_selected():
+            return
+        try:
+            state = self._runtime_state(os.path.basename(self.current_vm_dir))
+        except Exception:
+            return
+        if state not in ("running", "paused"):
+            return
+        reason = getattr(self, "_vnc_reconnect_reason", "")
+        try:
+            self.log_message(f"==> VNC: reconectando ({reason}).")
+        except Exception:
+            pass
+        self._manual_refresh_vnc()
+
+
+    def _force_widget_relayout(self):
+        """Reajusta el widget VNC y su scroll area al modo actual.
+
+        Diferencias clave respecto a versiones anteriores:
+
+        • Modo "ajustar a ventana":
+            - NO se llama a w.resize(): dentro de un QScrollArea con
+              widgetResizable(True), resize() se ignora y confunde más
+              que ayuda. El tamaño del widget lo decide el scroll area
+              a partir del sizeHint() del widget — y como en este modo
+              sizeHint() devuelve un valor pequeño, el scroll area
+              estirará el widget hasta llenar el viewport.
+            - Se fuerza updateGeometry() en widget y scroll area para
+              que Qt recalcule los tamaños YA, sin esperar al siguiente
+              resize del padre.
+
+        • Modo "tamaño real":
+            - Se reafirma el tamaño fijo del widget (vncWidth × vncHeight).
+            - Se fuerza el scroll area a mostrar barras (widgetResizable
+              a False).
+        """
+        w = getattr(self, "vnc_widget", None)
+        if w is None:
+            return
+        chk = getattr(self, "chk_vnc_real_size", None)
+        real_size = bool(chk.isChecked()) if chk is not None else False
+
+        # Reaplicar el modo (por si los min/max quedaron inconsistentes).
+        try:
+            self._apply_vnc_display_mode()
+        except Exception:
+            pass
+
+        scroll = getattr(self, "vnc_scroll_area", None)
+
+        if not real_size:
+            # Modo ajustar: NO resize() manual. Confiamos en que el
+            # scroll area, con widgetResizable(True) y un sizeHint()
+            # pequeño, estire el widget al viewport.
+            if scroll is not None:
+                try:
+                    scroll.setWidgetResizable(True)
+                    scroll.updateGeometry()
+                    scroll.viewport().update()
+                except Exception:
+                    pass
+            try:
+                w.updateGeometry()
+                w.update()
+            except Exception:
+                pass
+        else:
+            # Modo tamaño real: reafirmar el tamaño del widget.
+            try:
+                vw = int(getattr(w, "vncWidth", 0) or 0)
+                vh = int(getattr(w, "vncHeight", 0) or 0)
+                if vw > 0 and vh > 0:
+                    w.setMinimumSize(vw, vh)
+                    w.setMaximumSize(vw, vh)
+                    w.resize(vw, vh)
+            except Exception:
+                pass
+            if scroll is not None:
+                try:
+                    scroll.setWidgetResizable(False)
+                    scroll.updateGeometry()
+                    scroll.viewport().update()
+                except Exception:
+                    pass
+            try:
+                w.updateGeometry()
+                w.update()
+                w.repaint()
+            except Exception:
+                pass
+
+
+
+    def _manual_refresh_vnc(self):
+        """Reconecta el widget VNC.
+
+        En lugar de solo pedir un repaint (que no arregla nada si el
+        framebuffer del cliente quedó desincronizado respecto al guest),
+        se destruye el widget actual y se vuelve a crear. Eso fuerza un
+        nuevo handshake y, si el guest tiene otra resolución ahora, la
+        nueva conexión recogerá el tamaño correcto.
+        """
+        w = getattr(self, "vnc_widget", None)
+        if w is None:
+            return
+        try:
+            self.log_message("==> VNC: reconectando el widget (refresco solicitado).")
+        except Exception:
+            pass
+
+        # Guardamos el estado del checkbox "Tamaño real" para no perderlo.
+        chk = getattr(self, "chk_vnc_real_size", None)
+        was_real_size = bool(chk.isChecked()) if chk is not None else False
+
+        # Forzamos que _sync_vnc_widget considere que hay que reconectar.
+        # La forma más limpia: destruir el widget aquí mismo y dejar que el
+        # timer de estado lo vuelva a crear en la próxima pasada.
+        try:
+            # Detach del filtro de foco si existe.
+            focus_filter = getattr(self, "_vnc_focus_filter", None)
+            if focus_filter is not None:
+                try:
+                    focus_filter.detach()
+                    w.removeEventFilter(focus_filter)
+                except Exception:
+                    pass
+                self._vnc_focus_filter = None
+
+            # Destruir el widget y su scroll area (igual que en _sync_vnc_widget
+            # cuando el estado pasa a "stopped").
+            layout = self.console_page.layout()
+            scroll_area = getattr(self, "vnc_scroll_area", None)
+            if layout is not None and scroll_area is not None:
+                layout.replaceWidget(scroll_area, self.vnc_placeholder)
+            if scroll_area is not None:
+                scroll_area.takeWidget()
+                scroll_area.deleteLater()
+            w.deleteLater()
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] VNC: error al destruir el widget: {e}")
+            except Exception:
+                pass
+
+        self.vnc_widget = None
+        self.vnc_scroll_area = None
+        self._vnc_last_size = (0, 0)
+
+        try:
+            self.vnc_placeholder.show()
+            self.vnc_placeholder.setText("Reconectando…")
+            self.vnc_label_status.setText("Reconectando al socket VNC…")
+        except Exception:
+            pass
+
+        # La próxima pasada del timer de estado (1.5 s) detectará que la VM
+        # sigue corriendo y llamará a _sync_vnc_widget, que creará un widget
+        # nuevo. Si queremos que sea inmediato, forzamos esa comprobación:
+        try:
+            from PyQt6.QtCore import QTimer as _QTimer
+            _QTimer.singleShot(200, self.refresh_vm_runtime_status)
+        except Exception:
+            pass
+
+        # Restaurar el modo de visualización cuando el widget esté creado.
+        try:
+            from PyQt6.QtCore import QTimer as _QTimer2
+            _QTimer2.singleShot(
+                600,
+                lambda: self._apply_vnc_display_mode()
+                if getattr(self, "vnc_widget", None) is not None else None,
+            )
+        except Exception:
+            pass
+
+
+    def _release_vnc_keyboard_on_close(self):
+        """Libera cualquier captura de teclado VNC pendiente.
+
+        Sin esto, si el usuario cierra la app mientras el widget VNC tiene
+        el foco, el XGrabKeyboard queda activo y el escritorio se queda sin
+        teclado hasta que el usuario cierre sesión.
+        """
+        focus_filter = getattr(self, "_vnc_focus_filter", None)
+        if focus_filter is not None:
+            try:
+                focus_filter.detach()
+            except Exception:
+                pass
+        try:
+            import x11_keyboard_grab
+            x11_keyboard_grab.ungrab_keyboard()
+        except Exception:
+            pass
+
+    def _toggle_console_tab(self):
+        """Atajo Ctrl+Alt+C: alterna entre Consola Gráfica y la pestaña anterior.
+
+        Guarda la pestaña actual antes de saltar a Consola Gráfica, para
+        poder volver a ella. Si ya estamos en Consola Gráfica, salta al
+        índice guardado (por defecto, Resumen).
+        """
+        tabs = getattr(self, "main_tabs", None)
+        console_idx = getattr(self, "_console_tab_index", -1)
+        if tabs is None or console_idx < 0:
+            return
+        current = tabs.currentIndex()
+        if current == console_idx:
+            target = getattr(self, "_console_prev_tab", 0)
+            try:
+                tabs.setCurrentIndex(int(target))
+            except Exception:
+                tabs.setCurrentIndex(0)
+        else:
+            self._console_prev_tab = current
+            tabs.setCurrentIndex(console_idx)
+
+    def _focus_console_tab(self):
+        """Cambia a la pestaña Consola Gráfica si existe.
+
+        Se llama UNA vez por arranque de VM, justo cuando se acaba de crear
+        el widget de consola. Así el usuario ve la pantalla inmediatamente
+        sin tener que buscar la pestaña a mano.
+        """
+        try:
+            idx = getattr(self, "_console_tab_index", -1)
+            if idx is not None and idx >= 0 and hasattr(self, "main_tabs"):
+                self.main_tabs.setCurrentIndex(idx)
+        except Exception:
+            pass
+
+    def _destroy_embedded_console_widget(self):
+        """Destruye el widget de consola embebida (VNC o SPICE), si existe.
+
+        Se llama cuando el usuario cambia de VM en la lista lateral: el
+        widget actual está conectado al socket de la VM anterior, no de
+        la nueva. Destruirlo deja el camino libre para que
+        _sync_console_widget cree uno nuevo con la VM actual.
+
+        También centraliza la limpieza que antes hacía cada _sync_* por
+        su cuenta (VNC y SPICE por separado).
+        """
+        # --- VNC embebido ---
+        w = getattr(self, "vnc_widget", None)
+        if w is not None:
+            try:
+                focus_filter = getattr(self, "_vnc_focus_filter", None)
+                if focus_filter is not None:
+                    try:
+                        focus_filter.detach()
+                        w.removeEventFilter(focus_filter)
+                    except Exception:
+                        pass
+                    self._vnc_focus_filter = None
+                if getattr(self, "_vnc_fullscreen_window", None) is not None:
+                    try:
+                        self._close_vnc_fullscreen()
+                    except Exception:
+                        pass
+                layout = self.console_page.layout()
+                scroll_area = getattr(self, "vnc_scroll_area", None)
+                if layout is not None and scroll_area is not None:
+                    layout.replaceWidget(scroll_area, self.vnc_placeholder)
+                if scroll_area is not None:
+                    scroll_area.takeWidget()
+                    scroll_area.deleteLater()
+                w.deleteLater()
+            except Exception:
+                pass
+            self.vnc_widget = None
+            self.vnc_scroll_area = None
+            self._vnc_widget_vm_dir = None
+            try:
+                self.vnc_placeholder.show()
+                self.vnc_placeholder.setText("Esperando conexión de la VM…")
+            except Exception:
+                pass
+
+        # --- SPICE embebido ---
+        sw = getattr(self, "spice_widget", None)
+        if sw is not None:
+            try:
+                if hasattr(sw, "stop"):
+                    sw.stop()
+                layout = self.console_page.layout()
+                if layout is not None:
+                    layout.replaceWidget(sw, self.vnc_placeholder)
+                sw.deleteLater()
+            except Exception:
+                pass
+            self.spice_widget = None
+            self._spice_widget_vm_dir = None
+            try:
+                self.vnc_placeholder.show()
+                self.vnc_placeholder.setText("Esperando conexión de la VM…")
+            except Exception:
+                pass
+
+    def _apply_console_choice_from_vm(self, data):
+        """Vuelca la elección de consola guardada en la VM a los combos.
+
+        Se llama al abrir una VM. Sin esto, los combos conservaban el
+        valor del último VM abierto: si abrías Linux Mint (SPICE) y luego
+        Win11 (VNC), el combo seguía mostrando SPICE aunque la VM B
+        estuviera configurada con VNC.
+        """
+        if not hasattr(self, "combo_console_protocol"):
+            return
+        extra = (data or {}).get("extra") or {}
+        proto = str(extra.get("console_protocol") or PROTOCOL_VNC).lower()
+        mode = str(extra.get("console_mode") or "").lower()
+        if not mode:
+            # Compatibilidad con VMs guardadas antes del cambio al modelo
+            # protocolo/modo.
+            mode = MODE_EMBEDDED if extra.get("vnc_embedded", True) else MODE_NATIVE
+        try:
+            self._apply_console_choice_to_ui(proto, mode)
+        except Exception:
+            pass
+        # Refrescar el texto de ayuda y la pista de requisitos.
+        try:
+            self._refresh_console_help()
+        except Exception:
+            pass
+        try:
+            hint = describe_requirements(proto, mode)
+            if hasattr(self, "label_console_requirements"):
+                self.label_console_requirements.setText(hint)
+        except Exception:
+            pass
+
+    def _destroy_embedded_console_widget(self):
+        """Destruye el widget embebido actual (VNC o SPICE) si existe.
+
+        Se llama cuando el usuario cambia de VM en la lista lateral: el
+        widget actual está conectado al socket de la VM anterior, no de
+        la nueva. Destruirlo deja el camino libre para que
+        _sync_console_widget cree uno nuevo con la VM actual.
+
+        Nota: NO toca el visor externo (spicy/remote-viewer). Los visores
+        externos son persistentes por VM, gestionados aparte en
+        _external_viewers.
+        """
+        # --- VNC embebido ---
+        w = getattr(self, "vnc_widget", None)
+        if w is not None:
+            try:
+                focus_filter = getattr(self, "_vnc_focus_filter", None)
+                if focus_filter is not None:
+                    try:
+                        focus_filter.detach()
+                        w.removeEventFilter(focus_filter)
+                    except Exception:
+                        pass
+                    self._vnc_focus_filter = None
+                if getattr(self, "_vnc_fullscreen_window", None) is not None:
+                    try:
+                        self._close_vnc_fullscreen()
+                    except Exception:
+                        pass
+                layout = self.console_page.layout()
+                scroll_area = getattr(self, "vnc_scroll_area", None)
+                if layout is not None and scroll_area is not None:
+                    layout.replaceWidget(scroll_area, self.vnc_placeholder)
+                if scroll_area is not None:
+                    scroll_area.takeWidget()
+                    scroll_area.deleteLater()
+                w.deleteLater()
+            except Exception:
+                pass
+            self.vnc_widget = None
+            self.vnc_scroll_area = None
+            self._vnc_widget_vm_dir = None
+            try:
+                self.vnc_placeholder.show()
+                self.vnc_placeholder.setText("Esperando conexión de la VM…")
+            except Exception:
+                pass
+
+        # --- SPICE embebido ---
+        sw = getattr(self, "spice_widget", None)
+        if sw is not None:
+            try:
+                if hasattr(sw, "stop"):
+                    sw.stop()
+                layout = self.console_page.layout()
+                if layout is not None:
+                    layout.replaceWidget(sw, self.vnc_placeholder)
+                sw.deleteLater()
+            except Exception:
+                pass
+            self.spice_widget = None
+            self._spice_widget_vm_dir = None
+            try:
+                self.vnc_placeholder.show()
+                self.vnc_placeholder.setText("Esperando conexión de la VM…")
+            except Exception:
+                pass
+
+    def _refresh_console_combo_tooltips(self):
+        """Rellena los tooltips de cada item de los combos de consola.
+
+        El texto refleja el estado actual de la sesión: X11 vs Wayland,
+        spice-gtk con binding Python o no, visores externos disponibles.
+        """
+        try:
+            from console_backend import (
+                is_x11_session, embedded_spice_available,
+                find_vnc_viewer, find_spice_viewer,
+            )
+            x11 = bool(is_x11_session())
+            spice_gtk_ok = bool(embedded_spice_available())
+            vnc_viewer, _ = find_vnc_viewer()
+            spice_viewer, _ = find_spice_viewer()
+        except Exception:
+            x11, spice_gtk_ok = True, False
+            vnc_viewer = spice_viewer = None
+
+        session_note = "Sesión X11." if x11 else "Sesión Wayland."
+        spice_embed_note = (
+            "spice-gtk con binding Python disponible."
+            if spice_gtk_ok
+            else "spice-gtk sin binding Python: SPICE embebida caería a externo."
+        )
+        vnc_viewer_name = vnc_viewer.rsplit("/", 1)[-1] if vnc_viewer else "ninguno"
+        spice_viewer_name = spice_viewer.rsplit("/", 1)[-1] if spice_viewer else "ninguno"
+
+        # --- Protocolo ---
+        combo_proto = getattr(self, "combo_console_protocol", None)
+        if combo_proto is not None:
+            for i in range(combo_proto.count()):
+                data = combo_proto.itemData(i)
+                if data == "vnc":
+                    combo_proto.setItemData(
+                        i,
+                        "VNC: protocolo ligero, funciona con cualquier "
+                        "dispositivo de video.\n"
+                        "\n"
+                        "Se puede embeber dentro de la app incluso en Wayland.\n"
+                        "El visor externo disponible es: " + vnc_viewer_name + ".",
+                        3,  # Qt.ItemDataRole.ToolTipRole
+                    )
+                elif data == "spice":
+                    combo_proto.setItemData(
+                        i,
+                        "SPICE: mejor rendimiento en local (streaming de video,\n"
+                        "clipboard bidireccional, audio remoto).\n"
+                        "\n"
+                        + session_note + "\n"
+                        + spice_embed_note + "\n"
+                        + "Visor externo disponible: " + spice_viewer_name + ".",
+                        3,
+                    )
+
+        # --- Modo ---
+        combo_mode = getattr(self, "combo_console_mode", None)
+        if combo_mode is not None:
+            for i in range(combo_mode.count()):
+                data = combo_mode.itemData(i)
+                if data == "embedded":
+                    extra = (
+                        "Se puede embeber dentro de la app (VNC y SPICE en X11)."
+                        if x11
+                        else "En Wayland solo VNC puede embeber; SPICE caería a externa."
+                    )
+                    combo_mode.setItemData(
+                        i,
+                        "Embebida: la pantalla vive dentro de la app.\n"
+                        "\n"
+                        + extra + "\n"
+                        "\n"
+                        "Para más detalle, mira el bloque de ayuda debajo de los combos.",
+                        3,
+                    )
+                elif data == "external":
+                    combo_mode.setItemData(
+                        i,
+                        "Ventana externa: se abre el visor del sistema.\n"
+                        "Funciona en X11 y Wayland.\n"
+                        "\n"
+                        "VNC: " + vnc_viewer_name + ".\n"
+                        "SPICE: " + spice_viewer_name + ".",
+                        3,
+                    )
+                elif data == "native":
+                    combo_mode.setItemData(
+                        i,
+                        "Ventana nativa de QEMU: QEMU abre su propia ventana\n"
+                        "(GTK o SDL). Único modo compatible con VirGL y Venus.",
+                        3,
+                    )
+                elif data == "hybrid":
+                    combo_mode.setItemData(
+                        i,
+                        "Híbrida: VNC embebido + SPICE externo a la vez.\n"
+                        "\n"
+                        "VNC se ve dentro de la app (funciona en Wayland).\n"
+                        "SPICE se abre en ventana externa para rendimiento.\n"
+                        + ("" if spice_viewer else
+                           "\nATENCIÓN: no hay visor SPICE instalado."),
+                        3,
+                    )
+
+    def _refresh_console_status_banner(self):
+        """Actualiza el banner de estado de la consola.
+
+        Mira la elección actual (protocolo + modo) y el estado del host
+        (sesión gráfica, visores disponibles) para decidir qué mostrar.
+        """
+        label = getattr(self, "label_console_status", None)
+        if label is None:
+            return
+        try:
+            protocol, mode = self._current_console_choice()
+        except Exception:
+            label.setText("")
+            return
+
+        # Paleta de colores y estado por defecto.
+        # Ámbar: elección pedida ≠ lo que se aplicará.
+        # Verde: sin cambios.
+        # Rojo: no hay visor para hacer nada.
+        text = ""
+        style = (
+            "font-size:11px; padding:2px 6px; border-radius:4px; "
+            "background: transparent; color: #757575;"
+        )
+
+        # ¿Tenemos VM seleccionada?
+        vm_selected = self._vm_is_selected()
+
+        # ¿Es Linux Wayland/X11?  Solo importa para SPICE embebida.
+        try:
+            from console_backend import is_x11_session, embedded_spice_available
+            x11 = bool(is_x11_session())
+            spice_gtk_ok = bool(embedded_spice_available())
+        except Exception:
+            x11 = True
+            spice_gtk_ok = False
+
+        if protocol == "spice" and mode == "embedded":
+            if not x11:
+                text = "⚠ SPICE embebida no soporta Wayland: se usará visor externo."
+                style = (
+                    "font-size:11px; padding:2px 6px; border-radius:4px; "
+                    "background: #fff3cd; color: #7a5b00; font-weight:bold;"
+                )
+            elif not spice_gtk_ok:
+                text = ("⚠ Falta spice-gtk (binding Python): "
+                        "SPICE embebida se abrirá como visor externo.")
+                style = (
+                    "font-size:11px; padding:2px 6px; border-radius:4px; "
+                    "background: #fff3cd; color: #7a5b00; font-weight:bold;"
+                )
+            else:
+                text = "SPICE embebida: lista para usarse."
+                style = (
+                    "font-size:11px; padding:2px 6px; border-radius:4px; "
+                    "background: #e6f4ea; color: #1e7e34;"
+                )
+        elif protocol == "spice" and mode in ("external", "hybrid"):
+            try:
+                from console_backend import find_spice_viewer
+                viewer, _tpl = find_spice_viewer()
+            except Exception:
+                viewer = None
+            if viewer:
+                text = f"SPICE externa: se usará {viewer.rsplit('/', 1)[-1]}."
+                style = (
+                    "font-size:11px; padding:2px 6px; border-radius:4px; "
+                    "background: #e6f4ea; color: #1e7e34;"
+                )
+            else:
+                text = ("⚠ No hay visor SPICE instalado "
+                        "(spicy o remote-viewer).")
+                style = (
+                    "font-size:11px; padding:2px 6px; border-radius:4px; "
+                    "background: #fdecea; color: #b71c1c; font-weight:bold;"
+                )
+        elif protocol == "vnc" and mode == "embedded":
+            text = "VNC embebida: lista para usarse."
+            style = (
+                "font-size:11px; padding:2px 6px; border-radius:4px; "
+                "background: #e6f4ea; color: #1e7e34;"
+            )
+        elif protocol == "vnc" and mode in ("external", "hybrid"):
+            try:
+                from console_backend import find_vnc_viewer
+                viewer, _tpl = find_vnc_viewer()
+            except Exception:
+                viewer = None
+            if viewer:
+                text = f"VNC externa: se usará {viewer.rsplit('/', 1)[-1]}."
+                style = (
+                    "font-size:11px; padding:2px 6px; border-radius:4px; "
+                    "background: #e6f4ea; color: #1e7e34;"
+                )
+            else:
+                text = "⚠ No hay visor VNC instalado."
+                style = (
+                    "font-size:11px; padding:2px 6px; border-radius:4px; "
+                    "background: #fdecea; color: #b71c1c; font-weight:bold;"
+                )
+        elif mode == "native":
+            text = "Ventana nativa de QEMU: no hay visor externo ni embebido."
+            style = (
+                "font-size:11px; padding:2px 6px; border-radius:4px; "
+                "background: transparent; color: #757575;"
+            )
+
+        if not vm_selected:
+            text = ""
+            style = (
+                "font-size:11px; padding:2px 6px; border-radius:4px; "
+                "background: transparent; color: #757575;"
+            )
+
+        label.setText(text)
+        label.setStyleSheet(style)
+
+    def _sync_console_widget(self, state):
+        """Despacha a VNC o SPICE según la elección guardada en la VM.
+
+        Modos soportados:
+          • native   → nada: QEMU abre su ventana.
+          • embedded → widget embebido (VNC o SPICE; SPICE cae a externo en Wayland).
+          • external → visor externo del sistema.
+          • hybrid   → widget VNC embebido + visor SPICE externo en paralelo.
+
+        Además: si el modo actual NO necesita visor externo, mata el que
+        hubiera (por ejemplo al cambiar de hybrid a embedded VNC).
+        """
+        protocol = PROTOCOL_VNC
+        mode = MODE_EMBEDDED
+        if self.current_vm_dir:
+            try:
+                cfg = load_vm_config(self.current_vm_dir)
+                _extra = cfg.get("extra") or {}
+                protocol = str(_extra.get("console_protocol") or PROTOCOL_VNC).lower()
+                mode = str(_extra.get("console_mode") or "").lower()
+                if not mode:
+                    mode = MODE_EMBEDDED if _extra.get("vnc_embedded", True) else MODE_NATIVE
+            except Exception:
+                pass
+
+        if mode == MODE_NATIVE:
+            return
+
+        if mode == MODE_HYBRID:
+            # Widget VNC embebido (funciona en Wayland y X11) + visor SPICE
+            # externo (spicy o remote-viewer). QEMU expone ambos a la vez.
+            self._sync_embedded_vnc(state)
+            self._sync_external_viewer(state, PROTOCOL_SPICE)
+            return
+
+        if mode == MODE_EXTERNAL:
+            self._sync_external_viewer(state, protocol)
+            return
+
+        # mode == MODE_EMBEDDED
+        if protocol == PROTOCOL_VNC:
+            # Antes de mostrar el widget VNC, matar cualquier visor externo
+            # que hubiera (por si el usuario cambió de hybrid a embedded).
+            proc = getattr(self, "_external_viewer_proc", None)
+            if proc is not None:
+                try:
+                    if proc.poll() is None:
+                        proc.terminate()
+                except Exception:
+                    pass
+                self._external_viewer_proc = None
+            self._sync_embedded_vnc(state)
+        else:
+            self._sync_spice_widget(state, mode)
+
+
+    def _kill_stale_spice_viewers(self):
+        """Mata cualquier spicy/remote-viewer huérfano de intentos previos.
+
+        Es útil sobre todo durante el desarrollo: si el flag se quedó mal y
+        se lanzaron varios visores seguidos, al arrancar limpiamos. En
+        producción el bucle está evitado por el flag _external_viewer_proc
+        + ventana de gracia.
+        """
+        import shutil as _sh
+        import subprocess as _sp
+        for name in ("spicy", "remote-viewer"):
+            binary = _sh.which(name)
+            if not binary:
+                continue
+            try:
+                _sp.run(["pkill", "-f", binary], check=False,
+                        stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, timeout=2)
+            except Exception:
+                pass
+
+    def _viewer_popen_env(self):
+        """Env para lanzar el visor externo con backend X11.
+
+        En sesiones Wayland, GTK 3/4 prefiere el backend Wayland. Eso
+        hace que wmctrl (herramienta X11) no pueda ver la ventana, y por
+        tanto no se pueda subir al frente al seleccionar la VM en la
+        lista. Forzamos GDK_BACKEND=x11 para que corra a través de
+        Xwayland: visualmente igual, pero visible por wmctrl.
+
+        También forzamos QT_QPA_PLATFORM=xcb por si algún visor es Qt.
+        """
+        import os as _os
+        env = _os.environ.copy()
+        env["GDK_BACKEND"] = "x11"
+        env["QT_QPA_PLATFORM"] = "xcb"
+        return env
+
+    def _on_external_fullscreen_toggled(self, checked):
+        """Guarda la elección y la aplica al próximo lanzamiento."""
+        from PyQt6.QtCore import QSettings
+        QSettings().setValue("console/external_fullscreen", bool(checked))
+
+    def _external_fullscreen_args(self, viewer_path):
+        """Devuelve la lista de argumentos para pantalla completa del visor.
+
+        No todos los visores aceptan la misma bandera; probamos la más
+        habitual por orden de preferencia y, si no, devolvemos vacío
+        (el visor se abrirá en ventana normal).
+        """
+        chk = getattr(self, "chk_external_fullscreen", None)
+        if chk is None or not chk.isChecked():
+            return []
+        import os as _os
+        name = _os.path.basename(str(viewer_path or "")).lower()
+        if "remote-viewer" in name:
+            return ["-f"]
+        if "spicy" in name:
+            return ["--full-screen"]
+        if "vncviewer" in name or "tigervnc" in name:
+            return ["-FullScreen"]
+        if "gvncviewer" in name:
+            # gvncviewer no soporta fullscreen por CLI de forma fiable.
+            return []
+        return []
+
+    def _sync_external_viewer(self, state, protocol):
+        """Gestiona el visor externo DEL VM ACTUAL.
+
+        Estructura:
+          • self._external_viewers = {vm_dir: {
+                "proc": Popen,
+                "protocol": "vnc" | "spice",
+                "last_launch": float,
+            }}
+          • Cada VM tiene su propio visor. Cambiar de VM en la lista
+            lateral NO cierra el visor de las otras VMs.
+          • Cuando una VM se apaga, se cierra SU visor.
+          • Cuando vuelves a una VM que ya tenía su visor abierto, no se
+            relanza: el visor se queda como estaba.
+
+        Anti-bucle: si el visor de ESTA VM murió hace <30 s, no se
+        relanza por sí solo. El usuario puede forzar con el botón
+        "Abrir en ventana externa".
+        """
+        if not self.current_vm_dir:
+            return
+
+        import time as _time
+        if not hasattr(self, "_external_viewers"):
+            self._external_viewers = {}
+
+        vm_dir = self.current_vm_dir
+
+        # --- Detener: cerrar SOLO el visor de esta VM ---
+        if state != "running":
+            entry = self._external_viewers.pop(vm_dir, None)
+            if entry:
+                p = entry.get("proc")
+                try:
+                    if p is not None and p.poll() is None:
+                        p.terminate()
+                except Exception:
+                    pass
+            return
+
+        # --- Corriendo: decidir si hay que lanzar ---
+        entry = self._external_viewers.get(vm_dir)
+        if entry is not None:
+            p = entry.get("proc")
+            same_proto = entry.get("protocol") == protocol
+            alive = p is not None and p.poll() is None
+
+            # ¿Vivo y con el mismo protocolo? → no relanzar.
+            if alive and same_proto:
+                return
+
+            # ¿Vivo pero con OTRO protocolo? → cerrar el viejo y relanzar.
+            if alive and not same_proto:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+                self._external_viewers.pop(vm_dir, None)
+
+            # ¿Muerto hace poco? → respetar ventana de gracia (30 s).
+            elif not alive:
+                last = entry.get("last_launch", 0.0)
+                if _time.monotonic() - last < 30.0:
+                    return
+                self._external_viewers.pop(vm_dir, None)
+
+        # --- Resolver sock / viewer / template ---
+        _spice_port = None
+        if protocol == PROTOCOL_SPICE:
+            _spice_port = self._spice_port_from_runtime()
+            if _spice_port is None:
+                try:
+                    self.vnc_label_status.setText("Iniciando SPICE… esperando puerto")
+                    self.log_message("==> SPICE: aún no encuentro el puerto en run_temp.sh.")
+                except Exception:
+                    pass
+                return
+            sock = f"spice://127.0.0.1:{_spice_port}"
+        else:
+            sock = _cb_socket_path(vm_dir, protocol)
+            if not os.path.exists(sock):
+                try:
+                    self.vnc_label_status.setText(
+                        f"Iniciando {protocol.upper()}… esperando socket"
+                    )
+                    self.log_message(
+                        f"==> {protocol.upper()}: aún no existe el socket {sock}."
+                    )
+                except Exception:
+                    pass
+                return
+
+        viewer, template = find_viewer(protocol)
+        if not viewer:
+            try:
+                self.vnc_label_status.setText(
+                    f"{protocol.upper()} externo: instala un visor"
+                )
+                self.log_message(
+                    f"[AVISO] {protocol.upper()} externo solicitado, pero no "
+                    "hay visor instalado."
+                )
+            except Exception:
+                pass
+            return
+
+        try:
+            import subprocess as _sp
+            uri = console_uri(protocol, sock)
+            args = [viewer] + build_viewer_args(
+                template, sock, uri, port=_spice_port
+            )
+            args += self._external_fullscreen_args(viewer)
+            self.log_message(
+                f"[DIAG] {protocol.upper()} externo: "
+                f"viewer={viewer}, target={sock}, "
+                f"args={' '.join(args)}"
+            )
+            proc = _sp.Popen(
+                args, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                start_new_session=True,
+                env=self._viewer_popen_env(),
+            )
+            self._register_external_viewer(vm_dir, proc, protocol)
+            try:
+                self.vnc_label_status.setText(
+                    f"{protocol.upper()} en ventana externa "
+                    f"({os.path.basename(viewer)})"
+                )
+                self.log_message(
+                    f"==> {protocol.upper()}: visor externo lanzado: "
+                    + " ".join(args)
+                )
+                self._focus_console_tab()
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] {protocol.upper()} externo: {e}")
+            except Exception:
+                pass
+
+
+    def _spice_port_from_runtime(self):
+        """Extrae el puerto SPICE que QEMU está usando realmente.
+
+        Lee run_temp.sh (el script que lanzó QEMU) y busca el argumento
+        -spice port=NNNN. Es más fiable que adivinar: el puerto se eligió
+        en el momento de construir los args y ahí quedó registrado.
+        """
+        if not self.current_vm_dir:
+            return None
+        run_sh = os.path.join(self.current_vm_dir, "run_temp.sh")
+        if not os.path.isfile(run_sh):
+            return None
+        try:
+            with open(run_sh, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        except OSError:
+            return None
+        m = re.search(r"-spice\s+port=(\d+)", content)
+        if not m:
+            return None
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return None
+
+    def _sync_spice_widget(self, state, mode):
+        """Conecta SPICE embebido o lanza/mata el visor externo.
+
+        Como ahora SPICE va por TCP local, no comprobamos la existencia de
+        un archivo de socket: en su lugar leemos el puerto real desde
+        run_temp.sh (que QEMU usa). Si no lo encontramos, esperamos.
+        """
+        if not hasattr(self, "vnc_placeholder"):
+            return
+        if getattr(self, "_console_tab_index", -1) < 0:
+            return
+
+        # --- Detener: matar visor y limpiar widget ---
+        if state != "running":
+            proc = getattr(self, "_external_viewer_proc", None)
+            if proc is not None:
+                try:
+                    if proc.poll() is None:
+                        proc.terminate()
+                except Exception:
+                    pass
+                self._external_viewer_proc = None
+            sw = getattr(self, "spice_widget", None)
+            if sw is not None:
+                try:
+                    if hasattr(sw, "stop"):
+                        sw.stop()
+                    layout = self.console_page.layout()
+                    if layout is not None:
+                        layout.replaceWidget(sw, self.vnc_placeholder)
+                    sw.deleteLater()
+                except Exception:
+                    pass
+                self.spice_widget = None
+                self._spice_widget_vm_dir = None
+                try:
+                    self.vnc_placeholder.show()
+                    self.vnc_placeholder.setText("Esperando conexión de la VM…")
+                    self.vnc_label_status.setText("La VM no está corriendo.")
+                except Exception:
+                    pass
+            return
+
+        # --- Corriendo ---
+        if not self.current_vm_dir:
+            return
+
+        # Si el widget SPICE está conectado a OTRA VM, destruirlo.
+        sw = getattr(self, "spice_widget", None)
+        widget_vm = getattr(self, "_spice_widget_vm_dir", None)
+        if sw is not None and widget_vm and widget_vm != self.current_vm_dir:
+            try:
+                self.log_message(
+                    "==> SPICE: cambio de VM en la lista; reconectando la consola embebida."
+                )
+            except Exception:
+                pass
+            self._destroy_embedded_console_widget()
+
+        port = self._spice_port_from_runtime()
+        if port is None:
+            try:
+                self.vnc_label_status.setText("Iniciando SPICE… esperando puerto")
+                self.log_message(
+                    "==> SPICE: aún no encuentro el puerto en run_temp.sh."
+                )
+            except Exception:
+                pass
+            return
+
+        if mode == MODE_EXTERNAL:
+            self._sync_external_viewer(state, PROTOCOL_SPICE)
+            return
+
+        if getattr(self, "_spice_embed_disabled", False):
+            self._sync_external_viewer(state, PROTOCOL_SPICE)
+            return
+        if getattr(self, "spice_widget", None) is not None:
+            return
+
+        try:
+            _can_embed = bool(can_embed_spice())
+        except Exception:
+            _can_embed = False
+
+        if not _can_embed:
+            try:
+                self.log_message(
+                    "==> SPICE: no se puede embeber aquí "
+                    "(Wayland o sin spice-gtk para Python); visor externo."
+                )
+            except Exception:
+                pass
+            self._spice_embed_disabled = True
+            self._sync_external_viewer(state, PROTOCOL_SPICE)
+            return
+
+        if not _HAS_SPICE_WIDGET:
+            self._spice_embed_disabled = True
+            self._sync_external_viewer(state, PROTOCOL_SPICE)
+            return
+
+        try:
+            self.spice_widget = SpiceConsoleWidget(
+                parent=self.console_page,
+                socket_path=f"spice://127.0.0.1:{port}",
+                vm_name=os.path.basename(self.current_vm_dir),
+                log_func=self.log_message,
+            )
+            try:
+                self.spice_widget.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+                )
+            except Exception:
+                pass
+            try:
+                self.spice_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            except Exception:
+                pass
+            layout = self.console_page.layout()
+            if layout is not None:
+                layout.replaceWidget(self.vnc_placeholder, self.spice_widget)
+                self.vnc_placeholder.hide()
+            self._spice_widget_vm_dir = self.current_vm_dir
+            self._spice_widget_vm_dir = self.current_vm_dir
+            self.vnc_label_status.setText(f"SPICE: 127.0.0.1:{port}")
+            self.log_message(f"==> SPICE: widget embebido (127.0.0.1:{port}).")
+            self._focus_console_tab()
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] No se pudo crear el widget SPICE: {e}")
+            except Exception:
+                pass
+            self.spice_widget = None
+            self._spice_widget_vm_dir = None
+            self._spice_embed_disabled = True
+            self._sync_external_viewer(state, PROTOCOL_SPICE)
+
+
+    def _sync_embedded_vnc(self, state):
+        """Conecta/desconecta el widget VNC según el estado de la VM.
+
+        NOTA: el filtro antiguo _NormalVNCKeyFilter fue eliminado porque
+        llamaba a keyPressEvent() directamente, bypaseando el flujo normal
+        de eventos de Qt y rompiendo el envío de teclas al guest. Ahora se
+        usa VNCFocusKeyboardFilter, que captura el teclado correctamente
+        (grabKeyboard + XGrabKeyboard) y deja que el widget reciba las
+        teclas por su flujo normal.
+        """
+        if not hasattr(self, "vnc_widget") and not hasattr(self, "vnc_placeholder"):
+            return
+        if getattr(self, "_console_tab_index", -1) < 0:
+            return
+
+        vnc_connected = getattr(self, "vnc_widget", None) is not None
+
+        # Si el widget está conectado a OTRA VM (el usuario cambió la
+        # selección en la lista lateral), destruirlo: apunta al socket
+        # de la VM anterior, no de la nueva.
+        widget_vm = getattr(self, "_vnc_widget_vm_dir", None)
+        if vnc_connected and widget_vm and widget_vm != self.current_vm_dir:
+            try:
+                self.log_message(
+                    "==> VNC: cambio de VM en la lista; reconectando la consola embebida."
+                )
+            except Exception:
+                pass
+            self._destroy_embedded_console_widget()
+            vnc_connected = False
+
+        if state == "running" and not vnc_connected:
+            socket_path = os.path.join(self.current_vm_dir, "qemu.vnc.sock") if self.current_vm_dir else ""
+            if not socket_path or not os.path.exists(socket_path):
+                try:
+                    self.vnc_label_status.setText("Iniciando VNC… esperando socket")
+                except Exception:
+                    pass
+                return
+            try:
+                from vnc_widget_centered import CenteredVNCWidget as QVNCWidget
+                import logging
+                logging.basicConfig(
+                    level=logging.DEBUG,
+                    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+                )
+                logging.getLogger("QVNCWidget").setLevel(logging.DEBUG)
+                logging.getLogger("rfb").setLevel(logging.DEBUG)
+                logging.getLogger("RFB").setLevel(logging.DEBUG)
+
+                self.vnc_widget = QVNCWidget(
+                    parent=self.console_page,
+                    host=socket_path,
+                    port=0,
+                    password="",
+                    readOnly=False,
+                )
+                from PyQt6.QtWidgets import QSizePolicy as _QSP, QScrollArea as _QScrollArea
+                from PyQt6.QtCore import Qt as _Qt
+                self.vnc_widget.setSizePolicy(_QSP.Policy.Expanding, _QSP.Policy.Expanding)
+                self.vnc_widget.setMinimumSize(320, 240)
+                self.vnc_widget.setFocusPolicy(_Qt.FocusPolicy.StrongFocus)
+                # Forzar política de foco para que reciba eventos de teclado al
+                # hacer clic, sin depender de que el usuario pulse Tab.
+                self.vnc_widget.setAttribute(_Qt.WidgetAttribute.WA_InputMethodEnabled, False)
+
+                self.vnc_scroll_area = _QScrollArea()
+                self.vnc_scroll_area.setFrameShape(_QScrollArea.Shape.NoFrame)
+                self.vnc_scroll_area.setWidget(self.vnc_widget)
+                self._apply_vnc_display_mode()
+
+                # Resetear el flag de auto-reconexión al crear un widget nuevo.
+                try:
+                    self.vnc_widget.start()
+                    self.log_message(f"==> VNC: iniciando conexión al socket {os.path.basename(socket_path)}")
+                except Exception as vnc_err:
+                    self.log_message(f"[AVISO] No se pudo iniciar el cliente VNC: {vnc_err}")
+
+
+                # Filtro de foco/captura de teclado (v2).
+                try:
+                    from vnc_focus_filter import VNCFocusKeyboardFilter
+                    self._vnc_focus_filter = VNCFocusKeyboardFilter(self, self.vnc_widget)
+                    self.vnc_widget.installEventFilter(self._vnc_focus_filter)
+                except Exception as focus_err:
+                    self.log_message(f"[AVISO] No se pudo instalar el filtro de foco del VNC: {focus_err}")
+
+                # Watcher de resolución: detecta cambios del framebuffer del guest
+                # (por ejemplo tras restaurar un snapshot con otra resolución)
+                # y reajusta el modo de visualización del widget.
+                try:
+                    self._start_vnc_resize_watcher()
+                except Exception as watcher_err:
+                    self.log_message(
+                        f"[AVISO] No se pudo iniciar el watcher de resolución VNC: {watcher_err}"
+                    )
+
+                from PyQt6.QtCore import QTimer as _QTimer
+                # Damos foco tras un instante para que la ventana ya esté mapeada
+                # y el XGrabKeyboard del filtro pueda aplicarse con éxito.
+                _QTimer.singleShot(250, lambda w=self.vnc_widget: w.setFocus())
+
+                # Reaplicar el modo de visualización varias veces durante
+                # los primeros segundos, para atrapar los cambios de
+                # resolución que hace el guest tras arrancar.
+                try:
+                    self._schedule_vnc_display_refresh()
+                except Exception as _refresh_err:
+                    self.log_message(
+                        "[AVISO] No se pudo programar el refresco del VNC: "
+                        + str(_refresh_err)
+                    )
+                if hasattr(self, "btn_vnc_fullscreen") and self.btn_vnc_fullscreen is not None:
+                    self.btn_vnc_fullscreen.setEnabled(True)
+                layout = self.console_page.layout()
+                if layout is not None:
+                    layout.replaceWidget(self.vnc_placeholder, self.vnc_scroll_area)
+                    self.vnc_placeholder.hide()
+                self._vnc_widget_vm_dir = self.current_vm_dir
+                self.vnc_label_status.setText(f"Conectado a {os.path.basename(socket_path)}")
+                self._focus_console_tab()
+            except Exception as e:
+                # Enviar el error completo a la Consola de Progreso para que
+                # el usuario lo vea sin tener que mirar el terminal. Incluye
+                # el traceback completo, que es lo único que permite
+                # diagnosticar la causa real.
+                try:
+                    import traceback as _tb
+                    tb = _tb.format_exc()
+                    self.log_message(
+                        f"[ERROR] No se pudo crear/conectar el widget VNC: {e}"
+                    )
+                    # Volcar el traceback línea por línea para que aparezca
+                    # completo en la consola.
+                    for line in tb.splitlines():
+                        self.log_message("    " + line)
+                except Exception as log_err:
+                    # Último recurso: si log_message falla, escribirlo en stderr.
+                    import sys as _sys
+                    print(f"[VNC ERROR] {e}", file=_sys.stderr)
+                    print(f"[VNC ERROR al loguear] {log_err}", file=_sys.stderr)
+                # Mostrar un mensaje corto en la barra del widget.
+                try:
+                    self.vnc_label_status.setText(f"Error al conectar VNC: {e}")
+                except Exception:
+                    pass
+                self.vnc_widget = None
+                self._vnc_widget_vm_dir = None
+                self._vnc_widget_vm_dir = None
+
+        elif state == "stopped" and vnc_connected:
+            try:
+                # Desinstalar el filtro de foco ANTES de destruir el widget, para
+                # que el X11 ungrab se ejecute y el teclado vuelva al host.
+                focus_filter = getattr(self, "_vnc_focus_filter", None)
+                if focus_filter is not None and self.vnc_widget is not None:
+                    try:
+                        focus_filter.detach()
+                        self.vnc_widget.removeEventFilter(focus_filter)
+                    except Exception:
+                        pass
+                self._vnc_focus_filter = None
+
+                layout = self.console_page.layout()
+                scroll_area = getattr(self, "vnc_scroll_area", None)
+                if layout is not None and scroll_area is not None:
+                    layout.replaceWidget(scroll_area, self.vnc_placeholder)
+                if scroll_area is not None:
+                    scroll_area.takeWidget()
+                    scroll_area.deleteLater()
+                self.vnc_widget.deleteLater()
+            except Exception:
+                pass
+            if getattr(self, "_vnc_fullscreen_window", None) is not None:
+                try:
+                    self._close_vnc_fullscreen()
+                except Exception:
+                    pass
+            self.vnc_widget = None
+            self.vnc_scroll_area = None
+            self._vnc_widget_vm_dir = None
+            try:
+                self.vnc_placeholder.show()
+                self.vnc_placeholder.setText("Esperando conexión de la VM…")
+                self.vnc_label_status.setText("La VM no está corriendo.")
+                if hasattr(self, "btn_vnc_fullscreen") and self.btn_vnc_fullscreen is not None:
+                    self.btn_vnc_fullscreen.setEnabled(False)
+            except Exception:
+                pass
+
+
+    def _schedule_vnc_display_refresh(self):
+        """Programa varias reaplicaciones del modo de visualización del VNC.
+
+        Razon: durante el arranque del guest, la resolución del framebuffer
+        cambia varias veces (framebuffer VNC inicial → boot del guest →
+        resolución de usuario). Cada cambio puede dejar el widget con
+        dimensiones temporales que hay que corregir. En vez de esperar al
+        watcher periódico, disparamos varios refrescos concretos en los
+        primeros segundos tras conectar.
+        """
+        from PyQt6.QtCore import QTimer as _QTimer
+        # Delays en milisegundos. Los tres momentos cubren:
+        #   400 ms  → primer handshake RFB
+        #   1200 ms → guest arrancando
+        #   2500 ms → guest a resolución final
+        #   5000 ms → por si el guest tarda más en estabilizar
+        for delay_ms in (400, 1200, 2500, 5000):
+            _QTimer.singleShot(
+                delay_ms,
+                lambda: self._force_widget_relayout()
+                if getattr(self, "vnc_widget", None) is not None else None,
+            )
+
+    def _apply_vnc_display_mode(self):
+        """Reaplica el modo de visualización del widget VNC.
+
+        Defensivo: puede llamarse antes de que el widget VNC haya
+        completado el handshake RFB. En ese momento los atributos
+        vncWidth / vncHeight todavía no existen. Se llama igualmente:
+        set_fit_to_window() ahora tolera esa situación y, cuando llegue
+        la señal onInitialResize con las dimensiones reales, se
+        reaplicará el modo automáticamente.
+        """
+        widget = getattr(self, "vnc_widget", None)
+        scroll_area = getattr(self, "vnc_scroll_area", None)
+        if widget is None or scroll_area is None:
+            return
+
+        try:
+            from PyQt6.QtCore import Qt as _Qt
+        except Exception:
+            return
+
+        chk = getattr(self, "chk_vnc_real_size", None)
+        real_size = bool(chk.isChecked()) if chk is not None else False
+
+        try:
+            widget.set_fit_to_window(not real_size)
+        except Exception as e:
+            # No re-lanzar: si falla aquí, en la próxima pasada del watcher
+            # (o cuando llegue onInitialResize) se reintentará.
+            try:
+                self.log_message(
+                    f"[AVISO] VNC: no se pudo aplicar el modo todavía ({e})."
+                )
+            except Exception:
+                pass
+
+        try:
+            scroll_area.setWidgetResizable(not real_size)
+            bar_policy = (
+                _Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                if not real_size
+                else _Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            )
+            scroll_area.setHorizontalScrollBarPolicy(bar_policy)
+            scroll_area.setVerticalScrollBarPolicy(bar_policy)
+            scroll_area.viewport().update()
+        except Exception:
+            pass
+
+
+    def _on_vnc_real_size_toggled(self, checked):
+        from PyQt6.QtCore import QSettings
+        QSettings().setValue("console/vnc_real_size", bool(checked))
+        self._apply_vnc_display_mode()
+
+    def _update_usb_button_state(self, state):
+        """Habilita el botón USB sólo si hay VM y está encendida.
+
+        Con la VM apagada o sin VM seleccionada, el menú del botón
+        mostraría un mensaje poco útil; es mejor deshabilitarlo.
+        """
+        btn = getattr(self, "btn_vm_usb", None)
+        if btn is None:
+            return
+        try:
+            btn.setEnabled(self._vm_is_selected() and state in ("running", "paused"))
+        except Exception:
+            pass
+
+    # ==================================================================
+    # Watchdog de QEMU: detecta muerte inesperada y muestra el motivo
+    # ==================================================================
+    # refresh_vm_runtime_status corre cada 1.5 s. Aquí comparamos el
+    # estado actual de cada VM con el guardado en _vm_last_state. Si una
+    # VM pasó de running/paused a stopped, distinguimos dos casos:
+    #
+    #   1. El usuario apagó la VM → el trap EXIT de run_temp.sh borró
+    #      qemu.pid. No hay nada que reportar.
+    #   2. QEMU se cayó solo → el pid file sigue ahí pero el proceso ya
+    #      no existe. Logueamos las últimas líneas de launch.log para
+    #      que el usuario sepa qué pasó (falta de RAM, /dev/kvm ocupado,
+    #      un dispositivo incompatible…).
+
+    def _vm_last_log_lines(self, vm_dir, n=15):
+        """Devuelve las últimas n líneas no vacías de launch.log, o []."""
+        log_path = os.path.join(vm_dir, "launch.log")
+        if not os.path.isfile(log_path):
+            return []
+        try:
+            # Leemos solo el final: los logs pueden ser grandes.
+            with open(log_path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                # 8 KB es suficiente para ~50-100 líneas típicas.
+                block = min(size, 8192)
+                f.seek(size - block)
+                raw = f.read().decode("utf-8", errors="replace")
+            lines = [ln for ln in raw.splitlines() if ln.strip()]
+            return lines[-n:]
+        except Exception:
+            return []
+
+    def _watchdog_detect_death(self, vm_name):
+        """True si esta VM murió de forma inesperada.
+
+        Criterio: el estado anterior era running o paused, el actual es
+        stopped, y qemu.pid sigue existiendo (el trap de QEMU no llegó a
+        borrarlo porque el proceso no salió de forma ordenada).
+        """
+        prev = getattr(self, "_vm_last_state", {}).get(vm_name)
+        if prev not in ("running", "paused"):
+            return False
+        vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
+        pid_path = os.path.join(vm_dir, "qemu.pid")
+        return os.path.isfile(pid_path)
+
+    def _watchdog_report_death(self, vm_name):
+        """Loguea el motivo probable de la muerte de QEMU.
+
+        Además limpia el pid file (ya no sirve para nada) y marca la VM
+        en la lista lateral para que el usuario la vea destacada.
+        """
+        vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
+        try:
+            self.log_message("")
+            self.log_message(
+                "=" * 62
+            )
+            self.log_message(
+                f"[ERROR] La VM '{vm_name}' se detuvo de forma inesperada."
+            )
+            self.log_message(
+                "        QEMU ya no está corriendo, pero dejó su pid file."
+            )
+            self.log_message(
+                "        Últimas líneas de launch.log:"
+            )
+            for ln in self._vm_last_log_lines(vm_dir, n=15):
+                self.log_message(f"        {ln}")
+            self.log_message(
+                "        Sugerencia: revisa el log completo con "
+                "'Ver log completo'. Causas frecuentes: /dev/kvm ocupado, "
+                "RAM insuficiente, un dispositivo incompatible, o error de "
+                "configuración."
+            )
+            self.log_message("=" * 62)
+            self.log_message("")
+        except Exception:
+            pass
+
+        # Limpiar pid file muerto (ya no vale para nada).
+        try:
+            pid_path = os.path.join(vm_dir, "qemu.pid")
+            if os.path.isfile(pid_path):
+                os.remove(pid_path)
+        except OSError:
+            pass
+
+        # Marcar la VM con ⚠️ en la lista hasta que el usuario la abra.
+        try:
+            self._vm_death_flag = getattr(self, "_vm_death_flag", set())
+            self._vm_death_flag.add(vm_name)
+        except Exception:
+            pass
+
+    def _watchdog_update_states(self):
+        """Recorre todas las VMs, compara con el estado anterior y actúa.
+
+        Se llama desde refresh_vm_runtime_status una vez por tick.
+        """
+        try:
+            if not hasattr(self, "vm_list"):
+                return
+            if not hasattr(self, "_vm_last_state"):
+                self._vm_last_state = {}
+
+            for i in range(self.vm_list.count()):
+                item = self.vm_list.item(i)
+                if item is None:
+                    continue
+                name = self._vm_name_from_list_text(item.text())
+                if not name:
+                    continue
+                state = self._runtime_state(name)
+                prev = self._vm_last_state.get(name)
+
+                # Detección de muerte inesperada.
+                if (prev in ("running", "paused")
+                        and state == "stopped"
+                        and self._watchdog_detect_death(name)):
+                    self._watchdog_report_death(name)
+
+                self._vm_last_state[name] = state
+
+            # Purgar entradas de VMs que ya no existen.
+            known = set()
+            for i in range(self.vm_list.count()):
+                known.add(self._vm_name_from_list_text(self.vm_list.item(i).text()))
+            for k in list(self._vm_last_state.keys()):
+                if k not in known:
+                    self._vm_last_state.pop(k, None)
+        except Exception:
+            pass
+
+    # ==================================================================
+    # Foco de la consola al seleccionar una VM
+    # ==================================================================
+    # Reglas:
+    #   • VM apagada                    → pestaña Resumen.
+    #   • VM corriendo + visor externo  → subir la ventana externa.
+    #   • VM corriendo + embebida/etc.  → pestaña Consola Gráfica.
+
+    def _focus_external_window_for_vm(self, vm_dir, vm_name):
+        """Intenta subir la ventana del visor externo de esta VM.
+
+        Estrategia:
+          1. Por PID del Popen registrado en _external_viewers.
+          2. Por WM_CLASS del visor (Spicy, Remote-viewer, Vncviewer...).
+          3. Por título que contenga "spice", "vnc" o el nombre de la VM.
+
+        Devuelve True si subió alguna ventana. Si todos los intentos
+        fallan, hace un volcado de diagnóstico de `wmctrl` (una vez por
+        sesión) para que el usuario pueda pegarlo en un reporte.
+        """
+        import shutil as _sh
+        wmctrl = _sh.which("wmctrl")
+        if not wmctrl:
+            self._warn_wmctrl_once()
+            return False
+
+        # ---- 1) Por PID registrado ----
+        entry = (getattr(self, "_external_viewers", {}) or {}).get(vm_dir)
+        proc = (entry or {}).get("proc")
+        if proc is not None and proc.poll() is None:
+            if self._focus_window_by_pid(proc.pid):
+                try:
+                    self.log_message(
+                        f"[DIAG] Visor externo de '{vm_name}': ventana subida por PID {proc.pid}."
+                    )
+                except Exception:
+                    pass
+                return True
+            try:
+                self.log_message(
+                    f"[DIAG] Visor externo de '{vm_name}': wmctrl no encontró "
+                    f"ventana para PID {proc.pid}; probando WM_CLASS y título."
+                )
+            except Exception:
+                pass
+
+        # ---- 2) Por WM_CLASS del visor ----
+        classes_to_try = [
+            # GTK-based (spicy, remote-viewer, gvncviewer)
+            "Spicy", "spicy",
+            "Remote-viewer", "remote-viewer", "remote_viewer",
+            "Gvncviewer", "gvncviewer", "gtk-vnc", "gtk_vnc",
+            "Vinagre", "vinagre",
+            "Remmina", "remmina", "org.remmina.Remmina",
+            # TigerVNC (FLTK)
+            "Vncviewer", "vncviewer", "tigervnc", "TigerVNC",
+            # Cualquier ventana cuyo título contenga 'vnc' o 'spice'
+            # (el substring match por título cubre el resto).
+        ]
+        for cls in classes_to_try:
+            if self._focus_window_by_class(cls):
+                try:
+                    self.log_message(
+                        f"[DIAG] Visor externo de '{vm_name}': ventana subida "
+                        f"por WM_CLASS '{cls}'."
+                    )
+                except Exception:
+                    pass
+                return True
+
+        # ---- 3) Por título ----
+        titles_to_try = ["spice", "vnc", vm_name]
+        for title in titles_to_try:
+            if title and self._focus_window_by_title_substr(title):
+                try:
+                    self.log_message(
+                        f"[DIAG] Visor externo de '{vm_name}': ventana subida "
+                        f"por título que contiene '{title}'."
+                    )
+                except Exception:
+                    pass
+                return True
+
+        try:
+            self.log_message(
+                f"[DIAG] No se encontró ninguna ventana externa para '{vm_name}'."
+            )
+        except Exception:
+            pass
+        self._dump_wmctrl_once()
+        return False
+
+    def _focus_window_by_class(self, wm_class):
+        """Sube la primera ventana cuyo WM_CLASS contenga `wm_class`."""
+        import subprocess as _sp
+        try:
+            r = _sp.run(["wmctrl", "-lx"], capture_output=True, text=True, timeout=3)
+        except Exception:
+            return False
+        if r.returncode != 0:
+            return False
+        needle = wm_class.lower()
+        for line in r.stdout.splitlines():
+            parts = line.split(None, 4)
+            if len(parts) < 4:
+                continue
+            wid = parts[0]
+            wclass = parts[2].lower()
+            if needle in wclass:
+                try:
+                    r2 = _sp.run(["wmctrl", "-i", "-a", wid],
+                                 capture_output=True, text=True, timeout=3)
+                    return r2.returncode == 0
+                except Exception:
+                    return False
+        return False
+
+    def _focus_window_by_title_substr(self, substr):
+        """Sube la primera ventana cuyo título contenga `substr`."""
+        import subprocess as _sp
+        needle = (substr or "").lower()
+        if not needle:
+            return False
+        try:
+            r = _sp.run(["wmctrl", "-l"], capture_output=True, text=True, timeout=3)
+        except Exception:
+            return False
+        if r.returncode != 0:
+            return False
+        for line in r.stdout.splitlines():
+            parts = line.split(None, 3)
+            if len(parts) < 4:
+                continue
+            wid = parts[0]
+            title = parts[3].lower()
+            if needle in title:
+                try:
+                    r2 = _sp.run(["wmctrl", "-i", "-a", wid],
+                                 capture_output=True, text=True, timeout=3)
+                    return r2.returncode == 0
+                except Exception:
+                    return False
+        return False
+
+    def _dump_wmctrl_once(self):
+        """Vuelca wmctrl -lp y -lx al log UNA VEZ por sesión.
+
+        Solo cuando todos los intentos de subir una ventana fallaron.
+        Sirve para que el usuario pueda compartir la salida y diagnosticar
+        por qué wmctrl no encuentra el visor externo.
+        """
+        if getattr(self, "_wmctrl_dumped", False):
+            return
+        self._wmctrl_dumped = True
+        import subprocess as _sp
+        for args in (["-lp"], ["-lx"]):
+            try:
+                r = _sp.run(["wmctrl"] + args, capture_output=True, text=True, timeout=3)
+                try:
+                    self.log_message(f"[DIAG] wmctrl {' '.join(args)} (rc={r.returncode}):")
+                    for line in (r.stdout or "").splitlines():
+                        self.log_message(f"        {line}")
+                except Exception:
+                    pass
+            except Exception as e:
+                try:
+                    self.log_message(f"[DIAG] wmctrl {' '.join(args)} falló: {e}")
+                except Exception:
+                    pass
+
+    def _register_external_viewer(self, vm_dir, proc, protocol):
+        """Registra un visor externo en self._external_viewers.
+
+        Se llama desde dos sitios:
+          • _sync_external_viewer (auto-lanzado al arrancar la VM).
+          • _launch_external_console (botón "Abrir en ventana externa").
+        """
+        if not vm_dir or proc is None:
+            return
+        import time as _time
+        if not hasattr(self, "_external_viewers"):
+            self._external_viewers = {}
+        self._external_viewers[vm_dir] = {
+            "proc": proc,
+            "protocol": protocol,
+            "last_launch": _time.monotonic(),
+        }
+
+    def _focus_console_for_vm(self, vm_name, data=None):
+        # Debounce: al hacer clic en la lista, currentTextChanged y
+        # itemClicked disparan casi simultáneamente. Si ya enfocamos
+        # esta VM hace < 400 ms, salimos (evita el doble [DIAG]).
+        import time as _t_debounce
+        now = _t_debounce.monotonic()
+        key = (vm_name or "")
+        last_key = getattr(self, "_focus_console_last_key", None)
+        last_ts = getattr(self, "_focus_console_last_ts", 0.0)
+        if key == last_key and (now - last_ts) < 0.4:
+            return
+        self._focus_console_last_key = key
+        self._focus_console_last_ts = now
+        """Aplica el foco correcto para la VM indicada.
+
+        `vm_name` es el nombre de la carpeta (basename de current_vm_dir).
+        `data` es el dict de load_vm_config, opcional (se recarga si None).
+
+        Se llama desde open_vm() y desde el clic sobre la VM ya
+        seleccionada. No se llama desde on_vm_list_changed directamente:
+        open_vm ya lo hace.
+        """
+        if not vm_name:
+            return
+        vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
+        if not os.path.isdir(vm_dir):
+            return
+
+        # Si no hay data, cargarla.
+        if data is None:
+            try:
+                data = load_vm_config(vm_dir)
+            except Exception:
+                data = {}
+
+        state = self._runtime_state(vm_name)
+
+        # --- VM apagada → Resumen ---
+        if state not in ("running", "paused"):
+            try:
+                if hasattr(self, "main_tabs"):
+                    self.main_tabs.setCurrentIndex(0)
+            except Exception:
+                pass
+            return
+
+        # --- VM encendida: ¿dónde se está mostrando? ---
+        extra = (data or {}).get("extra") or {}
+        protocol = str(extra.get("console_protocol") or "vnc").lower()
+        mode = str(extra.get("console_mode") or "").lower()
+        if not mode:
+            mode = "embedded" if extra.get("vnc_embedded", True) else "native"
+
+        # Modo externo: subir la ventana externa.
+        if mode == "external":
+            if self._focus_external_window_for_vm(vm_dir, vm_name):
+                return  # conseguido
+            # Si no se pudo subir ninguna ventana, caer al comportamiento
+            # por defecto (pestaña Consola Gráfica como pista visual).
+            try:
+                idx = getattr(self, "_console_tab_index", -1)
+                if idx >= 0 and hasattr(self, "main_tabs"):
+                    self.main_tabs.setCurrentIndex(idx)
+            except Exception:
+                pass
+            return
+
+        # Modo nativo: QEMU tiene su propia ventana. Intentamos subirla.
+        if mode == "native":
+            pid_path = os.path.join(vm_dir, "qemu.pid")
+            try:
+                with open(pid_path, encoding="utf-8") as f:
+                    pid = int(f.read().strip())
+            except Exception:
+                pid = None
+            if pid is not None and self._focus_window_by_pid(pid):
+                return
+            # Fallback: dejar la pestaña como estaba. No hay consola embebida.
+            return
+
+        # Modo embedded o hybrid → pestaña Consola Gráfica.
+        try:
+            idx = getattr(self, "_console_tab_index", -1)
+            if idx >= 0 and hasattr(self, "main_tabs"):
+                self.main_tabs.setCurrentIndex(idx)
+        except Exception:
+            pass
+
+    def _focus_window_by_pid(self, pid):
+        """Sube al frente la primera ventana que pertenece a `pid`.
+
+        Usa `wmctrl -lp` para listar ventanas con su PID, encuentra la del
+        PID buscado y la activa con `wmctrl -i -a <id>`. Funciona en X11
+        y en Wayland a través de Xwayland para apps GTK (spicy,
+        remote-viewer) y para la ventana de QEMU si es X11/Xwayland.
+
+        Devuelve True si logró subir la ventana; False si no hay wmctrl,
+        si no se encontró ninguna ventana con ese PID, o si falló el
+        activate.
+        """
+        import shutil as _sh
+        import subprocess as _sp
+        wmctrl = _sh.which("wmctrl")
+        if not wmctrl:
+            return False
+        try:
+            r = _sp.run([wmctrl, "-lp"], capture_output=True, text=True, timeout=3)
+        except Exception:
+            return False
+        if r.returncode != 0:
+            return False
+        target_wid = None
+        for line in r.stdout.splitlines():
+            parts = line.split(None, 4)
+            if len(parts) < 3:
+                continue
+            wid = parts[0]
+            try:
+                wpid = int(parts[2])
+            except (ValueError, IndexError):
+                continue
+            if wpid == pid:
+                target_wid = wid
+                break
+        if target_wid is None:
+            return False
+        try:
+            r2 = _sp.run(
+                [wmctrl, "-i", "-a", target_wid],
+                capture_output=True, text=True, timeout=3,
+            )
+            return r2.returncode == 0
+        except Exception:
+            return False
+
+    def _warn_wmctrl_once(self):
+        """Avisa una sola vez que wmctrl falta, para no spamear la consola."""
+        if getattr(self, "_wmctrl_warned", False):
+            return
+        self._wmctrl_warned = True
+        try:
+            self.log_message(
+                "[AVISO] No se encontró 'wmctrl'. No es posible subir "
+                "automáticamente la ventana del visor externo al "
+                "seleccionar una VM en la lista. Instálalo con "
+                "`sudo pacman -S wmctrl` (Arch) o `sudo apt install wmctrl` "
+                "(Debian/Ubuntu). Mientras tanto, la app simplemente "
+                "cambia a la pestaña Consola Gráfica."
+            )
+        except Exception:
+            pass
+
+    def _update_start_stop_buttons(self, state):
+        """Habilita o deshabilita Iniciar / Pausar / Apagar según el estado.
+
+        Reglas:
+          • Sin VM seleccionada → los tres deshabilitados.
+          • VM apagada          → solo Iniciar habilitado.
+          • VM corriendo        → Pausar y Apagar habilitados.
+          • VM pausada          → Pausar (reanudar) y Apagar habilitados.
+
+        Se llama desde refresh_vm_runtime_status en cada tick (1.5 s) y
+        también cuando se deselecciona la VM (current_vm_dir = None).
+        """
+        selected = self._vm_is_selected()
+        running = state in ("running", "paused")
+        stopped = selected and not running
+
+        for attr, enabled in (
+            ("btn_vm_start", stopped),
+            ("btn_vm_pause", selected and running),
+            ("btn_vm_poweroff", selected and running),
+        ):
+            btn = getattr(self, attr, None)
+            if btn is None:
+                continue
+            try:
+                btn.setEnabled(bool(enabled))
+            except Exception:
+                pass
+
+    def refresh_vm_runtime_status(self):
+        if not hasattr(self, "vm_list"):
+            return
+        # Watchdog: detecta muertes inesperadas de QEMU y limpia el
+        # pid file huérfano. Debe correr ANTES del refresco de
+        # etiquetas para que el ⚠️ de la lista use el estado nuevo.
+        if hasattr(self, "_watchdog_update_states"):
+            self._watchdog_update_states()
+
+        for i in range(self.vm_list.count()):
+            item = self.vm_list.item(i)
+            name = self._vm_name_from_list_text(item.text())
+            state = self._runtime_state(name)
+            wanted = self._vm_list_label(name, state)
+            if item.text() != wanted:
+                item.setText(wanted)
+        if self.current_vm_dir:
+            name = os.path.basename(self.current_vm_dir)
+            state = self._runtime_state(name)
+            labels = {"running":("● Ejecutándose", "#2e7d32"), "paused":("● Pausada", "#f57c00"), "stopped":("● Apagada", "#757575")}
+            text, color = labels.get(state, labels["stopped"])
+            self.vm_control_status.setText(text)
+            self.vm_control_status.setStyleSheet(f"font-weight:bold; color:{color}; padding:4px;")
+            self._set_vm_status("running" if state == "running" else "saved")
+            # Refrescar el botón Pausar (texto y acciones del menú) según estado.
+            if hasattr(self, "_update_pause_button_state"):
+                self._update_pause_button_state(state)
+            # Habilitar el botón USB solo cuando la VM está encendida.
+            if hasattr(self, "_update_usb_button_state"):
+                self._update_usb_button_state(state)
+            # Botones Iniciar/Pausar/Apagar según estado.
+            if hasattr(self, "_update_start_stop_buttons"):
+                self._update_start_stop_buttons(state)
+            if hasattr(self, "manager_vm_title"):
+                self._update_manager_details()
+        if self.current_vm_dir:
+            _vnc_state = self._runtime_state(os.path.basename(self.current_vm_dir))
+            # Despachador: elige VNC o SPICE según la elección guardada
+            # en la VM (extra.console_protocol / console_mode).
+            if hasattr(self, "_sync_console_widget"):
+                self._sync_console_widget(_vnc_state)
+            elif hasattr(self, "_sync_embedded_vnc"):
+                self._sync_embedded_vnc(_vnc_state)
+        # Si no hay VM seleccionada, deshabilitar los botones de control.
+        if not self.current_vm_dir and hasattr(self, "_update_start_stop_buttons"):
+            self._update_start_stop_buttons("stopped")
+        if hasattr(self, "_ensure_performance_monitoring"):
+            self._ensure_performance_monitoring()
+        if hasattr(self, "_refresh_suggestions"):
+            self._refresh_suggestions()
+        if hasattr(self, "_refresh_console_status_banner"):
+            self._refresh_console_status_banner()
+
+    def control_start_vm(self):
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Iniciar VM", "Selecciona una máquina virtual.")
+            return
+        self.start_installation()
+
+    def _update_pause_button_state(self, state):
+        """Actualiza el texto y las acciones del botón Pausar según el estado.
+
+        - running: "⏸ Pausar"; Pausar / Tomar Snapshot habilitadas.
+        - paused:  "▶ Reanudar"; Pausar / Tomar Snapshot deshabilitadas.
+        - stopped / otros: "⏸ Pausar"; Pausar / Tomar Snapshot deshabilitadas.
+
+        IMPORTANTE: la acción "Reanudar" se deja SIEMPRE habilitada. El slot
+        control_resume_vm decide si procede y, si no, informa al usuario. Así
+        el menú nunca queda "muerto" cuando el estado detectado no es
+        exactamente "paused" (por ejemplo justo después de un snapshot-save
+        asíncrono o si el guest vuelve a "running" por su cuenta).
+
+        Orden del menú: Pausar (rápido) → Reanudar → Tomar Snapshot.
+        """
+        btn = getattr(self, "btn_vm_pause", None)
+        if btn is None:
+            return
+        if state == "paused":
+            btn.setText("▶ Reanudar")
+            btn.setToolTip(
+                "Reanudar la VM pausada. Usa la flecha para más opciones:\n"
+                "• Pausar (rápido): detiene sin guardar el estado en disco.\n"
+                "• Reanudar: vuelve a ejecutar la VM.\n"
+                "• Tomar Snapshot: guarda el estado a disco y pausa."
+            )
+        else:
+            btn.setText("⏸ Pausar")
+            btn.setToolTip(
+                "Pausar la VM. Usa la flecha para más opciones:\n"
+                "• Pausar (rápido): detiene sin guardar el estado en disco.\n"
+                "• Reanudar: vuelve a ejecutar la VM pausada.\n"
+                "• Tomar Snapshot: guarda el estado a disco y pausa."
+            )
+        # Pausar y Tomar Snapshot solo aplican si la VM está corriendo.
+        for name in ("action_vm_pause", "action_vm_pause_save"):
+            action = getattr(self, name, None)
+            if action is not None:
+                try:
+                    action.setEnabled(state == "running")
+                except Exception:
+                    pass
+        # Reanudar siempre habilitada: el slot decide si procede.
+        a_resume = getattr(self, "action_vm_resume", None)
+        if a_resume is not None:
+            try:
+                a_resume.setEnabled(True)
+            except Exception:
+                pass
+
+
+    def control_pause_vm(self):
+        """Control del botón Pausar (clic directo).
+
+        Contexto:
+          - Running → pausa simple (sin diálogo, rápido).
+          - Pausada → reanuda.
+          - Apagada → informa y no hace nada.
+        Para 'Guardar estado y pausar' o 'Reanudar' explícitos usa el menú
+        desplegable del botón.
+        """
+        if not self._vm_is_selected():
+            return
+        try:
+            state = self._runtime_state(os.path.basename(self.current_vm_dir))
+            if state == "paused":
+                self.control_resume_vm()
+            elif state == "running":
+                self.control_pause_vm_simple()
+            else:
+                QMessageBox.information(
+                    self, "Pausar",
+                    "La máquina virtual no está corriendo.",
+                )
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Control de VM",
+                f"No se pudo cambiar el estado de la VM.\n\n{e}",
+            )
+            self.refresh_vm_runtime_status()
+
+    def control_pause_vm_simple(self):
+        """Pausa la VM sin guardar el estado en disco (rápido)."""
+        if not self._vm_is_selected():
+            return
+        try:
+            state = self._runtime_state(os.path.basename(self.current_vm_dir))
+            if state == "paused":
+                return
+            if state != "running":
+                QMessageBox.information(self, "Pausar", "La máquina virtual no está corriendo.")
+                return
+            self._qmp_hmp(self.current_vm_dir, "stop")
+            self.log_message("==> VM pausada (sin guardar estado en disco).")
+        except Exception as e:
+            QMessageBox.warning(self, "Pausar", f"No se pudo pausar la VM.\n\n{e}")
+        self.refresh_vm_runtime_status()
+
+    def control_pause_vm_with_snapshot(self):
+        """Pausa la VM guardando antes su estado (RAM + dispositivos) en un snapshot."""
+        if not self._vm_is_selected():
+            return
+        self._pause_with_snapshot()
+
+    def control_resume_vm(self):
+        """Reanuda la ejecución de la VM pausada.
+
+        Si el usuario pulsa 'Reanudar' cuando la VM no está pausada, se lo
+        informamos sin fallar: así el menú puede dejar la acción siempre
+        disponible sin que parezca rota.
+        """
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Reanudar", "Selecciona una máquina virtual.")
+            return
+        try:
+            state = self._runtime_state(os.path.basename(self.current_vm_dir))
+            if state == "running":
+                QMessageBox.information(
+                    self, "Reanudar",
+                    "La máquina virtual ya está corriendo.",
+                )
+                return
+            if state != "paused":
+                QMessageBox.information(
+                    self, "Reanudar",
+                    "La máquina virtual no está pausada: no hay nada que reanudar.",
+                )
+                return
+            self._qmp_hmp(self.current_vm_dir, "cont")
+            self.log_message("==> VM reanudada.")
+        except Exception as e:
+            QMessageBox.warning(self, "Reanudar", f"No se pudo reanudar la VM.\n\n{e}")
+        self.refresh_vm_runtime_status()
+
+    def _pause_with_snapshot(self):
+        """Guarda el estado de la VM en un snapshot y luego la pausa.
+
+        Se usa el worker de snapshots existente (SnapshotOperationWorker) para
+        que la UI siga respondiendo mientras QEMU escribe la RAM a disco.
+        """
+        readiness = self._snapshot_readiness()
+        if not readiness.get("state_disk"):
+            QMessageBox.warning(
+                self, "Guardar estado",
+                "No se puede guardar el estado: no hay un QCOW2 escribible "
+                "y no removible disponible.\n\n"
+                + "\n".join(readiness.get("problems") or []),
+            )
+            return
+
+        state = self._runtime_state(os.path.basename(self.current_vm_dir))
+        snap_name = "pause_" + time.strftime("%Y%m%d_%H%M%S")
+
+        if state != "running":
+            self._snapshot_log(
+                "[SNAPSHOT] La VM no está corriendo; no hay estado en memoria "
+                "que guardar. Se pausará igualmente."
+            )
+            try:
+                self._qmp_hmp(self.current_vm_dir, "stop")
+            except Exception:
+                pass
+            self.refresh_vm_runtime_status()
+            return
+
+        try:
+            state_node, device_nodes = self._snapshot_qmp_nodes()
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Guardar estado",
+                f"No se pudo preparar el snapshot.\n\n{e}",
+            )
+            return
+
+        job_id = (
+            "snap_pause_"
+            + re.sub(r"[^A-Za-z0-9_.-]", "_", snap_name)[:40]
+            + "_" + str(int(time.time()))
+        )
+        self._snapshot_log(
+            f"[SNAPSHOT] Guardando estado '{snap_name}' antes de pausar la VM…"
+        )
+        self._snapshot_log(
+            "[SNAPSHOT] Nota: QEMU puede congelar el guest mientras escribe la RAM."
+        )
+        # Captura de pantalla antes de lanzar el snapshot: es exactamente
+        # el mismo paso que hace create_snapshot_from_page para que el
+        # snapshot de pausa tenga miniatura como los demás.
+        try:
+            self._capture_snapshot_screenshot(snap_name)
+        except Exception as shot_err:
+            self._snapshot_log(
+                f"[SNAPSHOT] ⚠ No se pudo guardar la captura de pantalla: {shot_err}"
+            )
+        self._start_snapshot_worker(
+            self.current_vm_dir, "snapshot-save",
+            {"job-id": job_id, "tag": snap_name,
+             "vmstate": state_node, "devices": device_nodes},
+            f"Guardando estado '{snap_name}'", snap_name, "pause",
+        )
+
+
+    def control_poweroff_vm(self):
+        if not self._vm_is_selected(): return
+        try:
+            self._qmp_hmp(self.current_vm_dir, "system_powerdown")
+        except Exception as e:
+            QMessageBox.warning(self, "Apagar VM", f"No se pudo enviar la orden de apagado.\n\n{e}")
+        self.refresh_vm_runtime_status()
+
+    def control_reboot_vm(self):
+        if not self._vm_is_selected(): return
+        try:
+            self._qmp_hmp(self.current_vm_dir, "system_reset")
+        except Exception as e:
+            QMessageBox.warning(self, "Reiniciar VM", f"No se pudo enviar la orden de reinicio.\n\n{e}")
+        self.refresh_vm_runtime_status()
+
+    def _confirm_force_action(self, title, message):
+        resp = QMessageBox.warning(
+            self, title, message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return resp == QMessageBox.StandardButton.Yes
+
+    def _kill_vm_process(self, vm_dir, timeout=5.0):
+        pid_path, _ = self._runtime_paths(vm_dir)
+        if not pid_path or not os.path.isfile(pid_path):
+            return True
+        try:
+            with open(pid_path, encoding="utf-8") as f:
+                pid = int(f.read().strip())
+        except Exception:
+            return True
+
+        import signal
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return True
+        except Exception as e:
+            raise RuntimeError(f"No se pudo terminar el proceso de la VM (PID {pid}).\n\n{e}")
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            time.sleep(0.2)
+
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return True
+        except Exception as e:
+            raise RuntimeError(f"No se pudo forzar la terminación del proceso de la VM (PID {pid}).\n\n{e}")
+        return True
+
+    def control_force_poweroff_vm(self):
+        if not self._vm_is_selected(): return
+        if not self._confirm_force_action(
+            "Forzar apagado",
+            "Esto corta la VM de inmediato, sin avisar al sistema operativo invitado "
+            "(como desenchufar un equipo real).\n\n"
+            "Puede causar pérdida de datos no guardados dentro de la VM.\n\n"
+            "¿Deseas continuar?",
+        ):
+            return
+        try:
+            self._kill_vm_process(self.current_vm_dir)
+        except Exception as e:
+            QMessageBox.warning(self, "Forzar apagado", str(e))
+        self.refresh_vm_runtime_status()
+
+    def control_force_reboot_vm(self):
+        if not self._vm_is_selected(): return
+        if not self._confirm_force_action(
+            "Forzar reinicio",
+            "Esto corta la VM de inmediato y la vuelve a iniciar desde cero, sin "
+            "avisar al sistema operativo invitado.\n\n"
+            "Puede causar pérdida de datos no guardados dentro de la VM.\n\n"
+            "¿Deseas continuar?",
+        ):
+            return
+        try:
+            self._kill_vm_process(self.current_vm_dir)
+        except Exception as e:
+            QMessageBox.warning(self, "Forzar reinicio", str(e))
+            self.refresh_vm_runtime_status()
+            return
+        self.refresh_vm_runtime_status()
+        from PyQt6.QtCore import QTimer as _QTimer
+        _QTimer.singleShot(500, self.start_installation)
+
+    def new_vm(self):
+        self.current_vm_dir = None
+        self.input_vm_name.setEnabled(True)
+        self.input_vm_name.clear()
+        self.combo_firmware.setCurrentIndex(self.combo_firmware.findData("bios"))
+        self.combo_chipset.setCurrentIndex(self.combo_chipset.findData("pc"))
+        if hasattr(self, "combo_cpu_model"):
+            self.combo_cpu_model.setCurrentIndex(self.combo_cpu_model.findData("auto"))
+        self.check_secure_boot.setChecked(False)
+        self.check_tpm.setChecked(False)
+        self._save_boot_order(["cdrom","disk","network"]) if self.current_vm_dir else None
+        self.combo_network.setCurrentIndex(self.combo_network.findData("virtio-net-pci"))
+        self.combo_network_mode.setCurrentIndex(self.combo_network_mode.findData("nat"))
+        self.combo_network_count.setCurrentIndex(self.combo_network_count.findData(1))
+        self.combo_audio.setCurrentIndex(self.combo_audio.findData("intel-hda"))
+        self.combo_graphics.setCurrentIndex(self.combo_graphics.findData("auto"))
+        self.combo_graphics_vram.setCurrentIndex(self.combo_graphics_vram.findData("256M"))
+        self.update_network_options()
+        self.refresh_network_devices_ui()
+        self._passthrough_saved=[]
+        self.refresh_passthrough_tree()
+        self.input_vm_name.setFocus()
+        self._set_vm_status("new")
+        self._update_vm_summary()
+        self.refresh_boot_order_choices()
+        self.log_message("==> Formulario listo para una nueva máquina virtual.")
+        if hasattr(self, "main_tabs"):
+            self.main_tabs.setCurrentIndex(1)
+        if hasattr(self, "manager_vm_title"):
+            self._update_manager_details()
+
+    def apply_windows11_defaults(self, *args):
+        if self.combo_main_os.currentData() != "windows":
+            return
+        is_win11 = self.combo_win_ver.currentText() == "Windows 11"
+        if is_win11:
+            idx = self.combo_firmware.findData("uefi")
+            if idx >= 0:
+                self.combo_firmware.setCurrentIndex(idx)
+            self.check_secure_boot.setChecked(True)
+            self.check_tpm.setChecked(True)
+        else:
+            self.check_secure_boot.setChecked(self.combo_firmware.currentData() == "uefi" and self.check_secure_boot.isChecked())
+            self.check_tpm.setChecked(self.combo_firmware.currentData() == "uefi" and self.check_tpm.isChecked())
+        legacy = self.combo_win_ver.currentText() not in ("Windows 10", "Windows 11")
+        if hasattr(self, "check_win_auto"):
+            self.check_win_auto.setEnabled(not legacy)
+            if legacy:
+                self.check_win_auto.setChecked(False)
+        self.update_firmware_options_visibility()
+
+    def open_vm(self, vm_name: str):
+        vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
+        try:
+            data = load_vm_config(vm_dir)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"No se pudo leer la configuración de '{vm_name}': {e}")
+            return
+
+        self.current_vm_dir = vm_dir
+        # El usuario abrió la VM: se considera atendida la alerta de
+        # muerte inesperada del watchdog.
+        if hasattr(self, "_vm_death_flag"):
+            self._vm_death_flag.discard(vm_name)
+        self.input_vm_name.setText(data["name"] or vm_name)
+        self.input_vm_name.setEnabled(False)
+        if hasattr(self, "main_tabs"):
+            self.main_tabs.setCurrentIndex(0)
+
+        idx = self.combo_main_os.findData(data["os_type"])
+        if idx >= 0:
+            self.combo_main_os.setCurrentIndex(idx)
+
+        try:
+            ram_text = str(data.get("ram", "4G")).upper().replace("GB", "G").replace(" ", "")
+            ram_val = int(re.match(r"(\d+)", ram_text).group(1)) if re.match(r"(\d+)", ram_text) else 4
+            ram_val = max(self.slider_ram.minimum(), min(self.slider_ram.maximum(), (ram_val // 2) * 2))
+            self.slider_ram.setValue(ram_val)
+        except Exception:
+            pass
+
+        try:
+            core_val = int(data.get("cores", 2))
+            core_val = max(self.slider_cores.minimum(), min(self.slider_cores.maximum(), (core_val // 2) * 2))
+            self.slider_cores.setValue(core_val)
+        except (TypeError, ValueError):
+            pass
+
+        firmware_idx = self.combo_firmware.findData(data.get("firmware", "bios"))
+        if firmware_idx >= 0:
+            self.combo_firmware.setCurrentIndex(firmware_idx)
+        chipset_idx = self.combo_chipset.findData(data.get("chipset", "pc"))
+        if chipset_idx >= 0:
+            self.combo_chipset.setCurrentIndex(chipset_idx)
+        if hasattr(self, "combo_cpu_model"):
+            cpu_model = (data.get("extra") or {}).get("cpu_model", "auto")
+            cpu_idx = self.combo_cpu_model.findData(cpu_model)
+            if cpu_idx < 0:
+                cpu_idx = self.combo_cpu_model.findData("auto")
+            if cpu_idx >= 0:
+                self.combo_cpu_model.setCurrentIndex(cpu_idx)
+        self.check_secure_boot.setChecked(bool(data.get("secure_boot", False)))
+        self.check_tpm.setChecked(bool(data.get("tpm", False)))
+        self.update_firmware_options_visibility()
+        self.refresh_boot_order_choices()
+        mode_idx = self.combo_network_mode.findData(data.get("network_mode", "nat"))
+        if mode_idx >= 0:
+            self.combo_network_mode.setCurrentIndex(mode_idx)
+        net_idx = self.combo_network.findData(data.get("network_model", "virtio-net-pci"))
+        if net_idx >= 0:
+            self.combo_network.setCurrentIndex(net_idx)
+        count_idx = self.combo_network_count.findData(int(data.get("network_count", 1)))
+        if count_idx >= 0:
+            self.combo_network_count.setCurrentIndex(count_idx)
+        self.update_network_options(data.get("network_interface", ""))
+        audio_idx = self.combo_audio.findData(data.get("audio_device", "intel-hda"))
+        if audio_idx >= 0:
+            self.combo_audio.setCurrentIndex(audio_idx)
+        graphics_idx = self.combo_graphics.findData(data.get("graphics_mode", "auto"))
+        if graphics_idx >= 0:
+            self.combo_graphics.setCurrentIndex(graphics_idx)
+        graphics_vram_idx = self.combo_graphics_vram.findData(data.get("graphics_vram", "256M"))
+        if graphics_vram_idx >= 0:
+            self.combo_graphics_vram.setCurrentIndex(graphics_vram_idx)
+        if hasattr(self, "check_vnc_embedded"):
+            vnc_embedded = bool((data.get("extra") or {}).get("vnc_embedded", True))
+            self.check_vnc_embedded.blockSignals(True)
+            self.check_vnc_embedded.setChecked(vnc_embedded)
+            self.check_vnc_embedded.blockSignals(False)
+            self._on_vnc_embedded_changed()
+        self.update_graphics_options()
+        _nets = data.get("network_devices") or []
+        self.refresh_network_devices_ui(_nets)
+        if hasattr(self, "check_no_network"):
+            self.check_no_network.setChecked(len(_nets) == 0)
+        self._passthrough_saved=list(data.get("passthrough_devices") or [])
+        self.refresh_passthrough_tree()
+
+        self.disk_size_setting = data.get("disk_size") or "128G"
+        self.disk_type_setting = data.get("disk_type") or "dynamic"
+        self.disk_format_setting = data.get("disk_format") or "qcow2"
+        self.disk_ext_setting = data.get("disk_ext") or ("img" if self.disk_format_setting == "raw" else self.disk_format_setting)
+
+        # Volcar la elección de consola guardada en la VM a los combos.
+        # Sin esto, los combos conservaban el valor del VM anterior.
+        self._apply_console_choice_from_vm(data)
+
+        extra = data["extra"] or {}
+        if data["os_type"] == "macos":
+            for i, (_, val) in enumerate(self.os_options):
+                if val == extra.get("os_choice"):
+                    self.combo_macos_ver.setCurrentIndex(i)
+                    break
+            if extra.get("mac_use_custom"):
+                self.radio_mac_custom.setChecked(True)
+                self.input_mac_custom_iso.setText(extra.get("mac_custom_image", ""))
+            else:
+                self.radio_mac_recovery.setChecked(True)
+        elif data["os_type"] == "windows":
+            win_idx = self.combo_win_ver.findText(extra.get("win_ver", "Windows 11"))
+            if win_idx >= 0:
+                self.combo_win_ver.setCurrentIndex(win_idx)
+            self.check_win_auto.setChecked(bool(extra.get("auto_detect", False)))
+            if not extra.get("auto_detect"):
+                self.input_win_iso.setText(extra.get("iso_path", ""))
+        else:
+            lin_idx = self.combo_lin_distro.findText(extra.get("distro", ""))
+            if lin_idx >= 0:
+                self.combo_lin_distro.setCurrentIndex(lin_idx)
+            # Restaurar la elección de ISO guardada ('Más reciente', una versión
+            # concreta, o 'Ninguna' si el usuario aportó su propia imagen). La
+            # unidad manda sobre lo guardado en 'extra' cuando difieren.
+            _lin_devices = self._storage_devices_all(vm_dir)
+            _lin_choice, _ = principal_cdrom.derive_choice(extra, _lin_devices, "linux")
+            self._refresh_lin_versions(select=_lin_choice)
+
+        self._set_vm_status("saved")
+        self.refresh_shared_folders_ui()
+        self._update_vm_summary()
+        # Refrescar la miniatura del último snapshot al abrir una VM.
+        if hasattr(self, "_refresh_last_snapshot_thumbnail"):
+            self._refresh_last_snapshot_thumbnail()
+        self.log_message(f"==> Configuración de '{vm_name}' cargada desde {vm_dir}")
+        # Refrescar los botones inmediatamente sin esperar al timer.
+        if hasattr(self, "_update_start_stop_buttons"):
+            try:
+                self._update_start_stop_buttons(self._runtime_state(vm_name))
+            except Exception:
+                pass
+        # Aplicar el foco correcto (Resumen, Consola Gráfica o
+        # visor externo según el estado y el modo de la VM).
+        if hasattr(self, "_focus_console_for_vm"):
+            try:
+                self._focus_console_for_vm(vm_name, data)
+            except Exception:
+                pass
+
+    def maybe_autofill_vm_name(self, *args):
+        if self.input_vm_name.text().strip():
+            return
+        os_type = self.combo_main_os.currentData()
+        if os_type == "macos":
+            name = self.os_options[self.combo_macos_ver.currentIndex()][0]
+        elif os_type == "windows":
+            name = self.combo_win_ver.currentText()
+        else:
+            name = self.combo_lin_distro.currentText()
+        self.input_vm_name.setText(name)
+
+    def toggle_mac_iso_mode(self, checked):
+        use_custom = not checked
+        self.input_mac_custom_iso.setEnabled(use_custom)
+        self.btn_mac_browse.setEnabled(use_custom)
+
+    def toggle_win_iso_mode(self, checked):
+        self.input_win_iso.setEnabled(not checked)
+        if checked:
+            self.input_win_iso.clear()
+            self.input_win_iso.setPlaceholderText("Se detectará y descargará automáticamente")
+        else:
+            self.input_win_iso.setPlaceholderText("/ruta/a/windows.iso")
+
+    def toggle_iso_mode(self, *args):
+        return
+
+    def browse_iso(self, line_edit_target):
+        file_name, _ = QFileDialog.getOpenFileName(self, "Seleccionar archivo ISO", "", "Archivos ISO (*.iso);;Todos los archivos (*)")
+        if file_name:
+            line_edit_target.setText(file_name)
+
+    def _on_vnc_embedded_changed(self, *args):
+        if not hasattr(self, "combo_graphics"):
+            return
+        vnc_on = getattr(self, "check_vnc_embedded", None) and self.check_vnc_embedded.isChecked()
+
+        incompatible = {"virgl", "venus", "auto"}
+        model = self.combo_graphics.model()
+        for i in range(self.combo_graphics.count()):
+            data = self.combo_graphics.itemData(i)
+            item = model.item(i)
+            if item is not None:
+                item.setEnabled(not (vnc_on and data in incompatible))
+
+        if vnc_on and self.combo_graphics.currentData() in incompatible:
+            virtio_idx = self.combo_graphics.findData("virtio")
+            if virtio_idx >= 0:
+                self.combo_graphics.setCurrentIndex(virtio_idx)
+
+        if hasattr(self, "_update_graphics_compat_hint"):
+            self._update_graphics_compat_hint()
+
+    def update_graphics_options(self, *args):
+        is_macos = self.combo_main_os.currentData() == "macos"
+        os_type = self.combo_main_os.currentData()
+
+        try:
+            caps = detect_host_graphics()
+            gpu = caps.get("gpu", "No detectada")
+            gl_ok = bool(caps.get("opengl"))
+            virgl_installed = bool(caps.get("virgl"))
+            vulkan_ok = bool(caps.get("vulkan"))
+
+            # Las sondas de QEMU (-device/-display help) son lentas y su resultado
+            # no cambia entre clics: se leen de la caché de host_deps.
+            _qcaps = qemu_graphics_capabilities()
+            qemu = _qcaps.get("qemu_path")
+            qemu_virtio = _qcaps["virtio"]
+            qemu_virgl = _qcaps["virgl"]
+            display_gl_ok = _qcaps["display_gl"]
+
+            virgl_ok = gl_ok and virgl_installed and qemu_virgl and display_gl_ok
+
+            gl = "✓ OpenGL" if gl_ok else "✗ OpenGL"
+            vg = "✓ VirGL" if virgl_ok else ("✓ VirGL instalado" if virgl_installed else "✗ VirGL")
+            vk = "✓ Vulkan" if vulkan_ok else "✗ Vulkan"
+
+            if os_type == "windows":
+                auto_video = "VGA estándar (QEMU -vga std)"
+                auto_accel = "sin aceleración 3D"
+            elif os_type == "macos":
+                auto_video = "VGA de OSX-KVM (VGA virtual)"
+                auto_accel = "gestionada por OpenCore/OSX-KVM"
+            elif virgl_ok:
+                auto_video = "VirtIO-GPU + VirGL 3D"
+                auto_accel = "OpenGL / VirGL"
+            elif qemu_virtio:
+                auto_video = "VirtIO-GPU 2D"
+                auto_accel = "sin aceleración 3D"
+            else:
+                auto_video = "VGA estándar de QEMU"
+                auto_accel = "sin aceleración 3D"
+
+            selected = self.combo_graphics.currentData() if hasattr(self, "combo_graphics") else "auto"
+            if selected == "auto":
+                selected_text = f"<b>Automático → {auto_video}</b><br>Aceleración: {auto_accel}"
+            else:
+                selected_map = {
+                    "virtio": "VirtIO-GPU 2D",
+                    "virgl": "VirtIO-GPU + VirGL 3D",
+                    "venus": "VirtIO-GPU + Venus/Vulkan 3D",
+                    "qxl": "Red Hat QXL 2D",
+                    "vmware": "VMware SVGA II",
+                    "none": "Sin video / Headless",
+                }
+                selected_name = selected_map.get(selected, self.combo_graphics.currentText())
+                selected_text = f"<b>Usará: {selected_name}</b>"
+
+            self.label_graphics_host.setText(
+                f"Host GPU: {gpu}<br>{gl}  |  {vg}  |  {vk}<br>{selected_text}"
+            )
+        except Exception as e:
+            self.label_graphics_host.setText(
+                f"Host GPU: no se pudo determinar automáticamente.<br>"
+                f"Automático: se seleccionará el modo gráfico compatible disponible."
+            )
+
+        self.combo_graphics.setEnabled(True)
+        self.combo_graphics_vram.setEnabled(True)
+
+    def _save_hardware_lists(self):
+        if not self.current_vm_dir: return
+        cfg_path=os.path.join(self.current_vm_dir,"vm_config.ini")
+        cfg=configparser.ConfigParser(interpolation=None); cfg.read(cfg_path,encoding="utf-8")
+        hw=cfg["hardware"] if cfg.has_section("hardware") else cfg.setdefault("hardware",{})
+        hw["network_devices"]=json.dumps(self._network_devices())
+        hw["passthrough_devices"]=json.dumps(getattr(self,"_passthrough_saved",[]))
+        with open(cfg_path,"w",encoding="utf-8") as f: cfg.write(f)
+
+    def _update_graphics_compat_hint(self):
+        if not hasattr(self, "label_graphics_compat"):
+            return
+        mode = self.combo_graphics.currentData()
+        firmware = self.combo_firmware.currentData() if hasattr(self, "combo_firmware") else "bios"
+        if firmware == "uefi" and mode in ("qxl", "vmware"):
+            nombre = "QXL" if mode == "qxl" else "VMware SVGA"
+            self.label_graphics_compat.setText(
+                f"⚠️ {nombre} + UEFI: el firmware OVMF puede no mostrar nada (pantalla negra) hasta que "
+                "el guest cargue su propio driver de video. Si te pasa, prueba 'Automático' o 'VirtIO-GPU 2D'."
+            )
+            self.label_graphics_compat.setVisible(True)
+        else:
+            self.label_graphics_compat.setVisible(False)
