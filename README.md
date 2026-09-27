@@ -6,11 +6,17 @@
 Asistente gráfico para crear y administrar máquinas virtuales con
 **QEMU/KVM** en Linux. Interfaz Qt6 con consola VNC/SPICE embebida,
 snapshots gráficos, integración con el huésped y soporte para
-invitados Linux, Windows y macOS.
+invitados Linux, Windows, macOS y Android.
 
 ---
 
 ## Capturas
+
+### Instalacion de Android en curso
+
+<p align="center">
+  <img src="docs/screenshots/install-android.png" alt="Instalacion de Android" width="720">
+</p>
 
 ### Instalacion de macOS en curso
 
@@ -123,6 +129,10 @@ python3 virtual_machine.py
 - Selección de versión de SO y descarga automática de ISO desde los
   espejos oficiales (Ubuntu, Debian, Fedora, Linux Mint, Arch, openSUSE,
   AlmaLinux, Rocky Linux, Pop!_OS; y Windows retail vía Fido).
+- **Android-x86 / Bliss OS**: el usuario aporta la ISO. La app ajusta
+  el hardware virtual (BIOS, chipset Q35, SATA/AHCI con degradación
+  a IDE si i440FX, red e1000, gráficos QXL 2D) para que arranque sin
+  configuración manual.
 - Firmware BIOS o UEFI (OVMF), Secure Boot y TPM 2.0.
 - Almacenamiento configurable: discos virtuales con distintos formatos
   (QCOW2, RAW, VDI, VMDK), unidades ópticas y orden de arranque.
@@ -158,6 +168,20 @@ python3 virtual_machine.py
 - Detección del estado de `spice-vdagent` en el huésped.
 - ISO de Guest Tools generada por la app, con scripts de instalación
   para Linux y Windows.
+
+### Notas específicas de Android
+
+- **ISO recomendada**: [Android-x86 9.0](https://www.android-x86.org/download.html)
+  (probado). Para **Bliss OS** ([blissos.org](https://blissos.org/))
+  se recomienda la variante genérica v15+ —no la «Bliss-Surface», que
+  no arranca bajo QEMU—, con **≥8 GB de RAM, 4 núcleos y chipset Q35**.
+- **No disponible**: carpetas compartidas (9p / VirtioFS), QEMU Guest
+  Agent y clipboard bidireccional. Los kernels de Android-x86 / Bliss OS
+  no incluyen esos módulos. Para pasar archivos usa ADB o la red.
+- **Gráficos**: la app usa **Red Hat QXL 2D** por defecto, porque
+  Android-x86 9.0 (kernel 4.9) no trae driver VirtIO-GPU y caería a un
+  shell de rescate con `Detecting Android-x86...`. Las ISOs con kernel
+  5.10+ o Bliss OS 15+ sí soportan VirtIO-GPU y se puede elegir a mano.
 
 ### Diagnóstico
 
