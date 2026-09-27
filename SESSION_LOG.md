@@ -223,3 +223,52 @@ help_*.py, improve_*.py, apply_*.py, setup_console_*.py.
 Si en el futuro se crea un modulo real del proyecto con alguno de estos
 prefijos (por ejemplo "install_helpers.py"), hay que anadir su excepcion
 correspondiente (!install_helpers.py) al final del .gitignore.
+
+## Sesión 2026-09-27 — Soporte de Android + unificación del medio
+
+### Nuevo
+- Android como 4º SO soportado (Android-x86 / Bliss OS).
+- Caja de notas contextuales por SO (diccionario _OS_NOTES).
+- _chipset_is_q35() en workers para degradar SATA/AHCI a IDE si i440FX.
+- _goto_storage_section() para saltar a la sección Almacenamiento.
+
+### Cambios clave
+- vm_config.py: perfil "android" en get_os_profile().
+- virtual_machine.py: combo + página Android (luego simplificada),
+  widget os_notes_widget, label_version_so capturado, debounce de
+  persistencia de ISO Android.
+- vm_lifecycle_mixin.py: ramas por SO (perfil, autofill, open_vm,
+  summary), _OS_NOTES, _update_os_notes_visibility,
+  _update_version_so_visibility, _persist_android_iso unificado,
+  _save_hardware_lists separado.
+- workers.py: rama Android en _run_impl, _chipset_is_q35,
+  _resolve_disk_bus_for_os ampliado, _graphics_args con rama Android
+  (QXL en auto).
+- install_flow_mixin.py: rama Android, rama macOS sin widgets
+  eliminados, auto-create Recovery si falta medio.
+- dialogs.py: sin opción "installer" para Android.
+- .gitignore: sin cambios (los archivos nuevos del proyecto no caen en
+  patrones peligrosos).
+
+### Decisiones importantes
+- Android usa QXL 2D por defecto (VirtIO-GPU no arranca Android-x86 9.0).
+- La unidad CD/DVD "Principal" es la única fuente de verdad del medio
+  de instalación. Ningún otro widget lo duplica.
+- Selector "Versión ISO" visible solo en Linux. Botón 📁 siempre oculto
+  (se abre el diálogo al elegir "Ninguna").
+- Caja de notas contextuales como canal de avisos por SO.
+
+### Bugs resueltos (además de los ya listados en TRASPASO.md)
+- "Bus 'ide.2' not found" → degradación a IDE si no es Q35.
+- Android shell de rescate → QXL en lugar de VirtIO-GPU.
+- Duplicación de widgets de medio → eliminados.
+- Popup flotante de "Versión ISO" → añadido al layout correcto, luego
+  ocultado siempre.
+- _save_hardware_lists fusionado con _persist_android_iso → separados.
+- Referencias residuales a métodos eliminados (AttributeError al
+  arrancar) → limpiadas.
+
+### Pendientes
+- Probar Bliss OS genérico (v15+) en una VM aparte.
+- Cazar el bug de la ventana nativa de QEMU que aparece a la vez que
+  el widget VNC embebido (reportado pero no reproducido aún).

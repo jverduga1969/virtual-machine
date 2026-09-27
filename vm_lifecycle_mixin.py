@@ -45,6 +45,85 @@ import principal_cdrom
 
 
 class VmLifecycleMixin:
+    # ------------------------------------------------------------------
+    # Notas contextuales por SO
+    # ------------------------------------------------------------------
+    # Texto mostrado en la caja informativa debajo de Nombre/Plataforma/
+    # Versión de SO. La caja solo aparece si hay entrada para el SO elegido.
+    # Se usan caracteres Unicode (no emoji del sistema) para que se vean
+    # igual en cualquier tema de escritorio.
+    _OS_NOTES = {
+        "linux": {
+            "title": "<b>\u2139\ufe0f Notas sobre Linux en QEMU/KVM</b>",
+            "body": (
+                "<p><b>\u2705 Funciona:</b> instalaci\u00f3n, arranque, "
+                "snapshots completos y de disco, carpetas compartidas "
+                "(VirtioFS / 9p), Guest Agent, clipboard bidireccional, "
+                "passthrough PCI/USB y panel de recursos.</p>"
+                "<p><b>\U0001f4a1 Recomendado:</b> VirtIO-GPU 2D o VirGL. "
+                "La opci\u00f3n \u00abAutom\u00e1tico\u00bb elige lo mejor "
+                "seg\u00fan el host.</p>"
+                "<p><b>\u26a0\ufe0f VirtioFS</b> necesita "
+                "<code>virtiofsd</code> en el host. La app puede instalarlo "
+                "desde Carpetas compartidas \u2192 Dependencias.</p>"
+            ),
+        },
+        "windows": {
+            "title": "<b>\u2139\ufe0f Notas sobre Windows en QEMU/KVM</b>",
+            "body": (
+                "<p><b>\u2705 Funciona:</b> instalaci\u00f3n, snapshots, "
+                "carpetas compartidas (SMB), Guest Agent, clipboard con "
+                "SPICE Guest Tools, passthrough PCI/USB.</p>"
+                "<p><b>\u26a0\ufe0f Windows 11</b> exige UEFI + Secure Boot "
+                "+ TPM 2.0. La app lo aplica autom\u00e1ticamente al "
+                "elegirlo.</p>"
+                "<p><b>\u26a0\ufe0f VirtIO Guest Tools:</b> inst\u00e1lalos "
+                "desde la ISO de la app para que el disco y la red VirtIO "
+                "se vean dentro del guest.</p>"
+                "<p><b>\U0001f4a1</b> Para clipboard bidireccional y audio "
+                "remoto, usa SPICE en vez de VNC.</p>"
+            ),
+        },
+        "macos": {
+            "title": "<b>\u2139\ufe0f Notas sobre macOS en QEMU/KVM</b>",
+            "body": (
+                "<p><b>\u2705 Funciona:</b> instalaci\u00f3n con System "
+                "Recovery, OpenCore autom\u00e1tico, arranque, snapshots de "
+                "disco y carpetas compartidas SMB.</p>"
+                "<p><b>\u274c No soporta:</b> snapshots completos (RAM + "
+                "dispositivos), VirGL / Venus, Secure Boot ni TPM 2.0.</p>"
+                "<p><b>\u26a0\ufe0f AVX2:</b> requerido para Sonoma, "
+                "Sequoia y Tahoe. La app avisa al crear la VM si tu CPU no "
+                "lo tiene.</p>"
+                "<p><b>\U0001f4a1 RAM m\u00ednima:</b> 8 GB; recomendado "
+                "16 GB y 4 n\u00facleos.</p>"
+            ),
+        },
+        "android": {
+            "title": "<b>\u2139\ufe0f Notas sobre Android en QEMU/KVM</b>",
+            "body": (
+                "<p><b>\u2705 Funciona:</b> crear la VM, arrancar, consola "
+                "VNC/SPICE, snapshots de disco y passthrough USB.</p>"
+                "<p><b>\u274c No disponible en Android:</b> carpetas "
+                "compartidas (9p / VirtioFS), QEMU Guest Agent, clipboard "
+                "bidireccional y automontaje. Los kernels de Android-x86 / "
+                "Bliss OS no incluyen esos m\u00f3dulos. Para pasar "
+                "archivos, usa ADB o la red.</p>"
+                "<p><b>\u2705 ISO recomendada:</b> <b>Android-x86 9.0</b> "
+                "\u2014 <a href=\"https://www.android-x86.org/download.html\">"
+                "android-x86.org/download.html</a> (probada, usa QXL "
+                "autom\u00e1ticamente).</p>"
+                "<p><b>\u26a0\ufe0f Bliss OS:</b> m\u00e1s moderno "
+                "(Android 12/13) pero exige \u22658 GB RAM, 4 n\u00facleos "
+                "y chipset Q35. La variante \u00abBliss-Surface\u00bb no "
+                "arranca bajo QEMU. Si se queda colgado en \u00abHave A "
+                "Truly Blissful Experience\u00bb, sube RAM/n\u00facleos o "
+                "usa Android-x86. Descarga: "
+                "<a href=\"https://blissos.org/\">blissos.org</a></p>"
+            ),
+        },
+    }
+
     def _update_manager_details(self):
         """Actualiza el panel principal de detalles sin ejecutar diagnósticos pesados."""
         try:
@@ -169,6 +248,11 @@ class VmLifecycleMixin:
             sistema = self.combo_macos_ver.currentText()
         elif os_type == "windows":
             sistema = self.combo_win_ver.currentText()
+        elif os_type == "android":
+            _iso = ""
+            if hasattr(self, "input_android_iso"):
+                _iso = os.path.basename(self.input_android_iso.text().strip())
+            sistema = "Android" + (f" ({_iso})" if _iso else "")
         else:
             sistema = self.combo_lin_distro.currentText()
             _ver = self._selected_lin_version() if hasattr(self, "_selected_lin_version") else ""
@@ -890,6 +974,11 @@ class VmLifecycleMixin:
             version_name = self.combo_macos_ver.currentText()
         elif os_type == "windows":
             version_name = self.combo_win_ver.currentText()
+        elif os_type == "android":
+            # Android no tiene combo de versión: la versión de Android
+            # la decide la ISO que el usuario aporta. Usamos la ruta
+            # para que el label del perfil sea informativo.
+            version_name = "Android-x86 / Bliss OS"
         else:
             version_name = self.combo_lin_distro.currentText()
         profile = get_os_profile(os_type, version_name, version_name if os_type == "linux" else "")
@@ -4124,11 +4213,9 @@ class VmLifecycleMixin:
                 if val == extra.get("os_choice"):
                     self.combo_macos_ver.setCurrentIndex(i)
                     break
-            if extra.get("mac_use_custom"):
-                self.radio_mac_custom.setChecked(True)
-                self.input_mac_custom_iso.setText(extra.get("mac_custom_image", ""))
-            else:
-                self.radio_mac_recovery.setChecked(True)
+            # La fuente de instalación se lee desde la unidad CD/DVD
+            # "Principal" en Almacenamiento. No hay widgets en la parte
+            # superior que actualizar (se eliminaron por duplicación).
         elif data["os_type"] == "windows":
             win_idx = self.combo_win_ver.findText(extra.get("win_ver", "Windows 11"))
             if win_idx >= 0:
@@ -4136,6 +4223,11 @@ class VmLifecycleMixin:
             self.check_win_auto.setChecked(bool(extra.get("auto_detect", False)))
             if not extra.get("auto_detect"):
                 self.input_win_iso.setText(extra.get("iso_path", ""))
+        elif data["os_type"] == "android":
+            # La fuente de instalación se lee desde la unidad CD/DVD
+            # "Principal" en Almacenamiento. No hay widget en la parte
+            # superior que actualizar (se eliminó por duplicación).
+            pass
         else:
             lin_idx = self.combo_lin_distro.findText(extra.get("distro", ""))
             if lin_idx >= 0:
@@ -4176,14 +4268,25 @@ class VmLifecycleMixin:
             name = self.os_options[self.combo_macos_ver.currentIndex()][0]
         elif os_type == "windows":
             name = self.combo_win_ver.currentText()
+        elif os_type == "android":
+            name = "Android"
         else:
             name = self.combo_lin_distro.currentText()
         self.input_vm_name.setText(name)
 
     def toggle_mac_iso_mode(self, checked):
+        """Activa/desactiva el modo "imagen existente" de macOS.
+
+        checked=True  → Recovery (descarga automática): oculta el input.
+        checked=False → Imagen existente: muestra el input y el botón.
+        """
         use_custom = not checked
-        self.input_mac_custom_iso.setEnabled(use_custom)
-        self.btn_mac_browse.setEnabled(use_custom)
+        for w in (getattr(self, "input_mac_custom_iso", None),
+                  getattr(self, "btn_mac_browse", None)):
+            if w is None:
+                continue
+            w.setEnabled(use_custom)
+            w.setVisible(use_custom)
 
     def toggle_win_iso_mode(self, checked):
         self.input_win_iso.setEnabled(not checked)
@@ -4219,6 +4322,13 @@ class VmLifecycleMixin:
             return "std", "VGA estándar (QEMU -vga std)"
         if os_type == "macos":
             return "vga-macos", "VGA de OSX-KVM (VGA virtual)"
+        if os_type == "android":
+            # Android-x86 9.0 (kernel 4.9) no tiene driver VirtIO-GPU y
+            # cae a un shell de rescate. QXL 2D es lo que
+            # workers._graphics_args() elige para "auto" en Android.
+            # El aviso al usuario si elige VirtIO-GPU a mano está en
+            # _update_graphics_compat_hint.
+            return "qxl", "Android: Red Hat QXL 2D (recomendado)"
 
         # ¿VNC embebido activo? → 3D prohibido.
         try:
@@ -4413,6 +4523,76 @@ class VmLifecycleMixin:
             except Exception:
                 pass
 
+    def _persist_android_iso(self, *_args):
+        """Guarda la ruta de la ISO de Android en la unidad "Principal".
+
+        La unidad Principal es la única fuente de verdad para la ISO de
+        Android (es la que QEMU monta como CD/DVD de arranque). El input
+        de la página Android es solo una vista de esa unidad.
+
+        Se llama con debounce desde virtual_machine.py cada vez que el
+        usuario cambia el input, y al pulsar Guardar. Solo escribe si la
+        VM actual es Android.
+        """
+        if not self.current_vm_dir:
+            return
+        if not hasattr(self, "input_android_iso"):
+            return
+        cfg_path = os.path.join(self.current_vm_dir, "vm_config.ini")
+        if not os.path.isfile(cfg_path):
+            return
+        try:
+            cfg = configparser.ConfigParser(interpolation=None)
+            cfg.read(cfg_path, encoding="utf-8")
+            if not cfg.has_section("general"):
+                return
+            if (cfg["general"].get("os_type", "") or "").lower() != "android":
+                return
+            iso = self.input_android_iso.text().strip()
+
+            # 1) Actualizar la unidad Principal (fuente de verdad para QEMU).
+            try:
+                devices = self._storage_devices_all(self.current_vm_dir)
+            except Exception:
+                devices = []
+            p = principal_cdrom.find_principal(devices)
+            if p is None:
+                try:
+                    p, _created = principal_cdrom.ensure_principal(devices, "android")
+                except Exception:
+                    p = None
+            if p is not None:
+                p["path"] = os.path.abspath(iso) if iso else ""
+                p.pop("source", None)  # ISO manual, no descarga automática
+                p["principal"] = True
+                if not p.get("name"):
+                    p["name"] = principal_cdrom.PRINCIPAL_NAME
+                self._write_storage_devices(devices)
+                if hasattr(self, "refresh_storage_ui"):
+                    try:
+                        self.refresh_storage_ui()
+                    except Exception:
+                        pass
+
+            # 2) Guardar también en extra["android_iso"] por compatibilidad
+            #    con VMs creadas antes de este cambio.
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            if (extra.get("android_iso") or "") != iso:
+                extra["android_iso"] = iso
+                cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    cfg.write(f)
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] No se pudo guardar la ISO de Android: {e}")
+            except Exception:
+                pass
+
     def _save_hardware_lists(self):
         if not self.current_vm_dir: return
         cfg_path=os.path.join(self.current_vm_dir,"vm_config.ini")
@@ -4422,11 +4602,122 @@ class VmLifecycleMixin:
         hw["passthrough_devices"]=json.dumps(getattr(self,"_passthrough_saved",[]))
         with open(cfg_path,"w",encoding="utf-8") as f: cfg.write(f)
 
+
+    def _update_os_notes_visibility(self, *args):
+        """Muestra u oculta el aviso contextual del SO seleccionado.
+
+        Se llama al cambiar combo_main_os. Si el widget aún no existe
+        (durante la construcción de la UI) no hace nada. Si no hay notas
+        para el SO elegido, oculta el widget.
+        """
+        widget = getattr(self, "os_notes_widget", None)
+        if widget is None:
+            return
+        try:
+            os_type = self.combo_main_os.currentData() or ""
+        except Exception:
+            os_type = ""
+        notes = self._OS_NOTES.get(os_type)
+        if not notes:
+            widget.setVisible(False)
+            return
+        title = getattr(self, "os_notes_title", None)
+        body = getattr(self, "os_notes_body", None)
+        if title is not None:
+            title.setText(notes["title"])
+        if body is not None:
+            body.setText(notes["body"])
+        widget.setVisible(True)
+
+    def _goto_storage_section(self):
+        """Cambia a la sección Almacenamiento de Configuración.
+
+        Se usa desde el botón "Configurar medio en Almacenamiento" de las
+        páginas Android y macOS (antes tenían sus propios inputs, que se
+        eliminaron por duplicación).
+        """
+        try:
+            sidebar = getattr(self, "config_sidebar", None)
+            if sidebar is None:
+                return
+            for i in range(sidebar.count()):
+                item = sidebar.item(i)
+                if item is None:
+                    continue
+                data = item.data(Qt.ItemDataRole.UserRole) or ""
+                if data == "Almacenamiento":
+                    sidebar.setCurrentRow(i)
+                    return
+        except Exception:
+            pass
+
+    def _update_version_so_visibility(self, *args):
+        """Muestra u oculta "Versión de SO:" según la plataforma.
+
+        Android no tiene versiones de SO (la versión la decide la ISO),
+        así que para Android se ocultan el label y el stack de selección.
+        Para el resto de SO (Linux, Windows, macOS) se fuerza visibilidad
+        explícita de cada widget, incluido el combo de distro Linux, por
+        si algún parche anterior lo dejó oculto.
+        """
+        os_type = ""
+        try:
+            os_type = self.combo_main_os.currentData() or ""
+        except Exception:
+            pass
+        is_android = (os_type == "android")
+        visible = (not is_android)
+
+        # 1) Label "Versión de SO:"
+        lbl = getattr(self, "label_version_so", None)
+        if lbl is not None:
+            lbl.setVisible(visible)
+
+        # 2) Stack de selección de versión (contiene el combo de distro)
+        stack = getattr(self, "version_selector_stack", None)
+        if stack is None:
+            stack = getattr(self, "stack_pages", None)
+        if stack is not None:
+            stack.setVisible(visible)
+            # Reafirmar también el combo específico de Linux. Es el que el
+            # usuario espera ver cuando la plataforma es GNU/Linux.
+            for name in ("combo_lin_distro", "combo_win_ver", "combo_macos_ver"):
+                c = getattr(self, name, None)
+                if c is not None:
+                    c.setVisible(visible)
+                    c.setEnabled(visible)
+
+        # 3) Log informativo (una vez por cambio)
+        try:
+            if getattr(self, "_last_so_vis_log", None) != (os_type, visible):
+                self._last_so_vis_log = (os_type, visible)
+                self.log_message(
+                    f"==> Visibilidad Versión de SO: os_type={os_type!r} "
+                    f"visible={visible} "
+                    f"(combo_lin_distro={'sí' if hasattr(self, 'combo_lin_distro') else 'no'})"
+                )
+        except Exception:
+            pass
+
     def _update_graphics_compat_hint(self):
         if not hasattr(self, "label_graphics_compat"):
             return
         mode = self.combo_graphics.currentData()
         firmware = self.combo_firmware.currentData() if hasattr(self, "combo_firmware") else "bios"
+        os_type = self.combo_main_os.currentData() if hasattr(self, "combo_main_os") else "linux"
+        # Android-x86 9.0 (kernel 4.9) no trae driver VirtIO-GPU: si se
+        # elige a mano, al arrancar se queda en "Detecting Android-x86..."
+        # y cae a un shell de rescate. Solo se avisa si el usuario lo
+        # eligió explícitamente; "Automático" ya resuelve a QXL para Android.
+        if os_type == "android" and mode == "virtio":
+            self.label_graphics_compat.setText(
+                "⚠️ Android-x86 9.0 (kernel 4.9) no incluye driver VirtIO-GPU y cae "
+                "a un shell de rescate con 'Detecting Android-x86…'. Usa "
+                "'Automático' o 'Red Hat QXL 2D'. Las ISOs con kernel 5.10+ o "
+                "Bliss OS 15+ sí soportan VirtIO-GPU."
+            )
+            self.label_graphics_compat.setVisible(True)
+            return
         if firmware == "uefi" and mode in ("qxl", "vmware"):
             nombre = "QXL" if mode == "qxl" else "VMware SVGA"
             self.label_graphics_compat.setText(
@@ -4436,3 +4727,4 @@ class VmLifecycleMixin:
             self.label_graphics_compat.setVisible(True)
         else:
             self.label_graphics_compat.setVisible(False)
+# _persist_android_iso_unified_v2

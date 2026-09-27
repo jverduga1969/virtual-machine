@@ -478,13 +478,15 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_main_os.addItem("macOS", "macos")
         self.combo_main_os.addItem("Microsoft Windows", "windows")
         self.combo_main_os.addItem("GNU / Linux", "linux")
+        self.combo_main_os.addItem("Android (Android-x86 / Bliss OS)", "android")
         self.combo_main_os.setMaximumWidth(200)
         self.combo_main_os.currentIndexChanged.connect(self.change_os_panel)
         self.combo_main_os.currentIndexChanged.connect(self.maybe_autofill_vm_name)
         self.combo_main_os.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         h_main_os.addWidget(self.combo_main_os)
         h_main_os.addSpacing(14)
-        h_main_os.addWidget(QLabel("<b>Versión de SO:</b>"))
+        self.label_version_so = QLabel("<b>Versión de SO:</b>")
+        h_main_os.addWidget(self.label_version_so)
 
         # 1) Construir el stack con los combos dentro.
         # 2) Guardarlo.
@@ -494,7 +496,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         h_main_os.addWidget(self.version_selector_stack)
 
         # Versión de la ISO a descargar (solo GNU / Linux). Se rellena en segundo plano.
-        h_main_os.addSpacing(14)
+        # Widgets de "Versión ISO" creados pero NO añadidos al layout:
+        # el medio se elige en Configuración → Almacenamiento.
         self.label_lin_version = QLabel("<b>Versión ISO:</b>")
         self.combo_lin_version = QComboBox()
         self.combo_lin_version.setMinimumWidth(210)
@@ -509,8 +512,18 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.btn_lin_iso_browse.setVisible(False)
         self.btn_lin_iso_browse.clicked.connect(self._browse_lin_own_iso)
         h_main_os.addWidget(self.btn_lin_iso_browse)
+        # El botón 📁 de "Versión ISO" queda siempre oculto: la ISO
+        # propia se elige escogiendo "Ninguna" en el combo (el diálogo
+        # de archivo se abre automáticamente).
+        self.btn_lin_iso_browse.setVisible(False)
+        # Selector "Versión ISO" eliminado de la vista: la ISO se elige
+        # exclusivamente en Configuración → Almacenamiento → CD / DVD.
+        # Selector "Versión ISO" oculto: la ISO se elige en
+        # Configuración → Almacenamiento → CD / DVD.
         self.label_lin_version.setVisible(False)
         self.combo_lin_version.setVisible(False)
+        self.btn_lin_iso_browse.setVisible(False)
+        self.btn_lin_iso_browse.setVisible(False)
         self._lin_ver_bridge = _LinVersionsBridge(self)
         self._lin_ver_bridge.done.connect(self._on_lin_versions_ready)
         self.combo_lin_distro.currentIndexChanged.connect(self._refresh_lin_versions)
@@ -518,6 +531,112 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_lin_version.currentIndexChanged.connect(self._on_lin_version_picked)
         h_main_os.addStretch()
         main_layout.addLayout(h_main_os)
+
+        # Aviso contextual del SO seleccionado: ancho completo, altura
+        # adaptable. El contenido se rellena en _update_os_notes_visibility
+        # a partir del diccionario _OS_NOTES definido en VmLifecycleMixin.
+        # Solo se muestra si hay notas para el SO elegido.
+        self.os_notes_widget = QFrame()
+        self.os_notes_widget.setObjectName("osNotesBox")
+        self.os_notes_widget.setFrameShape(QFrame.Shape.NoFrame)
+        _on_lay = QVBoxLayout(self.os_notes_widget)
+        _on_lay.setContentsMargins(14, 12, 14, 12)
+        _on_lay.setSpacing(6)
+
+        self.os_notes_title = QLabel("")
+        self.os_notes_title.setStyleSheet("font-size: 13px;")
+        _on_lay.addWidget(self.os_notes_title)
+
+        self.os_notes_body = QLabel("")
+        self.os_notes_body.setWordWrap(True)
+        self.os_notes_body.setTextFormat(Qt.TextFormat.RichText)
+        self.os_notes_body.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        self.os_notes_body.setOpenExternalLinks(True)
+        self.os_notes_body.setStyleSheet("font-size: 11px;")
+        _on_lay.addWidget(self.os_notes_body)
+
+        self.os_notes_widget.setStyleSheet(
+            "QFrame#osNotesBox { "
+            "  background: rgba(59, 130, 246, 30); "
+            "  border: 1px solid rgba(59, 130, 246, 120); "
+            "  border-radius: 8px; "
+            "}"
+        )
+        self.os_notes_widget.setVisible(False)
+        main_layout.addWidget(self.os_notes_widget)
+
+        # Reaccionar al cambio de plataforma. Qt permite varias conexiones
+        # a la misma señal, así que esto no interfiere con las que ya había
+        # (change_os_panel, maybe_autofill, _update_vm_summary).
+        self.combo_main_os.currentIndexChanged.connect(
+            self._update_os_notes_visibility
+        )
+        # Ocultar "Versión de SO:" cuando la plataforma es Android.
+        self.combo_main_os.currentIndexChanged.connect(
+            self._update_version_so_visibility
+        )
+
+
+        # Aviso contextual de Android: aparece solo cuando la plataforma
+        # seleccionada es Android. Ocupa el ancho completo de la ventana y
+        # su altura se adapta al contenido (word-wrap). Enumera las
+        # características de la app que NO están disponibles en Android
+        # para evitar sorpresas al usuario.
+        self.android_warning_widget = QFrame()
+        self.android_warning_widget.setObjectName("androidWarningBox")
+        self.android_warning_widget.setFrameShape(QFrame.Shape.NoFrame)
+        _aw_lay = QVBoxLayout(self.android_warning_widget)
+        _aw_lay.setContentsMargins(14, 12, 14, 12)
+        _aw_lay.setSpacing(6)
+
+        _aw_title = QLabel("<b>ℹ️ Notas sobre Android en QEMU/KVM</b>")
+        _aw_title.setStyleSheet("font-size: 13px;")
+        _aw_lay.addWidget(_aw_title)
+
+        _aw_body = QLabel(
+            "<b>✅ Funciona:</b> crear la VM, arrancar, consola VNC/SPICE, "
+            "snapshots de disco, passthrough USB.<br>"
+            "<b>❌ No disponible en Android:</b> carpetas compartidas "
+            "(9p / VirtioFS), QEMU Guest Agent, clipboard bidireccional y "
+            "automontaje de carpetas. Los kernels de Android-x86 / Bliss OS "
+            "no incluyen esos módulos. Para pasar archivos, usa ADB o la red.<br>"
+            "<b>✅ ISO recomendada:</b> Android-x86 9.0 — "
+            "<a href=\"https://www.android-x86.org/download.html\">"
+            "android-x86.org/download.html</a> (probado, usa QXL automáticamente).<br>"
+            "<b>⚠️ Bliss OS:</b> más moderno (Android 12/13) pero exige "
+            "≥8 GB RAM, 4 núcleos y chipset Q35. La variante «Bliss-Surface» "
+            "no arranca bajo QEMU. Si se queda colgado en "
+            "«Have A Truly Blissful Experience», sube RAM/núcleos o usa "
+            "Android-x86. Descarga: "
+            "<a href=\"https://blissos.org/\">blissos.org</a>"
+        )
+        _aw_body.setWordWrap(True)
+        _aw_body.setTextFormat(Qt.TextFormat.RichText)
+        _aw_body.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        _aw_body.setOpenExternalLinks(True)
+        _aw_body.setStyleSheet("font-size: 11px;")
+        _aw_lay.addWidget(_aw_body)
+
+        self.android_warning_widget.setStyleSheet(
+            "QFrame#androidWarningBox { "
+            "  background: rgba(59, 130, 246, 30); "
+            "  border: 1px solid rgba(59, 130, 246, 120); "
+            "  border-radius: 8px; "
+            "}"
+        )
+        # cuando la plataforma pase a Android.
+        self.android_warning_widget.setVisible(False)
+        main_layout.addWidget(self.android_warning_widget)
+
+        # Conectar al cambio de plataforma. La señal ya estaba conectada a
+        # change_os_panel / maybe_autofill / _update_vm_summary; añadimos
+        # una conexión más (Qt permite varias).
 
 
     def _build_hardware_group(self, main_layout):
@@ -773,21 +892,14 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_macos_ver.currentIndexChanged.connect(self.apply_os_profile_defaults)
         v_mac.addWidget(self.combo_macos_ver)
 
-        # Campos ocultos de macOS (compatibilidad con configs antiguas).
-        self.radio_mac_recovery = QRadioButton("Usar System Recovery")
-        self.radio_mac_custom = QRadioButton("Usar imagen existente")
-        self.mac_mode_group = QButtonGroup(self)
-        self.mac_mode_group.addButton(self.radio_mac_recovery)
-        self.mac_mode_group.addButton(self.radio_mac_custom)
-        self.radio_mac_recovery.setChecked(True)
-        self.input_mac_custom_iso = QLineEdit()
-        self.btn_mac_browse = QPushButton("📁")
-        self.btn_mac_browse.setMaximumWidth(40)
-        self.btn_mac_browse.clicked.connect(lambda: self.browse_iso(self.input_mac_custom_iso))
-        self.radio_mac_recovery.toggled.connect(self.toggle_mac_iso_mode)
-        for _w in (self.radio_mac_recovery, self.radio_mac_custom,
-                   self.input_mac_custom_iso, self.btn_mac_browse):
-            _w.setVisible(False)
+        # La fuente de instalación de macOS se elige como medio en la
+        # unidad CD/DVD "Principal" (Configuración → Almacenamiento):
+        #   • «System Recovery de macOS (descargar al iniciar)» → descarga
+        #     automática del Recovery de Apple al pulsar Iniciar.
+        #   • «Usar ISO/IMG/DMG existente» → BaseSystem.img ya preparado,
+        #     o un .dmg que se convierte con dmg2img.
+        v_mac.addStretch(1)
+
         stack.addWidget(page_macos)
 
         # --- Windows ---
@@ -826,6 +938,19 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         v_lin.addWidget(self.combo_lin_distro)
         stack.addWidget(page_linux)
 
+        # --- Android ---
+        # La ISO se elige como medio de la unidad CD/DVD "Principal" en
+        # Configuración → Almacenamiento. Antes había aquí un input + botón
+        # duplicados que no se sincronizaban con la unidad; se eliminaron
+        # para tener una única fuente de verdad.
+        page_android = QWidget()
+        v_android = QVBoxLayout(page_android)
+        v_android.setContentsMargins(0, 0, 0, 0)
+
+        v_android.addStretch(1)
+
+        stack.addWidget(page_android)
+
         return stack
 
 
@@ -859,9 +984,15 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         if combo is None:
             return
         is_linux = self.combo_main_os.currentData() == "linux"
+        # "Versión ISO:" se muestra solo para Linux; en el resto de SO
+        # el medio se elige en Configuración → Almacenamiento.
         self.label_lin_version.setVisible(is_linux)
         combo.setVisible(is_linux)
         if not is_linux:
+            try:
+                self.btn_lin_iso_browse.setVisible(False)
+            except Exception:
+                pass
             return  # no se consulta la red si no se está configurando una VM Linux
 
         distro = self.combo_lin_distro.currentText()
@@ -942,8 +1073,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self._update_lin_iso_browse_visibility()
 
     def _update_lin_iso_browse_visibility(self):
-        is_none = self._selected_lin_version() == principal_cdrom.CHOICE_NONE
-        self.btn_lin_iso_browse.setVisible(is_none)
+        # El botón 📁 de "Versión ISO" queda siempre oculto: la ISO
+        # propia se elige escogiendo "Ninguna" en el combo (el diálogo
+        # de archivo se abre automáticamente desde _on_lin_version_picked).
+        btn = getattr(self, "btn_lin_iso_browse", None)
+        if btn is not None:
+            btn.setVisible(False)
 
     def _own_lin_iso_path(self):
         """Ruta de la ISO propia ya elegida (para no perderla al reabrir el diálogo)."""

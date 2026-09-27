@@ -54,6 +54,20 @@ def get_os_profile(os_type, version_name="", distro=""):
     if os_type == "windows":
         win11=str(version_name).lower().startswith("windows 11")
         return {"id":"windows-11" if win11 else "windows-10", "label":"Windows 11" if win11 else "Windows 10", "firmware":"uefi", "chipset":"q35", "secure_boot":win11, "tpm":win11, "cpu":"host", "disk":"VirtIO/SATA", "network":"VirtIO", "graphics":"VGA estándar QEMU", "sharing":"SMB"}
+    if os_type == "android":
+        return {
+            "id": "android-x86",
+            "label": f"Android \u2014 {version_name or 'Android-x86 / Bliss OS'}",
+            "firmware": "bios",
+            "chipset": "q35",
+            "secure_boot": False,
+            "tpm": False,
+            "cpu": "host",
+            "disk": "SATA/AHCI",
+            "network": "e1000",
+            "graphics": "Autom\u00e1tico / Red Hat QXL 2D",
+            "sharing": "9p",
+        }
     distro=distro or "Linux"
     return {"id":"linux-modern", "label":f"Linux moderno — {distro}", "firmware":"uefi", "chipset":"q35", "secure_boot":False, "tpm":False, "cpu":"host", "disk":"VirtIO/SATA", "network":"VirtIO", "graphics":"Automático / VirtIO-GPU", "sharing":"VirtioFS → 9p"}
 

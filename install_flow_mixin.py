@@ -27,6 +27,16 @@ class InstallFlowMixin:
         os_type = self.combo_main_os.currentData()
         if os_type == "macos":
             raise RuntimeError("Para macOS utiliza 'Descargar System Recovery'. Apple distribuye el instalador completo como una aplicación; el flujo de Recovery de OSX-KVM es el método integrado en este gestor.")
+        if os_type == "android":
+            # Android-x86 / Bliss OS no tienen descarga automática: el
+            # usuario aporta su propia ISO. Esta guarda existe por si
+            # algún flujo futuro invoca este helper con una VM Android;
+            # el flujo real de start_installation ya no lo hace.
+            raise RuntimeError(
+                "Android-x86 / Bliss OS no tienen descarga automática. "
+                "Descarga la ISO desde https://www.android-x86.org/download.html "
+                "o https://blissos.org/ y selecciónala en Plataforma → Android."
+            )
         if os_type == "windows":
             win_ver = self.combo_win_ver.currentText()
             url = get_latest_windows_iso_url(win_ver)
@@ -60,6 +70,11 @@ class InstallFlowMixin:
     def _prepare_macos_recovery_for_start(self, vm_dir):
         """Asegura que BaseSystem.img esté listo antes de arrancar macOS.
 
+        Si no hay ningún medio configurado en Almacenamiento (ni Recovery
+        ni un archivo existente), crea automáticamente la unidad Principal
+        con source="recovery". Sin esto, una VM macOS nueva fallaría con
+        "No existe BaseSystem.img".
+
         Si ya existe, actualiza las unidades CD/DVD con su ruta y devuelve
         la lista de dispositivos.
 
@@ -74,6 +89,38 @@ class InstallFlowMixin:
         """
         devices = self._storage_devices_all(vm_dir)
         recovery_devices = [d for d in devices if d.get("device") == "cdrom" and d.get("source") == "recovery"]
+        # Auto-crear la unidad Principal con Recovery si no hay ningún medio.
+        _has_medium = any(
+            d.get("device") == "cdrom"
+            and (d.get("source") == "recovery"
+                 or (d.get("path") and os.path.isfile(d.get("path", ""))))
+            for d in devices
+        )
+        if not _has_medium:
+            import uuid as _uuid
+            _entry = {
+                "id": "dev_" + _uuid.uuid4().hex[:12],
+                "name": "Principal",
+                "path": "",
+                "device": "cdrom",
+                "principal": True,
+                "source": "recovery",
+            }
+            _cds = [i for i, d in enumerate(devices) if d.get("device") == "cdrom"]
+            devices.insert(_cds[0] if _cds else 0, _entry)
+            recovery_devices = [_entry]
+            _saved = self.current_vm_dir
+            try:
+                self.current_vm_dir = vm_dir
+                self._write_storage_devices(devices)
+            except Exception as _e:
+                self.log_message(f"[AVISO] macOS: no se pudo guardar el medio Recovery: {_e}")
+            finally:
+                self.current_vm_dir = _saved
+            self.log_message(
+                "==> macOS: no había medio de instalación configurado; "
+                "se usará System Recovery (descarga al iniciar)."
+            )
         if not recovery_devices:
             return devices
 
@@ -547,14 +594,13 @@ class InstallFlowMixin:
                 return
             extra_params["os_choice"] = self.os_options[self.combo_macos_ver.currentIndex()][1]
             extra_params["osx_kvm_source"] = os.path.abspath("OSX-KVM")
-            use_custom_mac = self.radio_mac_custom.isChecked()
-            extra_params["mac_use_custom"] = use_custom_mac
-            if use_custom_mac:
-                custom_path = self.input_mac_custom_iso.text().strip()
-                if not custom_path or not os.path.isfile(custom_path):
-                    QMessageBox.warning(self, "Advertencia", "Debe indicar una ruta válida a la imagen de disco existente.")
-                    return
-                extra_params["mac_custom_image"] = custom_path
+            # La fuente de instalación se lee desde la unidad CD/DVD
+            # "Principal". Si tiene source="recovery", se descarga el
+            # Recovery al iniciar; si tiene un path de archivo, se usa
+            # ese archivo (BaseSystem.img o .dmg con dmg2img).
+            # La descarga del Recovery en sí la gestiona
+            # _prepare_macos_recovery_for_start, que corre antes de este
+            # bloque. Ver ese método para el auto-creado de la unidad.
         elif os_type == "windows":
             auto_detect_win = self.check_win_auto.isChecked()
             iso = self.input_win_iso.text().strip()
@@ -594,6 +640,35 @@ class InstallFlowMixin:
             # Solo InstallWorker descargará cuando source=installer y todavía no exista una ruta.
             extra_params["auto_detect"] = bool(auto_detect_win and not installer_selected and not storage_iso)
             extra_params["iso_path"] = iso if not installer_selected else ""
+        elif os_type == "android":
+            # Android-x86 / Bliss OS. La ISO se configura en la unidad
+            # CD/DVD "Principal" (Configuración → Almacenamiento). Aquí
+            # solo leemos esa unidad y validamos que apunte a un archivo.
+            android_iso = ""
+            try:
+                _devices_now = self._storage_devices_all(vm_dir)
+                _p = principal_cdrom.find_principal(_devices_now)
+                if _p is not None:
+                    _p_path = _p.get("path") or ""
+                    if _p_path and os.path.isfile(_p_path):
+                        android_iso = _p_path
+            except Exception:
+                pass
+            if not android_iso:
+                QMessageBox.warning(
+                    self, "Android",
+                    "Debes configurar la ISO de Android-x86 o Bliss OS en "
+                    "Configuración → Almacenamiento → CD / DVD." + chr(92) + "n" + chr(92) + "n" +
+                    "Descárgala de:" + chr(92) + "n" +
+                    "  • https://www.android-x86.org/download.html" + chr(92) + "n" +
+                    "  • https://blissos.org/" + chr(92) + "n" + chr(92) + "n" +
+                    "Añade una unidad CD/DVD y elige «Usar ISO/IMG/DMG existente»."
+                )
+                return
+            extra_params["android_iso"] = android_iso
+            self.log_message(
+                f"==> Android: ISO de instalación: {os.path.basename(android_iso)}"
+            )
         else:  # Linux
             distro = self.combo_lin_distro.currentText()
             extra_params["distro"] = distro
@@ -609,7 +684,7 @@ class InstallFlowMixin:
                                          profile=distro, own_iso=own_iso, new_vm=is_new_vm)
             extra_params["storage_devices"] = _devices_for_principal
 
-        if is_new_vm and os_type == "linux":
+        if is_new_vm and os_type in ("linux", "android"):
             # VM nueva: la unidad Principal (recién creada arriba) debe quedar
             # primera en el orden de arranque, sin importar lo que trajera 'boot_order'.
             boot_order = principal_cdrom.boot_first(

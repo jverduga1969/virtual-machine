@@ -320,6 +320,17 @@ class InstallWorker(QThread):
         if self.os_type == "windows" and mode == "auto":
             return (f"{display_gl_args} -vga std" if clipboard_on else "-vga std"), "Windows: VGA estándar (máxima compatibilidad)"
 
+        # Android-x86 9.0 (kernel 4.9) no trae driver VirtIO-GPU: al arrancar
+        # se queda en "Detecting Android-x86..." y cae a un shell de
+        # rescate (console:/ #). Red Hat QXL 2D funciona en todas las
+        # versiones de Android-x86 / Bliss OS probadas. El usuario que
+        # sepa que su ISO usa kernel 5.10+ (o Bliss OS 15+) puede elegir
+        # VirtIO-GPU 2D explícitamente; ver _update_graphics_compat_hint.
+        if self.os_type == "android" and mode == "auto":
+            if self._qemu_supports("qxl"):
+                return "-vga qxl", "Android: Red Hat QXL 2D (recomendado)"
+            return "-vga std", "Android: VGA estándar (QXL no disponible)"
+
         if mode == "virgl" and virgl_ok:
             extra = ""
             return f"{display_gl_args} -device virtio-vga-gl,hostmem={hostmem},blob=true{extra}".strip(), (
@@ -1254,6 +1265,21 @@ class InstallWorker(QThread):
         except ValueError:
             return None
 
+    def _chipset_is_q35(self):
+        """True si el chipset configurado para esta VM es Q35.
+
+        Se mira self.chipset_args (construido en __init__ a partir de
+        extra_params["chipset"]) para no depender del orden en que
+        self.extra_params esté relleno. Q35 trae el controlador AHCI
+        del ICH9 con los puertos ide.0..ide.5; i440FX (pc) sólo
+        tiene ide.0 e ide.1 y falla con bus=ide.2.
+        """
+        args = str(getattr(self, "chipset_args", "") or "")
+        # -machine q35, -machine q35,smm=on, etc. Basta con buscar "q35"
+        # como palabra suelta tras -machine.
+        import re as _re
+        return bool(_re.search(r"-machine\s+q35(?:\b|,)", args))
+
     def _resolve_disk_bus_for_os(self, devtype):
         """Decide qué bus usar para un disco duro según el SO invitado.
 
@@ -1286,6 +1312,15 @@ class InstallWorker(QThread):
             return "nvme"
         if self.os_type == "linux":
             return "nvme"
+        if self.os_type == "android":
+            # Android-x86 / Bliss OS se instalan y arrancan mejor en
+            # AHCI: el instalador particiona y monta sin necesitar
+            # drivers NVMe específicos del kernel Android-x86.
+            # AHCI (ide.0..ide.5) sólo existe en Q35; si el chipset
+            # guardado es i440FX (pc), el bus ide.2 no existe y QEMU
+            # falla con "Bus 'ide.2' not found". En ese caso se
+            # degrada a IDE heredado, que sí funciona en ambos.
+            return "sata_ahci" if self._chipset_is_q35() else "ide"
         return "nvme"
 
     def _disk_runtime_args(self):
@@ -1868,6 +1903,78 @@ qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} -smp {self.core
     {disk_args} \
     {firmware_args} {tpm_args} {audio_args} {graphics_args} {clipboard_args} {self._passthrough_args()} \
     {cdrom_args} {self._network_args(boot_index_network)} \
+    -qmp unix:"{qmp_path}",server=on,wait=off &
+QEMU_PID=$!
+echo $QEMU_PID > "{pid_path}"
+wait $QEMU_PID
+'''
+        elif self.os_type == "android":
+            # Android-x86 / Bliss OS — flujo simplificado:
+            #   • BIOS + Q35 (arranca sin problemas con GRUB del instalador).
+            #   • Disco SATA/AHCI (lo resuelve _resolve_disk_bus_for_os).
+            #   • Red e1000 en NAT (compatible sin drivers extra).
+            #   • Gráficos VirtIO-GPU 2D (lo resuelve _graphics_args).
+            #   • La ISO de instalación viene del CD/DVD Principal que el
+            #     usuario configuró en Almacenamiento.
+            android_iso = str(self.extra_params.get("android_iso") or "").strip()
+            if not android_iso or not os.path.isfile(android_iso):
+                self.log_signal.emit(
+                    "[ERROR] Android: no hay ISO configurada. Ve a "
+                    "Configuración → Almacenamiento y añade la ISO de "
+                    "Android-x86 o Bliss OS como unidad CD/DVD, o "
+                    "selecciónala en Plataforma → Android."
+                )
+                self.finished_signal.emit(1)
+                return
+
+            try:
+                firmware_args = self._uefi_args() if self.firmware == "uefi" else ""
+                tpm_cmd, tpm_args = ("", "")  # Android no usa TPM
+            except Exception as e:
+                self.log_signal.emit(f"[ERROR] {e}")
+                self.finished_signal.emit(1)
+                return
+
+            boot_index_network = self._boot_index_for("network")
+            disk_args = self._disk_runtime_args()
+            # El CD/DVD con la ISO de Android: reutilizamos el mismo
+            # constructor que Linux/Windows, pasando la ISO como path
+            # directo por si la unidad Principal no la tiene registrada.
+            cdrom_args = self._cdrom_runtime_args(android_iso)
+            self.log_signal.emit(
+                "==> Orden de arranque: "
+                + " → ".join(self._boot_token_label(x) for x in self.boot_order)
+            )
+            try:
+                audio_backend, audio_args = self._audio_args()
+                graphics_args, graphics_note = self._graphics_args()
+                self._prepare_tap_interfaces()
+            except Exception as e:
+                self.log_signal.emit(f"[ERROR] Audio/Gráficos: {e}")
+                self.finished_signal.emit(1)
+                return
+            self.log_signal.emit(f"==> Gráficos: {graphics_note}")
+            self.log_signal.emit(f"==> Android: ISO de instalación: {os.path.basename(android_iso)}")
+
+            socket_path = os.path.join(self.vm_dir, "swtpm.sock")
+            qmp_path = os.path.join(self.vm_dir, "qemu.qmp")
+            pid_path = os.path.join(self.vm_dir, "qemu.pid")
+            cpu_arg = self._cpu_args()
+            clipboard_args, clipboard_note = self._clipboard_qemu_args()
+            if clipboard_note:
+                self.log_signal.emit("==> " + clipboard_note)
+            script_content = f'''#!/bin/bash
+ulimit -l unlimited 2>/dev/null || true
+set -e
+echo "==> Creando disco virtual para Android..."
+{disk_cmd}
+{tpm_cmd}
+trap 'rm -f "{socket_path}" "{qmp_path}" "{pid_path}"' EXIT
+echo "==> Iniciando QEMU para Android ({self.firmware.upper()})..."
+qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} -smp {self.cores} \\
+    -cpu {cpu_arg} {disk_args} \\
+    {firmware_args} {tpm_args} {audio_args} {graphics_args} {clipboard_args} {self._passthrough_args()} \\
+    {cdrom_args} {self._network_args(boot_index_network)} \\
     -qmp unix:"{qmp_path}",server=on,wait=off &
 QEMU_PID=$!
 echo $QEMU_PID > "{pid_path}"

@@ -186,6 +186,14 @@ class DiskCreationDialog(QDialog):
         self.cd_mode.addItem("Usar ISO/IMG/DMG existente", "existing")
         if self.os_type == "macos":
             self.cd_mode.addItem("System Recovery de macOS (descargar al iniciar)", "recovery")
+        elif self.os_type == "android":
+            # Android-x86 / Bliss OS se instalan siempre desde una ISO
+            # que aporta el usuario. No hay descarga automática porque
+            # los mirrors cambian de ubicación con frecuencia y no hay
+            # una URL estable equivalente a la de Microsoft o los
+            # espejos de las distros Linux. Se ofrecen solo las dos
+            # opciones generales: unidad vacía o ISO existente.
+            pass
         else:
             # Windows/Linux recuperan la opción de las versiones anteriores:
             # descargar automáticamente el instalador y dejarlo conectado al CD/DVD.
