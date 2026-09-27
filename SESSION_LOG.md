@@ -138,3 +138,23 @@ bitácora:
 - fix_snapshot_warning_dialog.py → diálogo de snapshot con VirtIO-GPU más claro
 
 Cuando se retomen, documentar aquí.
+
+---
+
+## 2026-09-27 — install_flow_mixin.py nunca se subió a GitHub
+
+### Problema
+El archivo install_flow_mixin.py (módulo real del proyecto) nunca estaba
+en GitHub. El .gitignore tenía la regla 'install_*.py' para ignorar
+scripts temporales, pero también capturaba este archivo real.
+
+### Fix
+Añadidas excepciones al final del .gitignore:
+  !install_flow_mixin.py
+  !*_mixin.py
+
+### Lección aprendida
+Los patrones wildcard en .gitignore son peligrosos. Cada vez que se
+añade un patrón, ejecutar:
+  git status --ignored --short | grep '^!!' | grep '.py$'
+y revisar que ningún archivo real quede atrapado.
