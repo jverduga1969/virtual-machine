@@ -583,6 +583,9 @@ class InstallFlowMixin:
             extra_params["shared_folders"] = self._shared_folders_data()
         if hasattr(self,"guest_agent_enabled") and self.current_vm_dir == vm_dir:
             extra_params["guest_agent_enabled"] = self.guest_agent_enabled.isChecked()
+        # Dispositivo de señalización (ratón/teclado) elegido en Dispositivos.
+        if hasattr(self, "combo_pointer"):
+            extra_params["pointer_device"] = self.combo_pointer.currentData() or "auto"
         # Persistir la preferencia de consola VNC embebida para esta VM.
         if hasattr(self, "check_vnc_embedded"):
             extra_params["vnc_embedded"] = self.check_vnc_embedded.isChecked()

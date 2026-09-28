@@ -807,6 +807,90 @@ class PassthroughMixin:
             connected.add(m.group(0))
         return connected
 
+    def _usb_input_class_for(self, d):
+        """Devuelve 'teclado', 'ratón' o None según las interfaces del USB.
+
+        Consulta /sys/bus/usb/devices/ buscando el dispositivo por su
+        idVendor + idProduct y leyendo bInterfaceClass/bInterfaceProtocol
+        de cada interfaz. Es la fuente canónica en Linux, no depende de
+        lsusb ni de udevadm.
+
+        HID (bInterfaceClass=0x03):
+          • protocolo 0x01 → teclado
+          • protocolo 0x02 → ratón
+          • otros protocolos (0x00, tableta, gamepad, etc.) → None
+        """
+        vid = str(d.get("vendorid") or "").lower()
+        pid = str(d.get("productid") or "").lower()
+        if not (vid and pid):
+            return None
+        base = "/sys/bus/usb/devices"
+        try:
+            entries = os.listdir(base)
+        except OSError:
+            return None
+        for entry in entries:
+            if ":" in entry:
+                continue  # es una interfaz, no el dispositivo
+            devdir = os.path.join(base, entry)
+            try:
+                with open(os.path.join(devdir, "idVendor")) as f:
+                    if f.read().strip().lower() != vid:
+                        continue
+                with open(os.path.join(devdir, "idProduct")) as f:
+                    if f.read().strip().lower() != pid:
+                        continue
+            except OSError:
+                continue
+            # Encontrado: recorrer las interfaces buscando HID teclado/ratón.
+            try:
+                for sub in os.listdir(devdir):
+                    if ":" not in sub:
+                        continue
+                    idir = os.path.join(devdir, sub)
+                    try:
+                        with open(os.path.join(idir, "bInterfaceClass")) as f:
+                            cls = f.read().strip().lower()
+                        with open(os.path.join(idir, "bInterfaceProtocol")) as f:
+                            proto = f.read().strip().lower()
+                    except OSError:
+                        continue
+                    if cls == "03":
+                        if proto == "01":
+                            return "teclado"
+                        if proto == "02":
+                            return "ratón"
+            except OSError:
+                pass
+        return None
+
+    def _warn_if_usb_input_device(self, d):
+        """Avisa si `d` parece el teclado o el ratón del host.
+
+        NO bloquea: devuelve True si el usuario acepta continuar, False si
+        prefiere cancelar. Si el dispositivo no es teclado ni ratón,
+        devuelve True sin mostrar nada.
+        """
+        kind = self._usb_input_class_for(d)
+        if not kind:
+            return True
+        name = d.get("name", "dispositivo USB")
+        resp = QMessageBox.warning(
+            self, f"Posible {kind} del host",
+            f"El dispositivo seleccionado parece ser un {kind} de este "
+            f"equipo:\n\n"
+            f"    {name}\n\n"
+            f"Si se pasa a la VM, este {kind} dejará de controlar el host "
+            f"hasta que se desconecte de la VM.\n\n"
+            "Ten a mano la combinación Ctrl+Alt+F2 para abrir una consola "
+            "de texto si algo va mal (con ella puedes matar el proceso "
+            "QEMU: pkill -f qemu-system-x86_64).\n\n"
+            f"¿Conectar este {kind} a la VM de todos modos?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return resp == QMessageBox.StandardButton.Yes
+
     def _quick_usb_action(self, d, connect):
         """Conecta o desconecta `d` de la VM.
 
@@ -820,6 +904,10 @@ class PassthroughMixin:
             QMessageBox.information(
                 self, "USB", "Dispositivo USB inválido."
             )
+            return
+
+        # Aviso si el dispositivo es el teclado o el ratón del host.
+        if connect and not self._warn_if_usb_input_device(d):
             return
 
         # 1) Refrescar el árbol para tener las referencias actuales.
@@ -1242,6 +1330,37 @@ class PassthroughMixin:
         for i in range(self.passthrough_tree.topLevelItemCount()):
             it=self.passthrough_tree.topLevelItem(i)
             if it.checkState(0)==Qt.CheckState.Checked: selected.append(it.data(0,Qt.ItemDataRole.UserRole))
+
+        # Aviso si entre los seleccionados hay teclado/ratón del host.
+        # Al arrancar la VM, esos dispositivos dejarán de controlar el
+        # host. No bloqueamos: el usuario decide.
+        _hid_inputs = []
+        for d in selected:
+            if not isinstance(d, dict) or d.get("kind") != "usb":
+                continue
+            _kind = self._usb_input_class_for(d)
+            if _kind:
+                _hid_inputs.append((_kind, d.get("name", "USB")))
+        if _hid_inputs:
+            _lines = "\n".join(f"  • {k}: {n}" for k, n in _hid_inputs)
+            _resp = QMessageBox.warning(
+                self, "Passthrough: teclado o ratón del host",
+                "Has seleccionado uno o más dispositivos que parecen ser\n"
+                "el teclado o el ratón de este equipo:\n\n"
+                f"{_lines}\n\n"
+                "Al arrancar la VM, esos dispositivos dejarán de\n"
+                "controlar este host. Si teclado y ratón comparten un\n"
+                "mismo receptor USB inalámbrico, podrías quedarte sin\n"
+                "control total del equipo.\n\n"
+                "Ten a mano Ctrl+Alt+F2 para abrir una consola de texto\n"
+                "si algo va mal.\n\n"
+                "¿Guardar de todos modos?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if _resp != QMessageBox.StandardButton.Yes:
+                return
+
         self._passthrough_saved=selected
         if self.current_vm_dir:
             self._save_hardware_lists()
@@ -1257,6 +1376,9 @@ class PassthroughMixin:
         state=self._runtime_state(os.path.basename(self.current_vm_dir))
         if state not in ('running','paused'):
             QMessageBox.information(self,"Passthrough USB","La VM no está encendida; usa Guardar selección para conectarlo al próximo arranque."); return
+        # Aviso si el dispositivo es el teclado o el ratón del host.
+        if not self._warn_if_usb_input_device(d):
+            return
         bus=str(d.get('bus') or '').strip(); addr=str(d.get('addr') or '').strip()
         vid=str(d.get('vendorid') or '').strip().lower(); pid=str(d.get('productid') or '').strip().lower()
         if not ((bus and addr) or (vid and pid)):

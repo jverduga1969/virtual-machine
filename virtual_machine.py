@@ -93,6 +93,7 @@ from storage_mixin import StorageMixin
 from vm_lifecycle_mixin import VmLifecycleMixin
 from install_flow_mixin import InstallFlowMixin
 from suggestions_mixin import SuggestionsMixin
+from health_dashboard_mixin import HealthDashboardMixin
 from async_ui_mixin import AsyncUiMixin
 from snapshots_graph import SnapshotsGraphView
 from console_ui_mixin import ConsoleUiMixin
@@ -248,7 +249,7 @@ class _LinVersionsBridge(QObject):
     done = pyqtSignal(int, str, object, object)  # token, distro, versiones, error
 
 
-class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, ConsoleUiMixin, QMainWindow):
+class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, ConsoleUiMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Virtual.Machine 38.1 • Administrador QEMU/KVM")
@@ -1464,6 +1465,33 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_audio.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         lay.addWidget(self.combo_audio)
 
+        lay.addWidget(QLabel("<b>Dispositivo de señalización (ratón / teclado)</b>"))
+        self.combo_pointer = QComboBox()
+        self.combo_pointer.addItem("Automático (recomendado)", "auto")
+        self.combo_pointer.addItem("USB Tablet (posición absoluta)", "usb-tablet")
+        self.combo_pointer.addItem("USB Mouse (posición relativa)", "usb-mouse")
+        self.combo_pointer.addItem("USB Keyboard + Tablet", "usb-kbd-tablet")
+        self.combo_pointer.addItem("VirtIO Tablet (requiere drivers en el guest)", "virtio-tablet")
+        self.combo_pointer.addItem("PS/2 (clásico)", "ps2")
+        self.combo_pointer.addItem("Ninguno", "none")
+        self.combo_pointer.setToolTip(
+            "Dispositivo de entrada que QEMU emula para el ratón/teclado.\n"
+            "\n"
+            "• Automático: macOS usa USB Tablet sobre NEC XHCI; el resto deja\n"
+            "  el PS/2 por defecto de QEMU.\n"
+            "• USB Tablet: posición absoluta (el cursor del guest sigue 1:1 al\n"
+            "  del host). Recomendado si el cursor no se mueve bien.\n"
+            "• USB Mouse: posición relativa, como un ratón físico.\n"
+            "• USB Keyboard + Tablet: añade también un teclado USB.\n"
+            "• VirtIO Tablet: mejor rendimiento, requiere drivers VirtIO en\n"
+            "  el guest (no válido en macOS).\n"
+            "• PS/2: ratón/teclado tradicionales de QEMU, sin USB.\n"
+            "• Ninguno: sin ratón/teclado emulados."
+        )
+        self.combo_pointer.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
+        self.combo_pointer.currentIndexChanged.connect(self._on_pointer_device_changed)
+        lay.addWidget(self.combo_pointer)
+
         note = QLabel(
             "Para pasar hardware físico (PCI/USB) a esta VM, usa la pestaña "
             "<b>Dispositivos</b> de la parte superior de la ventana."
@@ -1472,6 +1500,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         note.setStyleSheet("color:#888; font-size:11px; padding-top:8px;")
         lay.addWidget(note)
         lay.addStretch()
+
+    def _on_pointer_device_changed(self, *args):
+        """Guarda el dispositivo de señalización al cambiarlo (si hay VM)."""
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+        except Exception:
+            pass
 
     def _populate_config_otros(self):
         lay = self._config_page_layouts["Virtualización"]
@@ -2460,6 +2498,20 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.btn_vm_health.setToolTip("Comprueba de un vistazo si la VM realmente está corriendo, si el Guest Agent responde y si las carpetas compartidas montaron.")
         self.btn_vm_health.clicked.connect(self.show_vm_health_check)
         console_header.addWidget(self.btn_vm_health)
+        self.btn_health_dashboard = QPushButton("🚦 Semáforos")
+        self.btn_health_dashboard.setToolTip(
+            "Panel en vivo con un semáforo por subsistema:\n"
+            "  • Red de la VM (NIC y conexiones activas)\n"
+            "  • Internet del host (Apple, Cloudflare)\n"
+            "  • Audio (audiodev + sink de pactl)\n"
+            "  • Pantalla (framebuffer VNC/SPICE o visor externo)\n"
+            "  • Guest Agent (respuesta de QMP QGA)\n"
+            "\n"
+            "Verde: funciona. Amarillo: parcial o sin confirmar. Rojo: no. "
+            "Gris: no aplica. Se refresca cada 4 segundos."
+        )
+        self.btn_health_dashboard.clicked.connect(self.show_health_dashboard)
+        console_header.addWidget(self.btn_health_dashboard)
         self.btn_clean_orphans = QPushButton("🧹 Limpiar procesos huérfanos")
         self.btn_clean_orphans.setToolTip("Busca procesos QEMU/virtiofsd/swtpm que quedaron colgados de una sesión anterior (por un cierre forzado) y ofrece detenerlos.")
         self.btn_clean_orphans.clicked.connect(self.clean_orphan_processes)

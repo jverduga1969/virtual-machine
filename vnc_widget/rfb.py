@@ -105,7 +105,20 @@ class RFBClient:
         return buffer
 
     def __send(self, data: bytes):
-        self.connection.send(data)
+        try:  # vnc_broken_pipe_fix_v1
+            self.connection.send(data)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            for _attr in ("connected", "is_connected", "_connected", "running"):
+                if hasattr(self, _attr):
+                    try:
+                        setattr(self, _attr, False)
+                    except Exception:
+                        pass
+            return
         self.logc.debug(data.hex())
 
     def __start(self):

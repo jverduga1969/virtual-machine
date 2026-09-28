@@ -901,7 +901,12 @@ class InstallWorker(QThread):
                 args.append(f'-netdev tap,id={netid},ifname={tap},script=no,downscript=no -device {model},netdev={netid},id={netid}{macarg}{bootarg}')
             else:
                 smbarg = f',smb="{self._smb_share_host}"' if i == 0 and getattr(self, '_smb_share_host', '') else ''
-                args.append(f'-netdev user,id={netid}{smbarg} -device {model},netdev={netid},id={netid}{macarg}{bootarg}')
+                # netdev_user_dns_v1: forzamos dns=10.0.2.3 explícitamente.
+                # Algunos guests (macOS High Sierra, Mojave, Ventura)
+                # ignoran el DNS que QEMU sirve por DHCP interno y quedan
+                # sin resolver nombres aunque la red funcione. Forzarlo aquí
+                # es lo que usan las guías de OSX-KVM.
+                args.append(f'-netdev user,id={netid},dns=10.0.2.3{smbarg} -device {model},netdev={netid},id={netid}{macarg}{bootarg}')
         return (" " + "\\\n    ").join(args)
 
 
@@ -1073,6 +1078,90 @@ class InstallWorker(QThread):
                 # Releer para el estado final; si el driver tarda en reaparecer no marcamos error aquí.
                 pass
 
+    def _pointer_args(self):
+        """Emite los dispositivos de señalización (ratón/teclado) para QEMU.
+
+        Marcador: macos_pointer_ehci_v1
+
+        Reglas:
+          • macOS + auto → EHCI (USB 2.0) + usb-kbd + usb-tablet + hotplug off.
+            High Sierra (y otras versiones) no inicializan bien el XHCI de
+            QEMU: el cursor queda quieto en (0,0) y el teclado no responde
+            aunque OpenCore sí los detecte. OSX-KVM usa EHCI por defecto
+            por esta misma razón. La directiva acpi-pci-hotplug-with-bridge-
+            support=off evita que macOS pierda el bridge PCIe donde vive el
+            controlador USB tras el arranque del kernel.
+          • Otros + auto → vacío (PS/2 por defecto de QEMU, como hasta ahora).
+          • Modos explícitos: usb-tablet, usb-mouse, usb-kbd-tablet,
+            virtio-tablet, ps2, none. En macOS todos los USB van por EHCI.
+        """
+        mode = str((self.extra_params or {}).get("pointer_device") or "auto").lower()
+        if mode in ("", "none"):
+            return ""
+
+        is_macos = (self.os_type == "macos")
+        if is_macos:
+            bus = "ehci.0"
+            controller = "usb-ehci,id=ehci"
+            extra_global = "-global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off"
+        else:
+            bus = None
+            controller = None
+            extra_global = ""
+
+        def _usb_dev(name):
+            if bus:
+                return f"-device {name},bus={bus}"
+            return f"-device {name}"
+
+        if mode == "auto":
+            if is_macos:
+                return (
+                    "-device usb-ehci,id=ehci "
+                    "-device usb-kbd,bus=ehci.0 "
+                    "-device usb-tablet,bus=ehci.0 "
+                    "-global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off"
+                )
+            return ""
+
+        parts = []
+        if controller:
+            parts.append(f"-device {controller}")
+
+        if mode == "usb-tablet":
+            parts.append(_usb_dev("usb-tablet"))
+        elif mode == "usb-mouse":
+            parts.append(_usb_dev("usb-mouse"))
+        elif mode == "usb-kbd-tablet":
+            parts.append(_usb_dev("usb-kbd"))
+            parts.append(_usb_dev("usb-tablet"))
+        elif mode == "virtio-tablet":
+            if is_macos:
+                self.log_signal.emit(
+                    "[AVISO] macOS: virtio-tablet no es viable aquí; se usa usb-tablet."
+                )
+                parts.append(_usb_dev("usb-tablet"))
+            elif self._qemu_supports("virtio-tablet-pci"):
+                parts.append("-device virtio-tablet-pci")
+            else:
+                self.log_signal.emit(
+                    "[AVISO] virtio-tablet-pci no está disponible; se usa usb-tablet."
+                )
+                parts.append(_usb_dev("usb-tablet"))
+        elif mode == "ps2":
+            # macOS no tiene PS/2 nativo: si el usuario elige ps2 en una VM
+            # macOS, dejamos el EHCI con tablet igualmente para no dejarla
+            # sin entrada.
+            if is_macos:
+                parts.append(_usb_dev("usb-kbd"))
+                parts.append(_usb_dev("usb-tablet"))
+            else:
+                parts = []
+
+        if is_macos and extra_global and extra_global not in parts:
+            parts.append(extra_global)
+
+        return " ".join(parts)
     def _passthrough_args(self):
         args=[]
         usb_used=False
@@ -1745,7 +1834,30 @@ class InstallWorker(QThread):
                 self.finished_signal.emit(1)
                 return
 
-            network_args = "-netdev user,id=net0 -device virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:c9:18:27"
+            # macos_nic_per_version_v1
+            # High Sierra (10.13) y Mojave (10.14) no traen driver
+            # virtio-net en el instalador: el kernel ve la interfaz
+            # pero no obtiene IP ni responde ARP ("No route to host").
+            # El propio OSX-KVM recomienda vmxnet3 para High Sierra.
+            # Catalina (10.15) y posteriores sí traen virtio-net.
+            _os_choice_nic = str(self.extra_params.get("os_choice", "7"))
+            if _os_choice_nic in ("1", "2"):
+                _mac_nic = "vmxnet3"
+                _mac_nic_note = "vmxnet3 (High Sierra/Mojave: sin driver virtio-net)"
+            else:
+                _mac_nic = "virtio-net-pci"
+                _mac_nic_note = "virtio-net-pci"
+            self.log_signal.emit(
+                f"==> macOS: red NAT con {_mac_nic_note}."
+            )
+            # netdev_user_dns_v1: forzamos dns=10.0.2.3 explícitamente.
+            # Algunos guests ignoran el DNS que QEMU sirve por DHCP
+            # interno de slirp y quedan sin resolver nombres aunque
+            # la red funcione.
+            network_args = (
+                f"-netdev user,id=net0,dns=10.0.2.3 "
+                f"-device {_mac_nic},netdev=net0,id=net0,mac=52:54:00:c9:18:27"
+            )
             # NO activar +invtsc: QEMU lo expone como un dispositivo CPU no migrable
             # y bloquea los snapshots completos (savevm/snapshot-save) con:
             # "State blocked by non-migratable CPU device (invtsc flag)".
@@ -1799,11 +1911,8 @@ qemu-system-x86_64 \
     -m {self.ram} \
     -cpu {cpu_model},"{my_options}" \
     -machine q35 \
-    -device qemu-xhci,id=xhci \
-    -device usb-kbd,bus=xhci.0 \
-    -device usb-tablet,bus=xhci.0 \
+    {self._pointer_args()} \
     -smp {self.cores},cores={self.cores},threads=1,sockets=1 \
-    -device usb-ehci,id=ehci \
     -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc" \
     -drive if=pflash,format=raw,readonly=on,file="{code_path}" \
     -drive if=pflash,format=raw,file="{vars_path}" \

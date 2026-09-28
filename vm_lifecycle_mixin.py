@@ -4181,6 +4181,14 @@ class VmLifecycleMixin:
         audio_idx = self.combo_audio.findData(data.get("audio_device", "intel-hda"))
         if audio_idx >= 0:
             self.combo_audio.setCurrentIndex(audio_idx)
+        if hasattr(self, "combo_pointer"):
+            _ptr = (data.get("extra") or {}).get("pointer_device") or "auto"
+            _ptr_idx = self.combo_pointer.findData(_ptr)
+            if _ptr_idx < 0:
+                _ptr_idx = 0
+            self.combo_pointer.blockSignals(True)
+            self.combo_pointer.setCurrentIndex(_ptr_idx)
+            self.combo_pointer.blockSignals(False)
         graphics_idx = self.combo_graphics.findData(data.get("graphics_mode", "auto"))
         if graphics_idx >= 0:
             self.combo_graphics.setCurrentIndex(graphics_idx)
@@ -4597,9 +4605,22 @@ class VmLifecycleMixin:
         if not self.current_vm_dir: return
         cfg_path=os.path.join(self.current_vm_dir,"vm_config.ini")
         cfg=configparser.ConfigParser(interpolation=None); cfg.read(cfg_path,encoding="utf-8")
-        hw=cfg["hardware"] if cfg.has_section("hardware") else cfg.setdefault("hardware",{})
+        if not cfg.has_section("hardware"):
+            cfg.add_section("hardware")
+        hw=cfg["hardware"]
         hw["network_devices"]=json.dumps(self._network_devices())
         hw["passthrough_devices"]=json.dumps(getattr(self,"_passthrough_saved",[]))
+        # Guardar también el dispositivo de señalización elegido (va en
+        # extra, junto al resto de opciones de bajo nivel).
+        if hasattr(self, "combo_pointer"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["pointer_device"] = self.combo_pointer.currentData() or "auto"
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
         with open(cfg_path,"w",encoding="utf-8") as f: cfg.write(f)
 
 
