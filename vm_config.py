@@ -22,7 +22,62 @@ from datetime import date, timedelta
 import requests
 from packaging import version
 
-BASE_VM_DIR = os.path.join(os.getcwd(), "VirtualMachines")
+# portable_paths_v1: BASE_VM_DIR se ancla a la ubicación de este módulo,
+# no a os.getcwd(). Antes, si la app se lanzaba desde otro directorio (o
+# vía un .desktop con Path= distinto), las VMs "desaparecían" de la lista.
+# La variable de entorno VM_BASE_DIR permite override si el usuario tiene
+# sus VMs en otro sitio.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_LEGACY_BASE_VM_DIR = os.path.join(os.getcwd(), "VirtualMachines")
+BASE_VM_DIR = os.environ.get("VM_BASE_DIR") or os.path.join(_HERE, "VirtualMachines")
+
+
+def legacy_base_vm_dir_warning():
+    """Aviso si detectamos VMs en un VirtualMachines/ heredado del cwd.
+
+    Caso típico: al arrancar la app desde otro directorio, las VMs creadas
+    con la versión antigua quedaron en un VirtualMachines/ distinto al que
+    ahora se usa. Este helper devuelve (mensaje, ruta_legacy) para que la
+    app pueda avisar al usuario, o (None, None) si no hay nada que avisar.
+
+    portable_paths_v1
+    """
+    if os.environ.get("VM_BASE_DIR"):
+        return (None, None)
+    try:
+        legacy_abs = os.path.abspath(_LEGACY_BASE_VM_DIR)
+        base_abs = os.path.abspath(BASE_VM_DIR)
+    except Exception:
+        return (None, None)
+    if legacy_abs == base_abs:
+        return (None, None)
+    if not os.path.isdir(legacy_abs):
+        return (None, None)
+    try:
+        entries = os.listdir(legacy_abs)
+    except OSError:
+        return (None, None)
+    has_real_vms = any(
+        os.path.isfile(os.path.join(legacy_abs, e, "vm_config.ini"))
+        for e in entries
+    )
+    if not has_real_vms:
+        return (None, None)
+    try:
+        new_has_vms = any(
+            os.path.isfile(os.path.join(base_abs, e, "vm_config.ini"))
+            for e in os.listdir(base_abs)
+        )
+    except (OSError, FileNotFoundError):
+        new_has_vms = False
+    if new_has_vms:
+        return (None, None)
+    return (
+        f"Se detectaron VMs en {legacy_abs} pero la app ahora las busca "
+        f"en {base_abs}. Mueve tus VMs o arranca con "
+        f"VM_BASE_DIR='{legacy_abs}'",
+        legacy_abs,
+    )
 
 
 def vm_folder_name(name: str) -> str:

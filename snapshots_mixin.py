@@ -43,6 +43,177 @@ class SnapshotsMixin:
         except Exception:
             return {}
 
+    def _snapshot_is_disk_only(self, tag):
+        """True si el snapshot no guarda RAM (solo disco).
+
+        Se detecta leyendo la columna VM_SIZE de la lista de snapshots:
+        un snapshot completo pesa al menos unos MB; uno solo-disco
+        aparece como 0 B (o "(solo disco)" tras _display_vm_size).
+
+        Si no se puede determinar (QMP caído, lista vacía), devuelve
+        False por seguridad: el flujo normal intentará snapshot-load y
+        el except capturará el error concreto de QEMU si procede.
+        """
+        if not tag:
+            return False
+        try:
+            for line in self._snapshot_list():
+                parsed = self._parse_snapshot_line(line)
+                if not parsed:
+                    continue
+                if parsed[1] != tag:
+                    continue
+                raw = (parsed[2] or "").strip()
+                if not raw:
+                    return False
+                m = re.match(r"^([0-9]*\.?[0-9]+)\s*([A-Za-z]*)$", raw)
+                if not m:
+                    return False
+                try:
+                    return float(m.group(1)) == 0
+                except Exception:
+                    return False
+        except Exception:
+            return False
+        return False
+
+    def _wait_for_vm_stopped(self, vm_name, on_done, on_timeout,
+                             timeout_ms=90000):
+        """Sondea cada segundo hasta que la VM esté apagada o se agote
+        el timeout. Se usa para encadenar 'apagar + restaurar snapshot
+        solo-disco' sin bloquear la UI."""
+        try:
+            from PyQt6.QtCore import QTimer as _QTimer
+        except Exception:
+            return
+        interval = 1000
+        elapsed = [0]
+        timer = _QTimer(self)
+
+        def _poll():
+            try:
+                state = self._runtime_state(vm_name)
+            except Exception:
+                state = "stopped"
+            if state == "stopped":
+                timer.stop()
+                try:
+                    on_done()
+                except Exception as _e:
+                    try:
+                        self.log_message(
+                            f"[AVISO] Fallo tras apagar la VM: {_e}"
+                        )
+                    except Exception:
+                        pass
+                return
+            elapsed[0] += interval
+            if elapsed[0] >= timeout_ms:
+                timer.stop()
+                try:
+                    on_timeout()
+                except Exception:
+                    pass
+
+        timer.setInterval(interval)
+        timer.timeout.connect(_poll)
+        timer.start()
+        self._disk_only_shutdown_timer = timer
+
+    def _on_vm_stopped_for_restore(self):
+        """Callback: la VM ya está apagada, reintentar la restauración.
+
+        La segunda llamada entra por la rama 'stopped', que usa
+        qemu-img snapshot -a (la vía correcta para snapshots solo-disco).
+        """
+        tag = getattr(self, "_pending_disk_only_restore_tag", None)
+        self._pending_disk_only_restore_tag = None
+        self._disk_only_shutdown_timer = None
+        if not tag:
+            return
+        self._snapshot_log(
+            f"[SNAPSHOT] VM apagada; restaurando '{tag}' en frío."
+        )
+        try:
+            self._select_snapshot_in_tree(tag)
+        except Exception:
+            pass
+        # Reintentar la restauración: ahora el estado es 'stopped' y
+        # cae en la rama offline.
+        self.restore_snapshot_from_page()
+
+    def _on_vm_stopped_timeout(self):
+        """Callback: la VM no se apagó en el tiempo máximo."""
+        self._pending_disk_only_restore_tag = None
+        self._disk_only_shutdown_timer = None
+        QMessageBox.warning(
+            self, "Apagado no completado",
+            "La VM no se apagó dentro del tiempo máximo (90 s).\n\n"
+            "Puede que el sistema invitado esté colgado. Usa el botón\n"
+            "'Forzar apagado' de la lista lateral, luego vuelve a intentar\n"
+            "restaurar el snapshot con la VM ya apagada."
+        )
+
+    def _is_linked_clone(self):
+        """True si la VM actual es un clon enlazado (backing file QCOW2).
+
+        Marcador linked_clone_v1 / linked_clone_snapshot_v1. Se lee
+        extra.linked_clone del vm_config.ini actual.
+        """
+        if not self.current_vm_dir:
+            return False
+        try:
+            cfg = load_vm_config(self.current_vm_dir)
+            extra = cfg.get("extra") or {}
+            return bool(extra.get("linked_clone"))
+        except Exception:
+            return False
+
+    def _update_linked_clone_snapshot_notice(self):
+        """Muestra/oculta el aviso de clon enlazado en la pestaña Snapshots.
+
+        Solo visible si la VM actual tiene extra.linked_clone=true.
+        Marcador linked_clone_snapshot_v1.
+        """
+        lbl = getattr(self, "snapshot_linked_clone_notice", None)
+        if lbl is None:
+            return
+        try:
+            is_linked = self._is_linked_clone()
+        except Exception:
+            is_linked = False
+        try:
+            lbl.setVisible(bool(is_linked))
+        except Exception:
+            pass
+
+    def _show_linked_clone_restore_help(self, tag):
+        """Aviso específico cuando la restauración falla en un clon enlazado.
+
+        Causa: QEMU no puede restaurar snapshots completos sobre un
+        QCOW2 con backing file. Aborta con una aserción en
+        vmstate_load_next, el proceso muere y el socket QMP se resetea
+        (de ahí el 'Errno 104' que ve el usuario).
+        """
+        QMessageBox.warning(
+            self, "No se puede restaurar este snapshot",
+            f"La VM es un clon enlazado (backing file QCOW2) y el "
+            f"snapshot '{tag}' fue creado en modo COMPLETO "
+            "(RAM + dispositivos).\n\n"
+            "QEMU no puede restaurar snapshots completos sobre un QCOW2 "
+            "con backing file: al ejecutar loadvm aborta con una aserción "
+            "interna (vmstate_load_next) y el proceso muere. De ahí el "
+            "'Conexión reinicializada' que has visto.\n\n"
+            "Qué hacer:\n"
+            "  • Los snapshots que crees A PARTIR DE AHORA en este clon "
+            "serán solo de discos (la app ya lo fuerza) y se podrán "
+            "restaurar.\n"
+            "  • Este snapshot antiguo no se puede restaurar. Elimínalo "
+            "si ya no lo necesitas.\n"
+            "  • Si necesitas snapshots completos, desenlaza el clon con "
+            "'🧬 Desenlazar' (convierte el delta en un QCOW2 autónomo)."
+        )
+
     def _snapshot_candidate_disks(self):
         """Analiza discos SATA/NVMe aptos para snapshots sin violar los locks de QEMU."""
         if not self._vm_is_selected():
@@ -216,6 +387,33 @@ class SnapshotsMixin:
             except Exception:
                 continue
         return ["\t".join(best[tag]) for tag in order]
+
+    @staticmethod
+    def _display_vm_size(raw):
+        """Texto amigable para la columna "Tamaño VM" de la lista.
+
+        QEMU informa el tamaño del ESTADO de la VM (RAM + dispositivos)
+        que se guardo con el snapshot, no el delta de disco. Un snapshot
+        solo de disco (RAM no guardada) aparece como "0 B" — lo cual es
+        correcto pero confunde. Aqui se muestra "(solo disco)" en su
+        lugar. Los snapshots completos muestran su tamano real.
+        """
+        s = (raw or "").strip()
+        if not s:
+            return "—"
+        low = s.lower().replace(" ", "")
+        # Variantes de "0 B": "0B", "0.0B", "0 B", "0.00B", etc.
+        try:
+            # Extraer numero y unidad
+            import re as _re
+            m = _re.match(r"^([0-9]*\.?[0-9]+)\s*([a-z]*)$", s, _re.I)
+            if m:
+                n = float(m.group(1))
+                if n == 0:
+                    return "(solo disco)"
+        except Exception:
+            pass
+        return s
 
     @staticmethod
     def _parse_snapshot_line(line):
@@ -772,11 +970,27 @@ class SnapshotsMixin:
             if key in seen:
                 continue
             seen.add(key)
+            # Convertir el VM SIZE crudo a algo legible:
+            #   - "0 B" -> "(solo disco)" (snapshot sin RAM)
+            #   - resto -> el texto original
+            try:
+                parsed = (
+                    parsed[0], parsed[1],
+                    self._display_vm_size(parsed[2]),
+                    parsed[3], parsed[4],
+                )
+            except Exception:
+                pass
             rows.append(parsed)
         return rows
 
     def refresh_snapshot_page(self):
         if not hasattr(self, 'snapshot_list_widget'): return
+        # Actualizar el aviso de clon enlazado (linked_clone_snapshot_v1).
+        try:
+            self._update_linked_clone_snapshot_notice()
+        except Exception:
+            pass
         self.snapshot_list_widget.clear()
         if hasattr(self, 'snapshot_disk_status'):
             self.snapshot_disk_status.clear()
@@ -1479,7 +1693,7 @@ class SnapshotsMixin:
         if "error" in result:
             err = result.get("error") or {}
             raise RuntimeError(str(err.get("desc") or err.get("class") or err))
-        return device_nodes
+        return device_list
 
     # ------------------------------------------------------------------
     # Detección de gráficos problemáticos para snapshots
@@ -1581,21 +1795,52 @@ class SnapshotsMixin:
         self._snapshot_log(f"[SNAPSHOT] QCOW2 escribibles incluidos: {len(readiness['eligible'])}")
         for d in readiness['eligible']:
             self._snapshot_log(f"[SNAPSHOT]   • {d['name']} | {self._format_bytes(d.get('virtual_size',0))} | archivo: {self._format_bytes(d.get('actual_size',-1))} | libre host: {self._format_bytes(d.get('free',-1))}")
+        # Clon enlazado (marcador linked_clone_snapshot_v1): QEMU no
+        # puede restaurar snapshots completos (RAM + dispositivos)
+        # sobre un QCOW2 con backing file. Falla con una aserción en
+        # vmstate_load_next y mata el proceso QEMU. Forzamos solo-disco.
+        _linked_force_disk = False
+        try:
+            _linked_force_disk = self._is_linked_clone()
+        except Exception:
+            _linked_force_disk = False
+
         try:
             if state in ('running','paused'):
-                choice = QMessageBox.question(
-                    self,
-                    'Snapshot con la VM encendida',
-                    "La VM está encendida.\n\n"
-                    "Un snapshot COMPLETO debe guardar la RAM y el estado de todos los dispositivos y "
-                    "puede dejar QEMU completamente ocupado durante ese proceso. En esta VM ya hemos "
-                    "observado que QEMU puede quedarse en STOP durante mucho tiempo.\n\n"
-                    "Sí = crear SNAPSHOT COMPLETO (VM + RAM + dispositivos + discos).\n"
-                    "No = crear SNAPSHOT SOLO DE DISCOS (rápido; no guarda RAM ni ventanas).\n"
-                    "Cancelar = no hacer nada.",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-                    QMessageBox.StandardButton.No,
-                )
+                if _linked_force_disk:
+                    self._snapshot_log("[SNAPSHOT] Clon enlazado: se omite el diálogo de snapshot completo; forzando SOLO DISCOS.")
+                    self._snapshot_log("[SNAPSHOT] Causa: QEMU no puede restaurar snapshots completos sobre un QCOW2 con backing file (aserción en vmstate_load_next).")
+                    try:
+                        QMessageBox.information(
+                            self,
+                            "Clon enlazado: snapshot solo de discos",
+                            "Esta VM es un clon enlazado (backing file QCOW2).\n\n"
+                            "QEMU no puede crear/restaurar snapshots completos\n"
+                            "(RAM + dispositivos) sobre un QCOW2 con backing\n"
+                            "file: al hacer loadvm QEMU aborta con una aserción\n"
+                            "interna (vmstate_load_next).\n\n"
+                            "Por seguridad se creará un snapshot SOLO DE DISCOS,\n"
+                            "que sí se puede restaurar con la VM apagada.\n\n"
+                            "Si necesitas un snapshot completo, desenlaza\n"
+                            "primero el clon (🧬 Desenlazar)."
+                        )
+                    except Exception:
+                        pass
+                    choice = QMessageBox.StandardButton.No
+                else:
+                    choice = QMessageBox.question(
+                        self,
+                        'Snapshot con la VM encendida',
+                        "La VM está encendida.\n\n"
+                        "Un snapshot COMPLETO debe guardar la RAM y el estado de todos los dispositivos y "
+                        "puede dejar QEMU completamente ocupado durante ese proceso. En esta VM ya hemos "
+                        "observado que QEMU puede quedarse en STOP durante mucho tiempo.\n\n"
+                        "Sí = crear SNAPSHOT COMPLETO (VM + RAM + dispositivos + discos).\n"
+                        "No = crear SNAPSHOT SOLO DE DISCOS (rápido; no guarda RAM ni ventanas).\n"
+                        "Cancelar = no hacer nada.",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                        QMessageBox.StandardButton.No,
+                    )
                 if choice == QMessageBox.StandardButton.Cancel:
                     return
                 if choice == QMessageBox.StandardButton.No:
@@ -1916,6 +2161,46 @@ class SnapshotsMixin:
         try:
             state=self._runtime_state(os.path.basename(self.current_vm_dir))
             self._snapshot_log(f"[SNAPSHOT] Estado actual de la VM: {state}")
+
+            # Caso especial: snapshot solo-disco con la VM encendida.
+            # QEMU no puede restaurar un snapshot sin vmstate con la
+            # VM viva: devuelve 'This is a disk-only snapshot. Revert
+            # to it offline using qemu-img'. Aquí lo detectamos ANTES
+            # de llamar a snapshot-load y ofrecemos apagar la VM,
+            # esperar y restaurar en frío (marcador
+            # linked_clone_snapshot_v1 + disk_only_restore_v1).
+            if state in ('running', 'paused') and self._snapshot_is_disk_only(tag):
+                resp = QMessageBox.question(
+                    self, "Snapshot solo de discos",
+                    f"El snapshot '{tag}' es solo de discos (no contiene RAM).\n\n"
+                    "Para restaurarlo hay que apagar la VM primero.\n"
+                    "La VM volverá al estado del snapshot.\n\n"
+                    "¿Apagar la VM ahora y restaurar el snapshot?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if resp != QMessageBox.StandardButton.Yes:
+                    return
+                self._pending_disk_only_restore_tag = tag
+                self._wait_for_vm_stopped(
+                    os.path.basename(self.current_vm_dir),
+                    on_done=self._on_vm_stopped_for_restore,
+                    on_timeout=self._on_vm_stopped_timeout,
+                    timeout_ms=90000,
+                )
+                try:
+                    self._snapshot_log(
+                        "[SNAPSHOT] Apagando la VM para restaurar el "
+                        "snapshot solo-disco..."
+                    )
+                    self._qmp_hmp(self.current_vm_dir, 'system_powerdown')
+                except Exception as _pw_err:
+                    QMessageBox.warning(
+                        self, "Apagar la VM",
+                        f"No se pudo enviar la orden de apagado.\n\n{_pw_err}"
+                    )
+                return
+
             if state in ('running','paused'):
                 self._snapshot_log(f"[SNAPSHOT] VM en ejecución: usando QMP moderno 'snapshot-load' para '{tag}'.")
                 state_ref, device_list = self._snapshot_qmp_nodes()
@@ -1975,6 +2260,47 @@ class SnapshotsMixin:
                     QMessageBox.information(self,'Snapshot restaurado','Se restauró el snapshot de disco en los QCOW2 elegibles. Con la VM apagada no se restaura el estado de RAM/CPU.')
         except Exception as e:
             msg = str(e)
+            # Caso especial: snapshot solo-disco con VM encendida.
+            # QEMU lo rechaza con 'This is a disk-only snapshot.';
+            # mensaje útil si el chequeo previo no lo detectó (por
+            # ejemplo QMP caído al calcular _snapshot_is_disk_only).
+            _msg_low = msg.lower()
+            if ('disk-only snapshot' in _msg_low
+                    or 'revert to it offline' in _msg_low):
+                self._snapshot_log(
+                    '[SNAPSHOT] Snapshot solo-disco: no se puede '
+                    'restaurar con la VM encendida.'
+                )
+                QMessageBox.information(
+                    self, "Snapshot solo de discos",
+                    f"El snapshot '{tag}' es solo de discos "
+                    "(no contiene RAM).\n\n"
+                    "Para restaurarlo hay que apagar la VM y volver "
+                    "a intentarlo. QEMU no puede restaurar snapshots "
+                    "sin vmstate con la VM encendida."
+                )
+                self.refresh_snapshot_page()
+                return
+            # Caso especial: clon enlazado + snapshot completo. QEMU
+            # aborta con una aserción en vmstate_load_next y el socket
+            # QMP se resetea. Detectar y dar un mensaje útil.
+            try:
+                _linked = self._is_linked_clone()
+            except Exception:
+                _linked = False
+            _linked_err = _linked and (
+                'Errno 104' in msg
+                or 'Conexión reinicializada' in msg
+                or 'Connection reset' in msg
+                or 'vmstate_load_next' in msg
+            )
+            if _linked_err:
+                self._snapshot_log(
+                    '[SNAPSHOT] ERROR: snapshot completo en clon enlazado.'
+                )
+                self._show_linked_clone_restore_help(tag)
+                self.refresh_snapshot_page()
+                return
             # Caso especial: virtio-gpu rompe la restauración.
             if self._is_virtio_gpu_restore_error(msg):
                 self._snapshot_log(

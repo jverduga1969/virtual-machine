@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 import vm_config
+import vm_paths  # portable_paths_v1
 from vm_config import load_vm_config, get_os_profile, list_existing_vms
 from host_deps import detect_host_graphics, qemu_graphics_capabilities
 from workers import _BackgroundCallThread
@@ -39,9 +40,11 @@ from console_backend import (
     MODE_HYBRID, MODE_HYBRID_GL,
     socket_path as _cb_socket_path,
     find_viewer, console_uri, build_viewer_args,
-    can_embed_spice,
+    can_embed_spice, describe_requirements,
 )
 import principal_cdrom
+
+_VM_USER_ROLE = 256
 
 
 class VmLifecycleMixin:
@@ -124,8 +127,745 @@ class VmLifecycleMixin:
         },
     }
 
+# ------------------------------------------------------------------
+    # Caché de load_vm_config (marcador vm_config_cache_v1)
+    # ------------------------------------------------------------------
+    # self._load_vm_config_cached() hace configparser.read + json.loads en cada llamada.
+    # Al cambiar de VM en la lista lateral, open_vm + _update_manager_details
+    # encadenan 4-5 lecturas del mismo vm_config.ini. Cacheamos por
+    # (ruta, mtime): si el archivo no ha cambiado, devolvemos el dict ya
+    # parseado. Cualquier escritura (propia o de otro hilo) cambia el
+    # mtime, así que la próxima lectura lo detecta sin invalidación
+    # explícita. Las escrituras propias además llaman a
+    # _invalidate_vm_config_cache como red de seguridad, por si el
+    # sistema de archivos tiene resolución de mtime baja.
+
+    def _load_vm_config_cached(self, vm_dir):
+        """Lee vm_config.ini con caché por (ruta, mtime)."""
+        if not vm_dir:
+            return {}
+        cache = getattr(self, "_vm_config_cache", None)
+        if cache is None:
+            cache = {}
+            try:
+                self._vm_config_cache = cache
+            except Exception:
+                try:
+                    return vm_config.load_vm_config(vm_dir)
+                except Exception:
+                    return {}
+        cfg_path = os.path.join(vm_dir, "vm_config.ini")
+        try:
+            mtime = os.path.getmtime(cfg_path)
+        except OSError:
+            cache.pop(vm_dir, None)
+            try:
+                return vm_config.load_vm_config(vm_dir)
+            except Exception:
+                return {}
+        entry = cache.get(vm_dir)
+        if entry is not None and entry[0] == mtime:
+            return entry[1]
+        try:
+            data = vm_config.load_vm_config(vm_dir)
+        except Exception:
+            return {}
+        cache[vm_dir] = (mtime, data)
+        return data
+
+    def _invalidate_vm_config_cache(self, vm_dir=None):
+        """Invalida la caché de vm_config.ini (toda o solo una VM)."""
+        cache = getattr(self, "_vm_config_cache", None)
+        if not cache:
+            return
+        if vm_dir is None:
+            cache.clear()
+        else:
+            cache.pop(vm_dir, None)
+
+
+    # ------------------------------------------------------------------
+    # Grupos y colores de VM (marcador vm_label_v1)
+    # ------------------------------------------------------------------
+    # Cada VM puede pertenecer a un grupo (etiqueta textual libre) y
+    # tener un color asociado. Se guardan en extra["group"] y
+    # extra["color"] dentro de vm_config.ini.
+    #
+    # El grupo es texto libre: el usuario puede crear grupos nuevos
+    # escribiendo un nombre que no existía. La lista de grupos
+    # existentes se calcula al vuelo recorriendo todas las VMs.
+
+    _VM_LABEL_COLORS = [
+        ("Rojo",       "#e53935"),
+        ("Naranja",    "#fb8c00"),
+        ("Ámbar",      "#fdd835"),
+        ("Verde",      "#43a047"),
+        ("Verde azul", "#00897b"),
+        ("Azul",       "#1e88e5"),
+        ("Índigo",     "#3949ab"),
+        ("Violeta",    "#8e24aa"),
+        ("Rosa",       "#d81b60"),
+        ("Gris",       "#757575"),
+    ]
+
+    def _load_vm_group(self, vm_dir):
+        if not vm_dir:
+            return ""
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+            return str((data.get("extra") or {}).get("group") or "")
+        except Exception:
+            return ""
+
+    def _load_vm_color(self, vm_dir):
+        if not vm_dir:
+            return ""
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+            return str((data.get("extra") or {}).get("color") or "")
+        except Exception:
+            return ""
+
+    def _save_vm_label(self, vm_dir, group, color):
+        """Guarda grupo y color en extra[]. Cadena vacía → borra la clave."""
+        if not vm_dir:
+            return
+        import json as _json, configparser as _cfg
+        cfg_path = os.path.join(vm_dir, "vm_config.ini")
+        if not os.path.isfile(cfg_path):
+            return
+        c = _cfg.ConfigParser(interpolation=None)
+        c.read(cfg_path, encoding="utf-8")
+        if not c.has_section("extra"):
+            c.add_section("extra")
+        try:
+            extra = _json.loads(c["extra"].get("data", "{}"))
+        except Exception:
+            extra = {}
+        group = (group or "").strip()
+        color = (color or "").strip()
+        if group:
+            extra["group"] = group
+        else:
+            extra.pop("group", None)
+        if color:
+            extra["color"] = color
+        else:
+            extra.pop("color", None)
+        c.set("extra", "data", _json.dumps(extra, ensure_ascii=False))
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            c.write(f)
+        if hasattr(self, "_invalidate_vm_config_cache"):
+            self._invalidate_vm_config_cache(vm_dir)
+
+    def _all_vm_groups(self):
+        """Devuelve el conjunto de grupos existentes en todas las VMs."""
+        groups = set()
+        try:
+            import vm_config as _vc
+            for name in _vc.list_existing_vms():
+                d = os.path.join(_vc.BASE_VM_DIR, name)
+                g = self._load_vm_group(d)
+                if g:
+                    groups.add(g)
+        except Exception:
+            pass
+        return sorted(groups)
+
+    def edit_vm_label(self):
+        """Abre el diálogo de grupo + color para la VM seleccionada."""
+        if not self._vm_is_selected():
+            QMessageBox.information(
+                self, "Etiqueta de la VM",
+                "Selecciona primero una máquina virtual.",
+            )
+            return
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
+            QLabel, QComboBox, QPushButton, QGridLayout, QWidget,
+        )
+        from PyQt6.QtGui import QColor, QPixmap, QIcon
+
+        vm_dir = self.current_vm_dir
+        vm_name = os.path.basename(vm_dir)
+        cur_group = self._load_vm_group(vm_dir)
+        cur_color = self._load_vm_color(vm_dir)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Etiqueta - {vm_name}")
+        dlg.setModal(True)
+        dlg.resize(520, 400)
+        layout = QVBoxLayout(dlg)
+
+        info = QLabel(
+            f"Grupo y color para <b>{vm_name}</b>. El grupo es texto "
+            "libre: escribe uno nuevo para crearlo. El color se aplica "
+            "como fondo suave del ítem en la lista lateral."
+        )
+        info.setTextFormat(_Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        form = QFormLayout()
+        cmb = QComboBox()
+        cmb.setEditable(True)
+        cmb.addItem("", "")
+        for g in self._all_vm_groups():
+            cmb.addItem(g, g)
+        if cur_group:
+            idx = cmb.findData(cur_group)
+            if idx < 0:
+                cmb.addItem(cur_group, cur_group)
+                idx = cmb.findData(cur_group)
+            cmb.setCurrentIndex(idx)
+        else:
+            cmb.setCurrentIndex(0)
+        cmb.lineEdit().setPlaceholderText("(sin grupo)")
+        form.addRow("Grupo:", cmb)
+        layout.addLayout(form)
+
+        layout.addWidget(QLabel("<b>Color:</b>"))
+        selected = {"color": cur_color}
+
+        grid_wrap = QWidget()
+        grid = QGridLayout(grid_wrap)
+        grid.setSpacing(6)
+
+        btns = []
+
+        def _swatch_icon(hex_color):
+            pm = QPixmap(24, 24)
+            pm.fill(QColor(hex_color))
+            return QIcon(pm)
+
+        none_btn = QPushButton("Sin color")
+        none_btn.setCheckable(True)
+        none_btn.setChecked(not cur_color)
+        none_btn.setIcon(_swatch_icon("#ffffff"))
+        grid.addWidget(none_btn, 0, 0, 1, 5)
+        btns.append(("", none_btn))
+
+        for i, (label, hex_c) in enumerate(self._VM_LABEL_COLORS):
+            row = 1 + i // 5
+            col = i % 5
+            b = QPushButton(label)
+            b.setCheckable(True)
+            b.setChecked(cur_color.lower() == hex_c.lower())
+            b.setIcon(_swatch_icon(hex_c))
+            grid.addWidget(b, row, col)
+            btns.append((hex_c, b))
+
+        def _apply_swatch_style():
+            """Marca visualmente el botón del color elegido.
+
+            setChecked() solo cambia el estado interno; con el QSS global
+            de la app no se aprecia diferencia. Aquí forzamos un borde
+            azul grueso y un fondo suave en el botón seleccionado.
+            """
+            cur = (selected.get("color") or "").lower()
+            for h, b in btns:
+                is_sel = (h.lower() == cur)
+                b.setChecked(is_sel)
+                if is_sel:
+                    b.setStyleSheet(
+                        "QPushButton { border: 3px solid #1976d2; "
+                        "border-radius: 6px; padding: 4px 10px; "
+                        "font-weight: bold; background: #e3f2fd; }"
+                    )
+                else:
+                    b.setStyleSheet(
+                        "QPushButton { border: 1px solid palette(mid); "
+                        "border-radius: 6px; padding: 6px 10px; }"
+                    )
+
+        def _on_pick(hex_c):
+            selected["color"] = hex_c
+            _apply_swatch_style()
+            try:
+                self.log_message(
+                    f"[DIAG] Etiqueta: color elegido = "
+                    f"{hex_c or '(sin color)'}"
+                )
+            except Exception:
+                pass
+
+        none_btn.clicked.connect(lambda: _on_pick(""))
+        for hex_c, b in btns:
+            if hex_c:
+                b.clicked.connect(lambda _checked=False, h=hex_c: _on_pick(h))
+
+        # Aplicar el estado visual inicial tras crear todos los botones.
+        _apply_swatch_style()
+
+        layout.addWidget(grid_wrap)
+        layout.addStretch(1)
+
+        bottom = QHBoxLayout()
+        clear_btn = QPushButton("Quitar etiqueta")
+        cancel_btn = QPushButton("Cancelar")
+        save_btn = QPushButton("Guardar")
+        save_btn.setDefault(True)
+        clear_btn.clicked.connect(lambda: (cmb.setCurrentIndex(0), _on_pick("")))
+        cancel_btn.clicked.connect(dlg.reject)
+
+        def _save():
+            g = (cmb.currentText() or "").strip()
+            try:
+                self._save_vm_label(vm_dir, g, selected["color"])
+                dlg.accept()
+            except Exception as e:
+                QMessageBox.warning(
+                    self, "Etiqueta",
+                    f"No se pudo guardar la etiqueta.\n\n{e}",
+                )
+
+        save_btn.clicked.connect(_save)
+        bottom.addWidget(clear_btn)
+        bottom.addStretch(1)
+        bottom.addWidget(cancel_btn)
+        bottom.addWidget(save_btn)
+        layout.addLayout(bottom)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            try:
+                self.refresh_vm_list()
+                self._update_manager_details()
+                self.log_message(f"==> Etiqueta guardada para '{vm_name}'.")
+            except Exception:
+                pass
+
+
+    # ------------------------------------------------------------------
+    # Ver comando QEMU (run_temp.sh)
+    # ------------------------------------------------------------------
+    # run_temp.sh se regenera en cada arranque. El boton del Resumen
+    # abre un dialogo con su contenido y un boton para copiarlo al
+    # portapapeles. Muy util para depurar, comparar con la documentacion
+    # de QEMU o reportar un problema.
+
+    def show_qemu_command(self):
+        """Muestra el contenido de run_temp.sh: el comando exacto con el
+        que QEMU esta ejecutando (o ejecuto por ultima vez) esta VM.
+        """
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+            QPlainTextEdit, QApplication,
+        )
+
+        if not self._vm_is_selected():
+            QMessageBox.information(
+                self, "Comando QEMU",
+                "Selecciona primero una maquina virtual.",
+            )
+            return
+
+        vm_name = os.path.basename(self.current_vm_dir)
+        run_sh = os.path.join(self.current_vm_dir, "run_temp.sh")
+        if not os.path.isfile(run_sh):
+            QMessageBox.information(
+                self, "Comando QEMU",
+                f"La VM '{vm_name}' todavia no se ha arrancado.\n\n"
+                "El comando QEMU se genera al pulsar Iniciar; vuelve a "
+                "intentarlo despues del primer arranque.",
+            )
+            return
+
+        try:
+            with open(run_sh, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Comando QEMU",
+                f"No se pudo leer run_temp.sh.\n\n{e}",
+            )
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Comando QEMU - {vm_name}")
+        dlg.resize(920, 560)
+        layout = QVBoxLayout(dlg)
+        info = QLabel(
+            f"Contenido de <code>run_temp.sh</code> para "
+            f"<b>{vm_name}</b>.<br>"
+            "Este es el comando exacto con el que QEMU esta ejecutando "
+            "(o ejecuto por ultima vez) la VM."
+        )
+        info.setTextFormat(_Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        edit = QPlainTextEdit()
+        edit.setReadOnly(True)
+        edit.setPlainText(content)
+        edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        try:
+            from PyQt6.QtGui import QFont as _QFont
+            _mono = _QFont("monospace")
+            _mono.setStyleHint(_QFont.StyleHint.TypeWriter)
+            edit.setFont(_mono)
+        except Exception:
+            pass
+        layout.addWidget(edit, 1)
+
+        btn_row = QHBoxLayout()
+        copy_btn = QPushButton("Copiar al portapapeles")
+        copy_btn.clicked.connect(
+            lambda: QApplication.clipboard().setText(content)
+        )
+        folder_btn = QPushButton("Abrir carpeta de la VM")
+        folder_btn.setToolTip(
+            "Abre la carpeta que contiene run_temp.sh, launch.log y los discos."
+        )
+        try:
+            folder_btn.clicked.connect(self.open_vm_folder)
+        except Exception:
+            pass
+        close_btn = QPushButton("Cerrar")
+        close_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(copy_btn)
+        btn_row.addWidget(folder_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Notas libres por VM
+    # ------------------------------------------------------------------
+    # Se guardan en extra["notes"] dentro de vm_config.ini. Aparecen como
+    # aviso amarillo debajo del estado en la pestana Resumen. Son solo
+    # texto plano; el preview escapa el HTML para evitar inyecciones y
+    # trunca a 400 chars.
+
+    def _load_vm_notes(self, vm_dir):
+        """Devuelve las notas guardadas para la VM, o '' si no hay."""
+        if not vm_dir:
+            return ""
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+            return (data.get("extra") or {}).get("notes", "") or ""
+        except Exception:
+            return ""
+
+    def _save_vm_notes(self, vm_dir, text):
+        """Guarda (o borra) las notas de la VM en vm_config.ini.
+
+        Si el texto queda vacio tras strip(), la clave 'notes' se elimina
+        de extra para no dejar rastro.
+        """
+        if not vm_dir:
+            return
+        import json as _json, configparser as _cfg
+        cfg_path = os.path.join(vm_dir, "vm_config.ini")
+        if not os.path.isfile(cfg_path):
+            return
+        c = _cfg.ConfigParser(interpolation=None)
+        c.read(cfg_path, encoding="utf-8")
+        if not c.has_section("extra"):
+            c.add_section("extra")
+        try:
+            extra = _json.loads(c["extra"].get("data", "{}"))
+        except Exception:
+            extra = {}
+        text = (text or "").strip()
+        if text:
+            extra["notes"] = text
+        else:
+            extra.pop("notes", None)
+        c.set("extra", "data", _json.dumps(extra, ensure_ascii=False))
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            c.write(f)
+        if hasattr(self, "_invalidate_vm_config_cache"):
+            self._invalidate_vm_config_cache(vm_dir)
+
+    def edit_vm_notes(self):
+        """Abre el dialogo para editar las notas de la VM seleccionada."""
+        if not self._vm_is_selected():
+            QMessageBox.information(
+                self, "Notas de la VM",
+                "Selecciona primero una maquina virtual.",
+            )
+            return
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLabel as _QLabel,
+            QPlainTextEdit, QPushButton as _QPushButton,
+        )
+
+        vm_name = os.path.basename(self.current_vm_dir)
+        current = self._load_vm_notes(self.current_vm_dir)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Notas - {vm_name}")
+        dlg.resize(640, 440)
+        layout = QVBoxLayout(dlg)
+
+        info = _QLabel(
+            f"Notas libres sobre <b>{vm_name}</b>. Se guardan en "
+            "<code>vm_config.ini</code> como <code>extra.notes</code> "
+            "y aparecen como aviso amarillo en la pestana Resumen."
+        )
+        info.setTextFormat(_Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        edit = QPlainTextEdit()
+        edit.setPlainText(current)
+        edit.setPlaceholderText(
+            "Ej.: instalado con VirtIO, probar snapshots tras actualizar "
+            "los drivers; puerto 8080 redirigido al 80 del guest..."
+        )
+        layout.addWidget(edit, 1)
+
+        btn_row = QHBoxLayout()
+        clear_btn = _QPushButton("Borrar notas")
+        cancel_btn = _QPushButton("Cancelar")
+        save_btn = _QPushButton("Guardar")
+        save_btn.setDefault(True)
+        clear_btn.clicked.connect(lambda: edit.setPlainText(""))
+        cancel_btn.clicked.connect(dlg.reject)
+
+        def _save():
+            try:
+                self._save_vm_notes(self.current_vm_dir, edit.toPlainText())
+                dlg.accept()
+            except Exception as e:
+                QMessageBox.warning(
+                    self, "Notas",
+                    f"No se pudieron guardar las notas.\n\n{e}",
+                )
+
+        save_btn.clicked.connect(_save)
+        btn_row.addWidget(clear_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(save_btn)
+        layout.addLayout(btn_row)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            try:
+                self._update_manager_details()
+                self.log_message(f"==> Notas guardadas para '{vm_name}'.")
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Orden de la lista de VMs
+    # ------------------------------------------------------------------
+    # El combo "combo_vm_order" (en virtual_machine.py) elige entre tres
+    # modos. La eleccion se guarda en QSettings; aqui solo se aplica.
+
+    _VM_ORDER_MODES = ("name", "state", "last_used")
+
+    def _vm_order_mode(self):
+        """Devuelve el modo actual ('name' | 'state' | 'last_used')."""
+        combo = getattr(self, "combo_vm_order", None)
+        if combo is not None:
+            data = combo.currentData()
+            if data in self._VM_ORDER_MODES:
+                return data
+        try:
+            from PyQt6.QtCore import QSettings
+            saved = QSettings().value("layout/vm_order", "name") or "name"
+            if saved in self._VM_ORDER_MODES:
+                return saved
+        except Exception:
+            pass
+        return "name"
+
+    def _apply_vm_order(self, names):
+        """Devuelve `names` reordenada segun el modo actual.
+
+        Los dos primeros modos son estables y triviales; el modo
+        'last_used' usa mtime del vm_config.ini (no guarda nada en la VM,
+        porque ya se actualiza cada vez que la VM se configura o se le
+        anaden notas).
+        """
+        mode = self._vm_order_mode()
+        names = list(names or [])
+
+        if mode == "name":
+            return sorted(names, key=lambda n: n.lower())
+
+        if mode == "state":
+            # Running (0) -> paused (1) -> stopped (2). Dentro de cada
+            # grupo, alfabetico.
+            _rank = {"running": 0, "paused": 1, "stopped": 2}
+            def _key(n):
+                try:
+                    st = self._runtime_state(n)
+                except Exception:
+                    st = "stopped"
+                return (_rank.get(st, 3), n.lower())
+            return sorted(names, key=_key)
+
+        if mode == "last_used":
+            import os as _os
+            def _key(n):
+                cfg = _os.path.join(vm_config.BASE_VM_DIR, n, "vm_config.ini")
+                try:
+                    return -_os.path.getmtime(cfg)
+                except OSError:
+                    return 0.0
+            return sorted(names, key=_key)
+
+        # Modo desconocido: no tocar.
+        return names
+
+    def _on_vm_order_changed(self, *_args):
+        """Slot del combo de orden: guarda la eleccion y refresca la lista."""
+        combo = getattr(self, "combo_vm_order", None)
+        if combo is None:
+            return
+        mode = combo.currentData() or "name"
+        try:
+            from PyQt6.QtCore import QSettings
+            QSettings().setValue("layout/vm_order", mode)
+        except Exception:
+            pass
+        # Refrescar la lista. Preservamos la VM seleccionada.
+        current = None
+        if self.current_vm_dir:
+            try:
+                current = os.path.basename(self.current_vm_dir)
+            except Exception:
+                current = None
+        try:
+            self.refresh_vm_list(select_name=current)
+        except Exception:
+            pass
+
+
+    # ------------------------------------------------------------------
+    # Auto-inicio de VMs al abrir la app
+    # ------------------------------------------------------------------
+    # Cada VM puede llevar extra["autostart_on_launch"] = true. Al
+    # arrancar la app, _auto_start_marked_vms() recorre la lista, filtra
+    # las marcadas que NO esten ya corriendo y las arranca en cola,
+    # separadas por un pequeño retardo entre arranques.
+
+    _AUTOSTART_INITIAL_DELAY_MS = 1500   # tras el 2 s que pone la UI
+    _AUTOSTART_BETWEEN_DELAY_MS = 4000   # entre una VM y la siguiente
+
+    def _on_autostart_changed(self, checked):
+        """Slot del checkbox: guarda extra["autostart_on_launch"].
+
+        Si no hay VM seleccionada, no hace nada. Solo se aplica al
+        vm_config.ini de la VM actual.
+        """
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+            self.log_message(
+                "==> Auto-inicio "
+                + ("ACTIVADO para esta VM." if checked
+                   else "desactivado para esta VM.")
+            )
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] No se pudo guardar el auto-inicio: {e}")
+            except Exception:
+                pass
+
+    def _auto_start_marked_vms(self):
+        """Arranca en cola las VMs marcadas para auto-inicio.
+
+        Se programa desde _apply_initial_state (2 s tras crear la
+        ventana). Reutiliza open_vm + start_installation, así el camino
+        es idéntico al del botón Iniciar.
+        """
+        try:
+            from PyQt6.QtCore import QTimer
+        except Exception:
+            return
+
+        try:
+            vms = list_existing_vms()
+        except Exception:
+            return
+
+        pending = []
+        for name in vms:
+            try:
+                vm_dir = os.path.join(vm_config.BASE_VM_DIR, name)
+                data = self._load_vm_config_cached(vm_dir)
+                if not (data.get("extra") or {}).get("autostart_on_launch"):
+                    continue
+                if self._runtime_state(name) in ("running", "paused"):
+                    continue
+                pending.append(name)
+            except Exception:
+                continue
+
+        if not pending:
+            return
+
+        self.log_message(
+            f"==> Auto-inicio: {len(pending)} VM(s) marcadas para arrancar."
+        )
+
+        # linked_clone_behavior_fix_v1: silenciar el aviso de clon
+        # enlazado con original corriendo durante el auto-arranque.
+        self._auto_starting = True
+
+        state = {"idx": 0, "total": len(pending), "queue": pending}
+
+        def _next():
+            if state["idx"] >= state["total"]:
+                self.log_message("==> Auto-inicio: cola terminada.")
+                self._auto_starting = False
+                return
+            name = state["queue"][state["idx"]]
+            state["idx"] += 1
+
+            # Re-verificar por si el usuario la arrancó a mano mientras
+            # corría el temporizador.
+            try:
+                if self._runtime_state(name) in ("running", "paused"):
+                    self.log_message(
+                        f"==> Auto-inicio: '{name}' ya está corriendo, se salta."
+                    )
+                    QTimer.singleShot(200, _next)
+                    return
+            except Exception:
+                pass
+
+            self.log_message(
+                f"==> Auto-inicio: arrancando '{name}' "
+                f"({state['idx']}/{state['total']})."
+            )
+            try:
+                self.open_vm(name)
+            except Exception as e:
+                self.log_message(
+                    f"[AVISO] Auto-inicio: no se pudo abrir '{name}': {e}"
+                )
+                QTimer.singleShot(200, _next)
+                return
+            try:
+                self.start_installation()
+            except Exception as e:
+                self.log_message(
+                    f"[AVISO] Auto-inicio: no se pudo arrancar '{name}': {e}"
+                )
+            QTimer.singleShot(self._AUTOSTART_BETWEEN_DELAY_MS, _next)
+
+        # Pequeña espera antes de la primera, por si la UI aún estaba
+        # asentándose. Después de esto, se encadena con 4 s entre VMs.
+        QTimer.singleShot(self._AUTOSTART_INITIAL_DELAY_MS, _next)
+
+
     def _update_manager_details(self):
         """Actualiza el panel principal de detalles sin ejecutar diagnósticos pesados."""
+        # Aviso de notas: por defecto oculto. Se muestra mas abajo si la
+        # VM seleccionada tiene notas guardadas en extra["notes"].
+        if hasattr(self, "manager_vm_notes"):
+            self.manager_vm_notes.setVisible(False)
         try:
             name = os.path.basename(self.current_vm_dir) if self.current_vm_dir else self.input_vm_name.text().strip()
             if not name:
@@ -145,7 +885,20 @@ class VmLifecycleMixin:
             self.manager_vm_state.setText(state_text)
             self.manager_vm_state.setStyleSheet(f"font-weight:bold; color:{state_color};")
             if self.current_vm_dir:
-                data = load_vm_config(self.current_vm_dir)
+                data = self._load_vm_config_cached(self.current_vm_dir)
+                # Aviso de notas de la VM (si tiene).
+                if hasattr(self, "manager_vm_notes"):
+                    _notes = (data.get("extra") or {}).get("notes", "") or ""
+                    if _notes.strip():
+                        import html as _html
+                        _preview = _notes.strip()
+                        if len(_preview) > 400:
+                            _preview = _preview[:400].rstrip() + "\u2026"
+                        _safe = _html.escape(_preview).replace("\n", "<br>")
+                        self.manager_vm_notes.setText(
+                            "<b>\U0001f4dd Notas:</b><br>" + _safe
+                        )
+                        self.manager_vm_notes.setVisible(True)
                 os_type = data.get("os_type", "")
                 system = "macOS" if os_type == "macos" else (data.get("extra", {}).get("win_ver", "Windows") if os_type == "windows" else data.get("extra", {}).get("distro", "Linux"))
                 firmware = data.get("firmware", "bios").upper()
@@ -204,6 +957,14 @@ class VmLifecycleMixin:
             else:
                 self.manager_details_label.setText("VM nueva: todavía no se ha guardado una configuración.")
                 self.manager_quick_hint.setText("Configura la VM en la pestaña 'Configuración' y pulsa el botón de inicio.")
+            # Actualizar visibilidad del botón "🧬 Desenlazar" según
+            # si la VM actual es un clon enlazado (linked_clone_v1).
+            try:
+                _st = self._runtime_state(os.path.basename(self.current_vm_dir)) if self.current_vm_dir else "stopped"
+                if hasattr(self, "_update_linked_clone_buttons_state"):
+                    self._update_linked_clone_buttons_state(_st)
+            except Exception:
+                pass
         except Exception as e:
             if hasattr(self, "manager_details_label"):
                 self.manager_details_label.setText(f"No se pudo cargar el resumen: {e}")
@@ -836,31 +1597,109 @@ class VmLifecycleMixin:
         )
 
 
-    def clone_current_vm(self):
-        if not self._vm_is_selected():
-            QMessageBox.information(self, "Clonar VM", "Primero selecciona una máquina virtual existente.")
-            return
+    # ==================================================================
+    # Clonar VM — completo y enlazado (marcador linked_clone_v1)
+    # ==================================================================
+    # El botón "🧬 Clonar" abre un menú con dos modos:
+    #
+    #   • Clon completo  → copia recursiva (comportamiento clásico).
+    #                      Independiente del original; ocupa el espacio
+    #                      completo de los discos.
+    #   • Clon enlazado  → disco base compartido vía backing file QCOW2.
+    #                      La nueva VM solo guarda deltas. Ocupa muy
+    #                      poco pero DEPENDE del original: si se borra
+    #                      o se mueve, el clon se rompe.
+    #
+    # El backing file se guarda con RUTA RELATIVA a la carpeta del clon
+    # para que la estructura VirtualMachines/ sea portable: se puede
+    # copiar o mover entera a otro host sin romper los clones. El resto
+    # de discos secundarios se copian físicamente al clon para no
+    # compartir estado escribible. Los CD/DVD mantienen su ruta.
 
-        source = self.current_vm_dir
-        base_name = os.path.basename(source)
+    @staticmethod
+    def _new_qemu_mac():
+        """MAC con el prefijo estándar QEMU/KVM 52:54:00:..."""
+        import uuid as _uuid
+        u = _uuid.uuid4().bytes
+        return "52:54:00:%02x:%02x:%02x" % (u[0], u[1], u[2])
+
+    def _regenerate_network_macs_and_storage_ids(self, parser):
+        """Regenera MACs de red e IDs de storage_devices en un
+        ConfigParser ya leído. Reescribe también los tokens del boot_order
+        que referencian los IDs antiguos para no dejarlos huérfanos.
+
+        Se llama al crear CUALQUIER clon (completo o enlazado). Corrige
+        un bug latente del clon completo antiguo: dos VMs con la misma
+        MAC pueden chocar en la LAN slirp / bridge del host.
+        """
+        import uuid as _uuid
+        if parser.has_section("hardware"):
+            try:
+                nets = json.loads(parser["hardware"].get("network_devices", "[]"))
+            except Exception:
+                nets = []
+            if isinstance(nets, list):
+                for n in nets:
+                    if isinstance(n, dict):
+                        n["mac"] = self._new_qemu_mac()
+                parser.set("hardware", "network_devices",
+                           json.dumps(nets, ensure_ascii=False))
+
+        if parser.has_section("extra"):
+            try:
+                extra = json.loads(parser["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            devices = extra.get("storage_devices") or []
+            id_map = {}
+            if isinstance(devices, list):
+                for d in devices:
+                    if not isinstance(d, dict):
+                        continue
+                    old = d.get("id")
+                    new = "dev_" + _uuid.uuid4().hex[:12]
+                    if old:
+                        id_map[old] = new
+                    d["id"] = new
+            extra["storage_devices"] = devices
+            parser.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+            if parser.has_section("hardware") and id_map:
+                try:
+                    order = json.loads(parser["hardware"].get("boot_order", "[]"))
+                except Exception:
+                    order = []
+                new_order = []
+                for tok in (order or []):
+                    if isinstance(tok, str) and ":" in tok:
+                        prefix, ident = tok.split(":", 1)
+                        if ident in id_map:
+                            new_order.append(f"{prefix}:{id_map[ident]}")
+                            continue
+                    new_order.append(tok)
+                if new_order:
+                    parser.set("hardware", "boot_order",
+                               json.dumps(new_order))
+
+    def _prompt_clone_name(self, base_name):
+        """Pide al usuario un nombre válido para el clon. None si cancela."""
         existing = set(list_existing_vms())
-
         while True:
             clone_name, ok = QInputDialog.getText(
-                self,
-                "Clonar máquina virtual",
+                self, "Clonar máquina virtual",
                 f"Nombre para el clon de '{base_name}':",
                 QLineEdit.EchoMode.Normal,
                 f"{base_name}-copia",
             )
             if not ok:
-                return
-
-            clone_name = clone_name.strip()
+                return None
+            clone_name = (clone_name or "").strip()
             if not clone_name:
-                QMessageBox.warning(self, "Nombre inválido", "Debes escribir un nombre para el clon.")
+                QMessageBox.warning(self, "Nombre inválido",
+                                    "Debes escribir un nombre para el clon.")
                 continue
-            if clone_name in existing or os.path.exists(os.path.join(vm_config.BASE_VM_DIR, clone_name)):
+            if (clone_name in existing
+                    or os.path.exists(os.path.join(vm_config.BASE_VM_DIR, clone_name))):
                 QMessageBox.warning(
                     self, "Nombre ya existente",
                     f"La máquina virtual '{clone_name}' ya existe en el listado.\n\n"
@@ -868,33 +1707,682 @@ class VmLifecycleMixin:
                 )
                 continue
             if clone_name in ("Nueva Máquina Virtual", ".", ".."):
-                QMessageBox.warning(self, "Nombre inválido", "Ese nombre no puede utilizarse para una máquina virtual.")
+                QMessageBox.warning(self, "Nombre inválido",
+                                    "Ese nombre no puede utilizarse para una máquina virtual.")
                 continue
-            break
+            return clone_name
 
+    def clone_current_vm(self):
+        """Punto de entrada del botón "🧬 Clonar".
+
+        Pregunta al usuario qué tipo de clon quiere (completo o enlazado)
+        y despacha al método correspondiente."""
+        from PyQt6.QtCore import Qt as _Qt
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Clonar VM",
+                                    "Primero selecciona una máquina virtual existente.")
+            return
+
+        source = self.current_vm_dir
+        base_name = os.path.basename(source)
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Clonar máquina virtual")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setTextFormat(_Qt.TextFormat.RichText)
+        box.setText(
+            f"¿Qué tipo de clon quieres crear a partir de "
+            f"<b>{base_name}</b>?<br><br>"
+            "<b>Clon completo</b><br>"
+            "Copia íntegra de todos los discos. Totalmente independiente "
+            "del original; ocupa el mismo espacio que la VM original.<br><br>"
+            "<b>Clon enlazado</b><br>"
+            "El disco base se comparte mediante un <i>backing file</i> QCOW2. "
+            "La nueva VM solo guarda los cambios, así que ocupa muy poco. "
+            "<b>Depende del original</b>: si se borra o se mueve el original, "
+            "el clon se rompe.<br>"
+            "El backing se guarda con <b>ruta relativa</b> para que puedas "
+            "mover o copiar la carpeta <code>VirtualMachines/</code> entera "
+            "a otro host sin romper nada.<br><br>"
+            "<b>Importante:</b> una vez que el clon arranque por primera vez, "
+            "los cambios que hagas DESPUÉS en el original <b>NO se verán</b> "
+            "en el clon: la vista de su sistema de archivos queda anclada al "
+            "estado del primer arranque (los bloques que el clon ya escribió "
+            "no vuelven a consultarse en el backing). Trata el original como "
+            "de solo lectura mientras el clon exista, o desenlaza el clon con "
+            "<b>🧬 Desenlazar</b> para independizarlo."
+        )
+        btn_full = box.addButton("Clon completo", QMessageBox.ButtonRole.AcceptRole)
+        btn_linked = box.addButton("Clon enlazado", QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(btn_full)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is None or clicked not in (btn_full, btn_linked):
+            return
+        linked = (clicked == btn_linked)
+
+        clone_name = self._prompt_clone_name(base_name)
+        if not clone_name:
+            return
         destination = os.path.join(vm_config.BASE_VM_DIR, clone_name)
+
+        if linked:
+            ok = self._clone_current_vm_linked(source, clone_name, destination)
+        else:
+            ok = self._clone_current_vm_full(source, clone_name, destination)
+
+        if ok:
+            self.refresh_vm_list(select_name=clone_name)
+            try:
+                self.open_vm(clone_name)
+            except Exception:
+                pass
+            try:
+                self._set_vm_status("saved")
+            except Exception:
+                pass
+            try:
+                self.log_message(
+                    f"==> VM clonada ({'enlazada' if linked else 'completa'}): "
+                    f"'{base_name}' → '{clone_name}'"
+                )
+            except Exception:
+                pass
+
+    def _check_linked_clone_original_running(self, vm_dir, data=None):
+        """Avisa si abrimos un clon enlazado cuyo original está corriendo.
+
+        Marcador: linked_clone_behavior_fix_v1
+
+        Arrancar original y clon a la vez puede dar resultados
+        impredecibles: el clon lee del disco del original los bloques
+        que no ha modificado, así que si el original escribe algo
+        mientras el clon corre, el clon puede leer estados intermedios
+        del sistema de archivos. Se avisa una sola vez por sesión y VM.
+        """
+        if not vm_dir:
+            return
+        if data is None:
+            try:
+                data = self._load_vm_config_cached(vm_dir)
+            except Exception:
+                return
+        extra = (data or {}).get("extra") or {}
+        if not extra.get("linked_clone"):
+            return
+        original_name = str(extra.get("linked_original") or "").strip()
+        if not original_name:
+            return
+        warned = getattr(self, "_linked_clone_warned", None)
+        if warned is None:
+            warned = set()
+            self._linked_clone_warned = warned
+        if vm_dir in warned:
+            return
         try:
-            shutil.copytree(source, destination)
+            state = self._runtime_state(original_name)
+        except Exception:
+            return
+        if state not in ("running", "paused"):
+            return
+        warned.add(vm_dir)
+        try:
+            self.log_message(
+                f"[AVISO] Clon enlazado: el original '{original_name}' está "
+                "corriendo. Arrancar los dos a la vez puede dar resultados "
+                "impredecibles."
+            )
+        except Exception:
+            pass
+        QMessageBox.warning(
+            self, "Clon enlazado con original en ejecución",
+            f"El original de este clon ('{original_name}') está corriendo.\n\n"
+            "Arrancar original y clon a la vez puede dar resultados "
+            "impredecibles:\n\n"
+            "  • El clon lee del disco del original los bloques que no ha "
+            "modificado. Si el original escribe algo mientras el clon corre, "
+            "el clon puede leer estados intermedios.\n"
+            "  • La vista del sistema de archivos del clon ya está anclada al "
+            "estado de su primer arranque para los bloques de metadatos, así "
+            "que los cambios nuevos del original probablemente no se vean, "
+            "pero el riesgo de lectura inconsistente sigue ahí.\n\n"
+            "Recomendaciones:\n"
+            "  • Apaga el original antes de arrancar el clon (o al revés).\n"
+            "  • O desenlaza el clon con '🧬 Desenlazar' para que sea "
+            "totalmente independiente.\n\n"
+            "Este aviso no volverá a aparecer para esta VM en esta sesión."
+        )
+
+    def _clone_current_vm_full(self, source_dir, clone_name, destination):
+        """Clon completo: copia recursiva + MACs e IDs nuevos."""
+        try:
+            shutil.copytree(source_dir, destination)
+        except Exception as e:
+            QMessageBox.critical(self, "Clonar VM",
+                                 f"No se pudo copiar la carpeta de la VM.\n\n{e}")
+            return False
+
+        try:
             cfg = os.path.join(destination, "vm_config.ini")
             if os.path.isfile(cfg):
-                parser = configparser.ConfigParser()
+                parser = configparser.ConfigParser(interpolation=None)
                 parser.read(cfg, encoding="utf-8")
                 if parser.has_section("general"):
                     parser.set("general", "name", clone_name)
+                try:
+                    self._regenerate_network_macs_and_storage_ids(parser)
+                except Exception as _regen_err:
+                    try:
+                        self.log_message(
+                            f"[AVISO] No se pudieron regenerar MACs/IDs del clon: "
+                            f"{_regen_err}"
+                        )
+                    except Exception:
+                        pass
                 with open(cfg, "w", encoding="utf-8") as f:
                     parser.write(f)
-            self.refresh_vm_list(select_name=clone_name)
-            self.open_vm(clone_name)
-            self._set_vm_status("saved")
-            self.log_message(f"==> VM clonada: '{base_name}' → '{clone_name}'")
-            QMessageBox.information(self, "Clon creado", f"La máquina virtual '{clone_name}' fue clonada correctamente.")
+            if hasattr(self, "_invalidate_vm_config_cache"):
+                self._invalidate_vm_config_cache(destination)
         except Exception as e:
-            if os.path.isdir(destination):
+            QMessageBox.critical(
+                self, "Clonar VM",
+                f"La VM se copió pero no se pudo reescribir su vm_config.ini.\n\n{e}"
+            )
+            return False
+
+        QMessageBox.information(
+            self, "Clon creado",
+            f"La máquina virtual '{clone_name}' fue clonada correctamente "
+            f"(clon completo).\n\n"
+            "Se han regenerado las direcciones MAC y los IDs internos de "
+            "los discos para que no choquen con la VM original."
+        )
+        return True
+
+    def _clone_current_vm_linked(self, source_dir, clone_name, destination):
+        """Clon enlazado: disco principal como backing file QCOW2.
+
+        El backing se guarda con RUTA RELATIVA a la carpeta del clon para
+        que la estructura VirtualMachines/ sea portable. El resto de
+        discos secundarios se COPIAN físicamente al clon. Los CD/DVD
+        mantienen su ruta original (son de solo lectura).
+        """
+        # 1. Localizar el disco principal del original.
+        primary_abs, _ptype = self._primary_disk_path(source_dir)
+        if not primary_abs or not os.path.isfile(primary_abs):
+            QMessageBox.warning(
+                self, "Clon enlazado",
+                "No se pudo determinar el disco principal de la VM original.\n\n"
+                "El clon enlazado necesita un disco base QCOW2 sobre el que\n"
+                "crear el backing file. Si la VM no tiene discos, usa\n"
+                "'Clon completo'."
+            )
+            return False
+
+        # 2. Verificar formato QCOW2.
+        try:
+            r = subprocess.run(
+                ["qemu-img", "info", "--output=json", primary_abs],
+                capture_output=True, text=True, timeout=10, check=True,
+            )
+            info = json.loads(r.stdout)
+            fmt = (info.get("format") or "").lower()
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Clon enlazado",
+                f"No se pudo inspeccionar el disco original.\n\n{e}"
+            )
+            return False
+        if fmt != "qcow2":
+            QMessageBox.warning(
+                self, "Clon enlazado",
+                f"El disco principal de la VM original está en formato "
+                f"{fmt.upper()}.\n\n"
+                "El clon enlazado solo funciona con QCOW2 (necesita backing\n"
+                "file). Usa 'Clon completo' si quieres copiar el disco tal cual."
+            )
+            return False
+
+        # 3. Crear carpeta del clon.
+        try:
+            os.makedirs(destination, exist_ok=False)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Clon enlazado",
+                f"No se pudo crear la carpeta del clon.\n\n{e}"
+            )
+            return False
+
+        # 4. Backing relativo y delta QCOW2.
+        backing_rel = os.path.relpath(primary_abs, start=destination)
+        clone_disk_name = os.path.basename(primary_abs)
+        clone_disk_abs = os.path.join(destination, clone_disk_name)
+
+        try:
+            subprocess.run(
+                ["qemu-img", "create",
+                 "-f", "qcow2",
+                 "-b", backing_rel,
+                 "-F", "qcow2",
+                 clone_disk_name],
+                cwd=destination, check=True,
+                capture_output=True, text=True, timeout=30,
+            )
+        except subprocess.CalledProcessError as e:
+            try:
+                shutil.rmtree(destination)
+            except Exception:
+                pass
+            QMessageBox.critical(
+                self, "Clon enlazado",
+                f"qemu-img create falló.\n\n{e.stderr or e}"
+            )
+            return False
+        except Exception as e:
+            try:
+                shutil.rmtree(destination)
+            except Exception:
+                pass
+            QMessageBox.critical(self, "Clon enlazado",
+                                 f"No se pudo crear el delta QCOW2.\n\n{e}")
+            return False
+
+        # 5. Verificación defensiva: el backing guardado debe ser RELATIVO.
+        try:
+            r = subprocess.run(
+                ["qemu-img", "info", "--output=json", clone_disk_abs],
+                capture_output=True, text=True, timeout=10, check=True,
+            )
+            info = json.loads(r.stdout)
+            backing_stored = str(info.get("backing-filename") or "")
+            if backing_stored.startswith("/") or backing_stored.startswith("\\\\"):
                 try:
-                    shutil.rmtree(destination)
+                    os.remove(clone_disk_abs)
+                    os.rmdir(destination)
                 except Exception:
                     pass
-            QMessageBox.critical(self, "Clonar VM", f"No se pudo clonar la máquina virtual.\n\n{e}")
+                QMessageBox.warning(
+                    self, "Clon enlazado",
+                    "El backing file quedó guardado como ruta ABSOLUTA, "
+                    "lo que haría el clon no portable.\n\n"
+                    "Se ha abortado la operación para no dejar un clon "
+                    "defectuoso. Reporta esto como bug."
+                )
+                return False
+        except Exception as _ver_err:
+            try:
+                self.log_message(
+                    f"[AVISO] No se pudo verificar la portabilidad del "
+                    f"backing file: {_ver_err}"
+                )
+            except Exception:
+                pass
+
+        # 6. Copiar el resto de archivos EXCLUYENDO el disco principal.
+        try:
+            files = self._walk_vm_files(source_dir)
+            primary_abs_norm = os.path.abspath(primary_abs)
+            for ab, rel, sz in files:
+                if os.path.abspath(ab) == primary_abs_norm:
+                    continue
+                dest_file = os.path.join(destination, rel)
+                os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                shutil.copy2(ab, dest_file, follow_symlinks=False)
+        except Exception as e:
+            try:
+                shutil.rmtree(destination)
+            except Exception:
+                pass
+            QMessageBox.critical(
+                self, "Clon enlazado",
+                f"No se pudieron copiar los archivos auxiliares.\n\n{e}"
+            )
+            return False
+
+        # 7. Reescribir vm_config.ini del clon.
+        try:
+            cfg_path = os.path.join(destination, "vm_config.ini")
+            parser = configparser.ConfigParser(interpolation=None)
+            parser.read(cfg_path, encoding="utf-8")
+            if parser.has_section("general"):
+                parser.set("general", "name", clone_name)
+
+            self._regenerate_network_macs_and_storage_ids(parser)
+
+            if not parser.has_section("extra"):
+                parser.add_section("extra")
+            try:
+                extra = json.loads(parser["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["linked_clone"] = True
+            extra["linked_backing_rel"] = backing_rel
+            extra["linked_original"] = os.path.basename(source_dir)
+
+            _devices = extra.get("storage_devices") or []
+            primary_abs_norm = os.path.abspath(primary_abs)
+            source_dir_abs = os.path.abspath(source_dir)
+            for d in _devices:
+                if not isinstance(d, dict):
+                    continue
+                old_path = d.get("path") or ""
+                if not old_path:
+                    continue
+                old_abs = os.path.abspath(old_path)
+                if old_abs == primary_abs_norm:
+                    d["path"] = clone_disk_abs
+                elif old_abs.startswith(source_dir_abs + os.sep):
+                    rel_p = os.path.relpath(old_abs, source_dir_abs)
+                    new_p = os.path.join(destination, rel_p)
+                    if os.path.isfile(new_p):
+                        d["path"] = new_p
+            extra["storage_devices"] = _devices
+            parser.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                parser.write(f)
+            if hasattr(self, "_invalidate_vm_config_cache"):
+                self._invalidate_vm_config_cache(destination)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Clon enlazado",
+                f"El clon se creó pero no se pudo reescribir su vm_config.ini.\n\n"
+                f"{e}\n\n"
+                "Revisa manualmente el archivo antes de usar la VM."
+            )
+            return False
+
+        QMessageBox.information(
+            self, "Clon creado",
+            f"La máquina virtual '{clone_name}' fue clonada correctamente "
+            f"(clon enlazado).\n\n"
+            "El disco base se comparte con el original mediante un backing\n"
+            "file QCOW2 con ruta relativa. El clon ocupa muy poco espacio,\n"
+            "pero DEPENDE del original:\n\n"
+            "  • Si borras o mueves la VM original, el clon se rompe.\n"
+            "  • Una vez que el clon arranque por primera vez, los cambios\n"
+            "    que hagas DESPUÉS en el original NO se verán en el clon:\n"
+            "    la vista del sistema de archivos queda anclada al estado\n"
+            "    del primer arranque. Trata el original como de solo lectura\n"
+            "    mientras el clon exista.\n"
+            "  • Los snapshots del clon no son reproducibles mientras el\n"
+            "    original pueda cambiar: al restaurar, se mezcla el delta\n"
+            "    guardado con el estado ACTUAL del backing.\n"
+            "  • Si quieres independizarlo, usa '🧬 Desenlazar' cuando esté\n"
+            "    apagado.\n\n"
+            "Para mover o copiar la estructura completa a otro host,\n"
+            "llévate la carpeta 'VirtualMachines/' entera."
+        )
+        return True
+
+    def unlink_linked_clone(self):
+        """Convierte un clon enlazado en un QCOW2 autónomo
+        (marcador linked_clone_unlink_v1).
+
+        Ejecuta 'qemu-img convert -O qcow2' sobre el disco principal,
+        reemplaza el archivo atómicamente y borra los flags linked_*.
+        Mismo patrón que compact_vm_disk.
+        """
+        from PyQt6.QtCore import Qt as _Qt
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Desenlazar clon",
+                                    "Selecciona primero una máquina virtual.")
+            return
+
+        vm_dir = self.current_vm_dir
+        vm_name = os.path.basename(vm_dir)
+
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+        except Exception:
+            data = {}
+        extra = data.get("extra") or {}
+        if not extra.get("linked_clone"):
+            QMessageBox.information(
+                self, "Desenlazar clon",
+                "Esta VM no es un clon enlazado, no hay nada que desenlazar."
+            )
+            return
+
+        state = self._runtime_state(vm_name)
+        if state != "stopped":
+            QMessageBox.warning(
+                self, "Desenlazar clon",
+                f"La VM '{vm_name}' está encendida.\n\n"
+                "Apágala antes de desenlazarla: con QEMU activo el archivo\n"
+                "está bloqueado y el convert no puede reemplazarlo."
+            )
+            return
+
+        primary_abs, _ptype = self._primary_disk_path(vm_dir)
+        if not primary_abs or not os.path.isfile(primary_abs):
+            QMessageBox.warning(
+                self, "Desenlazar clon",
+                "No se encontró el disco principal del clon."
+            )
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Desenlazar clon")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setTextFormat(_Qt.TextFormat.RichText)
+        box.setText(
+            f"Se convertirá el disco principal del clon "
+            f"<b>{os.path.basename(primary_abs)}</b> en un QCOW2 "
+            f"<b>autónomo</b>.<br><br>"
+            "Después de esto, el clon deja de depender del original y "
+            "puede moverse o copiarse por separado.<br><br>"
+            "<b>Requiere:</b><br>"
+            "&nbsp;&nbsp;• Espacio libre en el host (~1.1× el tamaño del disco).<br>"
+            "&nbsp;&nbsp;• La VM apagada (ya lo está).<br>"
+            "&nbsp;&nbsp;• No cerrar la aplicación durante el proceso.<br><br>"
+            "El resultado se verifica como QCOW2 válido y se reemplaza "
+            "atómicamente. Si algo falla a mitad, el archivo original "
+            "del clon queda intacto."
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        tmp_path = primary_abs + ".unlinked.qcow2"
+        try:
+            orig_size = os.path.getsize(primary_abs)
+        except OSError:
+            orig_size = 0
+
+        def _work(log_emit, is_cancelled, progress_emit):
+            import subprocess as _sp
+            log_emit(f"==> Desenlazando clon '{vm_name}'…")
+            log_emit(f"    Disco:    {primary_abs}")
+            log_emit(f"    Temporal: {tmp_path}")
+
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+            try:
+                proc = _sp.Popen(
+                    ["qemu-img", "convert", "-p", "-O", "qcow2",
+                     primary_abs, tmp_path],
+                    stdout=_sp.PIPE, stderr=_sp.STDOUT,
+                    text=True, bufsize=1,
+                )
+            except FileNotFoundError:
+                raise RuntimeError("qemu-img no está en el PATH.")
+
+            last_pct = -1
+            if proc.stdout is not None:
+                for line in iter(proc.stdout.readline, ""):
+                    if is_cancelled():
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except Exception:
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                        if os.path.exists(tmp_path):
+                            try:
+                                os.remove(tmp_path)
+                            except OSError:
+                                pass
+                        raise RuntimeError("Desenlazado cancelado por el usuario.")
+                    if not line:
+                        continue
+                    m = re.search(r"(\d+(?:\.\d+)?)\s*%", line)
+                    if m:
+                        pct = int(float(m.group(1)))
+                        if pct != last_pct:
+                            last_pct = pct
+                            progress_emit(pct, f"Desenlazando… {pct}%")
+                    else:
+                        progress_emit(-1, "Desenlazando…")
+
+            proc.wait()
+            if proc.returncode != 0:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+                raise RuntimeError(
+                    f"qemu-img convert terminó con código {proc.returncode}."
+                )
+
+            try:
+                r = _sp.run(
+                    ["qemu-img", "info", "--output=json", tmp_path],
+                    capture_output=True, text=True, timeout=10, check=True,
+                )
+                import json as _json
+                info = _json.loads(r.stdout)
+                if info.get("format") != "qcow2":
+                    raise RuntimeError(
+                        f"El temporal no es QCOW2 (formato: {info.get('format')})."
+                    )
+                if info.get("backing-filename"):
+                    raise RuntimeError("El resultado sigue teniendo backing file.")
+            except Exception as e:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+                raise RuntimeError(f"No se pudo verificar el resultado: {e}")
+
+            try:
+                os.replace(tmp_path, primary_abs)
+            except OSError as e:
+                raise RuntimeError(
+                    f"No se pudo reemplazar el disco original: {e}\n"
+                    f"El convert quedó en: {tmp_path}"
+                )
+
+            try:
+                new_size = os.path.getsize(primary_abs)
+            except OSError:
+                new_size = 0
+            log_emit(
+                f"==> Desenlazado terminado: {orig_size} → {new_size} bytes."
+            )
+            return {"orig": orig_size, "new": new_size}
+
+        def _on_success(result):
+            try:
+                cfg_path = os.path.join(vm_dir, "vm_config.ini")
+                parser = configparser.ConfigParser(interpolation=None)
+                parser.read(cfg_path, encoding="utf-8")
+                if parser.has_section("extra"):
+                    extra = json.loads(parser["extra"].get("data", "{}"))
+                    extra.pop("linked_clone", None)
+                    extra.pop("linked_backing_rel", None)
+                    extra.pop("linked_original", None)
+                    parser.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+                    with open(cfg_path, "w", encoding="utf-8") as f:
+                        parser.write(f)
+                if hasattr(self, "_invalidate_vm_config_cache"):
+                    self._invalidate_vm_config_cache(vm_dir)
+            except Exception as e:
+                try:
+                    self.log_message(
+                        f"[AVISO] El disco se desenlazó pero no se pudo "
+                        f"limpiar vm_config.ini: {e}"
+                    )
+                except Exception:
+                    pass
+
+            try:
+                fmt_o = self._format_bytes_iexport(result["orig"])
+                fmt_n = self._format_bytes_iexport(result["new"])
+            except Exception:
+                fmt_o, fmt_n = str(result["orig"]), str(result["new"])
+
+            QMessageBox.information(
+                self, "Desenlazado",
+                f"El clon '{vm_name}' ya es autónomo.\n\n"
+                f"Tamaño antes: {fmt_o}\n"
+                f"Tamaño después: {fmt_n}\n\n"
+                "Puedes mover la VM sin llevarte la original."
+            )
+            try:
+                self._update_manager_details()
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "refresh_storage_ui"):
+                    self.refresh_storage_ui()
+            except Exception:
+                pass
+            try:
+                self._update_linked_clone_buttons_state(
+                    self._runtime_state(vm_name)
+                )
+            except Exception:
+                pass
+
+        def _on_error(e):
+            QMessageBox.critical(
+                self, "Desenlazar clon",
+                f"No se pudo desenlazar el clon.\n\n{e}"
+            )
+
+        self.run_async(
+            _work,
+            f"Desenlazando '{vm_name}'",
+            on_success=_on_success,
+            on_error=_on_error,
+            cancelable=True,
+            show_log=True,
+            subtitle="Convirtiendo el clon en un QCOW2 autónomo…",
+        )
+
+    def _update_linked_clone_buttons_state(self, state=None):
+        """Muestra y habilita el botón '🧬 Desenlazar' solo cuando la VM
+        seleccionada es un clon enlazado Y está apagada."""
+        btn = getattr(self, "manager_btn_unlink", None)
+        if btn is None:
+            return
+        try:
+            is_linked = False
+            if self.current_vm_dir:
+                data = self._load_vm_config_cached(self.current_vm_dir)
+                is_linked = bool((data.get("extra") or {}).get("linked_clone"))
+            btn.setVisible(bool(is_linked))
+            btn.setEnabled(bool(is_linked) and state == "stopped")
+        except Exception:
+            try:
+                btn.setVisible(False)
+                btn.setEnabled(False)
+            except Exception:
+                pass
+
 
     def delete_current_vm(self):
         if not self._vm_is_selected():
@@ -906,7 +2394,7 @@ class VmLifecycleMixin:
         # Los medios adjuntados desde otras ubicaciones nunca se borran.
         external_media = []
         try:
-            data = load_vm_config(vm_dir)
+            data = self._load_vm_config_cached(vm_dir)
             for d in (data.get("extra") or {}).get("storage_devices", []):
                 path = os.path.abspath(d.get("path", "")) if d.get("path") else ""
                 if path and os.path.exists(path) and os.path.commonpath([vm_dir, path]) != vm_dir:
@@ -917,9 +2405,37 @@ class VmLifecycleMixin:
         except Exception:
             pass
 
+        # Comprobar clones enlazados que dependen de esta VM (linked_clone_v1).
+        dependent_clones = []
+        try:
+            for _other_name in list_existing_vms():
+                if _other_name == name:
+                    continue
+                _other_dir = os.path.join(vm_config.BASE_VM_DIR, _other_name)
+                try:
+                    _other_data = self._load_vm_config_cached(_other_dir)
+                except Exception:
+                    continue
+                _oe = _other_data.get("extra") or {}
+                if (_oe.get("linked_clone")
+                        and _oe.get("linked_original") == name):
+                    dependent_clones.append(_other_name)
+        except Exception:
+            pass
+
         details = f"Se eliminará únicamente la carpeta de la máquina virtual:\n\n{vm_dir}\n\n"
         if external_media:
             details += "Los siguientes medios están fuera de la carpeta de la VM y NO se eliminarán:\n" + "\n".join(f"• {p}" for p in sorted(set(external_media))) + "\n\n"
+        if dependent_clones:
+            details += (
+                f"⚠ ESTA VM ES EL ORIGINAL DE {len(dependent_clones)} "
+                f"CLON(ES) ENLAZADO(S):\n"
+                + "\n".join(f"  • {c}" for c in dependent_clones)
+                + "\n\nSi continúas, esos clones quedarán inutilizables "
+                "(su backing file ya no existirá).\n\n"
+                "Se recomienda desenlazarlos primero: selecciona cada clon "
+                "y pulsa '🧬 Desenlazar' en su pestaña Resumen.\n\n"
+            )
         details += "¿Deseas continuar?"
         resp = QMessageBox.warning(
             self, "Eliminar máquina virtual", details,
@@ -964,6 +2480,12 @@ class VmLifecycleMixin:
             print(f"[AVISO] apply_os_profile_defaults: {e}", file=_sys.stderr)
         try:
             self.update_firmware_options_visibility()
+        except Exception:
+            pass
+        # Re-aplicar la UI del modo compatibilidad de snapshots: si el
+        # SO es macOS, el checkbox queda deshabilitado con tooltip.
+        try:
+            self._refresh_snapshot_compat_ui_on_os_change()
         except Exception:
             pass
 
@@ -1048,17 +2570,41 @@ class VmLifecycleMixin:
             self.check_secure_boot.setChecked(True)
             self.check_tpm.setChecked(True)
 
+    def _vm_name_from_item(self, item):
+        """Nombre real de la VM de un QListWidgetItem.
+
+        Prefiere el UserRole (guardado por refresh_vm_list). Cae al
+        parser de texto si el UserRole no está (items creados por
+        código antiguo, tests, etc.).
+        """
+        if item is None:
+            return ""
+        try:
+            name = item.data(_VM_USER_ROLE)
+            if name:
+                return str(name)
+        except Exception:
+            pass
+        try:
+            return self._vm_name_from_list_text(item.text())
+        except Exception:
+            return ""
+
     @staticmethod
     def _vm_name_from_list_text(text):
         name = text.split("  ", 1)[-1].strip()
-        # Quitar todos los sufijos de aviso (por si hay más de uno).
+        # Quitar el prefijo "[Grupo] " si lo hubiera.
+        if name.startswith("["):
+            close = name.find("]")
+            if close > 0:
+                name = name[close + 1:].strip()
         while name.endswith(" ⚠️"):
             name = name[: -len(" ⚠️")].strip()
         return name
 
     def _vm_has_shared_folder_issue(self, vm_dir):
         try:
-            cfg = load_vm_config(vm_dir)
+            cfg = self._load_vm_config_cached(vm_dir)
             folders = (cfg.get("extra") or {}).get("shared_folders", [])
             folders = folders if isinstance(folders, list) else []
         except Exception:
@@ -1081,7 +2627,7 @@ class VmLifecycleMixin:
         None → no se pudo determinar (VM apagada, sin QGA, etc.).
         """
         try:
-            data = load_vm_config(vm_dir)
+            data = self._load_vm_config_cached(vm_dir)
             os_type = (data.get("os_type") or "linux").lower()
         except Exception:
             os_type = "linux"
@@ -1170,7 +2716,7 @@ class VmLifecycleMixin:
         result["shared_folders"] = not self._vm_has_shared_folder_issue(vm_dir)
 
         try:
-            cfg = load_vm_config(vm_dir)
+            cfg = self._load_vm_config_cached(vm_dir)
             mode = (cfg.get("extra") or {}).get("clipboard", {}).get("mode", "disabled")
         except Exception:
             mode = "disabled"
@@ -1261,7 +2807,7 @@ class VmLifecycleMixin:
             cfg_path = os.path.join(vm_config.BASE_VM_DIR, vm_name, "vm_config.ini")
             if not os.path.isfile(cfg_path):
                 return icon_for_vm("", "")
-            cfg = load_vm_config(os.path.join(vm_config.BASE_VM_DIR, vm_name))
+            cfg = self._load_vm_config_cached(os.path.join(vm_config.BASE_VM_DIR, vm_name))
         except Exception:
             return icon_for_vm("", "")
 
@@ -1275,12 +2821,76 @@ class VmLifecycleMixin:
             return icon_for_vm("", "")
 
 
+
+    # ------------------------------------------------------------------
+    # Filtro por grupo en la lista lateral (marcador vm_group_filter_v1)
+    # ------------------------------------------------------------------
+    # El combo "Grupo:" del panel izquierdo se rellena con los grupos
+    # existentes al vuelo (recorriendo vm_config.ini de cada VM). Opciones
+    # especiales: "" = todos, "__none__" = VMs sin grupo.
+
+    _VM_GROUP_NONE = "__none__"
+
+    def _populate_vm_group_filter(self):
+        """Rellena combo_vm_group con los grupos existentes."""
+        combo = getattr(self, "combo_vm_group", None)
+        if combo is None:
+            return
+        cur = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("Todos los grupos", "")
+        combo.addItem("Sin grupo", self._VM_GROUP_NONE)
+        for g in self._all_vm_groups():
+            combo.addItem(g, g)
+        idx = combo.findData(cur)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _apply_vm_group_filter(self, group_key=None):
+        """Muestra u oculta los items de la lista según el grupo elegido.
+
+        Combina con el filtro de texto del buscador: se aplican ambos.
+        """
+        if group_key is None:
+            combo = getattr(self, "combo_vm_group", None)
+            group_key = combo.currentData() if combo is not None else ""
+        search = ""
+        try:
+            sb = getattr(self, "input_vm_search", None)
+            search = (sb.text() if sb is not None else "").strip().lower()
+        except Exception:
+            search = ""
+        for i in range(self.vm_list.count()):
+            item = self.vm_list.item(i)
+            name = self._vm_name_from_item(item)
+            vm_dir = os.path.join(vm_config.BASE_VM_DIR, name)
+            try:
+                g = self._load_vm_group(vm_dir)
+            except Exception:
+                g = ""
+            match_group = (
+                group_key == ""
+                or (group_key == self._VM_GROUP_NONE and not g)
+                or (group_key == g)
+            )
+            match_search = (not search) or (search in name.lower())
+            item.setHidden(not (match_group and match_search))
+
+    def _on_vm_group_filter_changed(self, *_args):
+        self._apply_vm_group_filter()
+
+
     def _vm_list_label(self, name, state):
         """Etiqueta de la VM en la lista lateral.
 
         Los avisos (carpeta compartida caída, muerte inesperada detectada
         por el watchdog) se marcan con ⚠️ — un solo símbolo, sin duplicar
         aunque las dos condiciones se cumplan a la vez.
+
+        Si la VM tiene grupo (extra["group"]), se antepone "[Grupo] " al
+        nombre. El color (extra["color"]) lo aplica refresh_vm_list como
+        fondo del ítem (no aquí).
         """
         icon = "●" if state == "running" else ("◐" if state == "paused" else "○")
         warning = False
@@ -1290,11 +2900,26 @@ class VmLifecycleMixin:
         if name in getattr(self, "_vm_death_flag", set()):
             warning = True
         suffix = " ⚠️" if warning else ""
-        return f"{icon}  {name}{suffix}"
+        _group = ""
+        try:
+            _g = self._load_vm_group(os.path.join(vm_config.BASE_VM_DIR, name))
+            if _g:
+                _group = f"[{_g}] "
+        except Exception:
+            _group = ""
+        return f"{icon}  {_group}{name}{suffix}"
 
 
     def refresh_vm_list(self, select_name=None):
         vms = list_existing_vms()
+        # Ordenar la lista segun la preferencia del usuario. Se hace
+        # antes del bucle que crea los items para que el orden sea el
+        # final; seleccionar la VM activa al final funciona igual.
+        try:
+            if hasattr(self, "_apply_vm_order"):
+                vms = self._apply_vm_order(vms)
+        except Exception:
+            pass
         if select_name is None:
             select_name = os.path.basename(self.current_vm_dir) if self.current_vm_dir else None
         self.vm_list.blockSignals(True)
@@ -1307,9 +2932,34 @@ class VmLifecycleMixin:
             # el símbolo de estado (● / ◐ / ○) más el nombre.
             item = _QListWidgetItem(self._vm_list_label(name, state))
             try:
+                item.setData(_VM_USER_ROLE, name)
+            except Exception:
+                pass
+            # Padding del ítem. Antes lo hacía el QSS (::item { padding }),
+            # pero eso bloqueaba el BackgroundRole del ítem.
+            try:
+                from PyQt6.QtCore import QSize as _QSize
+                item.setSizeHint(_QSize(0, 36))
+            except Exception:
+                pass
+            try:
                 icon = self._vm_os_icon(name)
                 if icon is not None and not icon.isNull():
                     item.setIcon(icon)
+            except Exception:
+                pass
+            # Fondo suave según extra["color"], si lo hay.
+            # Fondo suave según extra["color"], si lo hay.
+            # Requiere que QListWidget NO tenga reglas ::item en QSS
+            # (ni en APP_QSS ni en el stylesheet local): con QSS ::item,
+            # Qt ignora setBackground() por completo.
+            try:
+                _c = self._load_vm_color(os.path.join(vm_config.BASE_VM_DIR, name))
+                if _c and _c.startswith("#") and len(_c) == 7:
+                    from PyQt6.QtGui import QColor as _QColor, QBrush as _QBrush
+                    _qcol = _QColor(_c)
+                    _qcol.setAlpha(150)
+                    item.setBackground(_QBrush(_qcol))
             except Exception:
                 pass
             self.vm_list.addItem(item)
@@ -1319,6 +2969,15 @@ class VmLifecycleMixin:
                     self.vm_list.setCurrentRow(i)
                     break
         self.vm_list.blockSignals(False)
+        # Rellenar el combo de filtro por grupo (idempotente) y aplicar
+        # el filtro activo, si lo hay.
+        try:
+            if hasattr(self, "_populate_vm_group_filter"):
+                self._populate_vm_group_filter()
+            if hasattr(self, "_apply_vm_group_filter") and hasattr(self, "combo_vm_group"):
+                self._apply_vm_group_filter(self.combo_vm_group.currentData())
+        except Exception:
+            pass
         self.refresh_vm_runtime_status()
 
     def on_vm_list_item_clicked(self, item):
@@ -1332,7 +2991,7 @@ class VmLifecycleMixin:
         """
         if item is None:
             return
-        name = self._vm_name_from_list_text(item.text())
+        name = self._vm_name_from_item(item)
         if not name or not self.current_vm_dir:
             return
         if os.path.basename(self.current_vm_dir) != name:
@@ -1348,7 +3007,17 @@ class VmLifecycleMixin:
             self.current_vm_dir = None
             self.vm_control_status.setText("● Sin VM seleccionada")
             return
-        name = self._vm_name_from_list_text(text)
+        # Preferir el currentItem para usar el UserRole (a prueba de
+        # prefijos [Grupo] y sufijos ⚠️ en el texto).
+        item = None
+        try:
+            item = self.vm_list.currentItem()
+        except Exception:
+            item = None
+        if item is not None:
+            name = self._vm_name_from_item(item)
+        else:
+            name = self._vm_name_from_list_text(text)
         if name in list_existing_vms():
             self.open_vm(name)
 
@@ -1505,7 +3174,10 @@ class VmLifecycleMixin:
         if btn is None:
             return
         btn.setToolTip(
-            f"Muestra la consola gráfica a pantalla completa.\n"
+            "Muestra el visor EMBEBIDO (VNC dentro de la app) a pantalla\n"
+            "completa en una ventana propia. NO afecta al visor externo:\n"
+            "para ese, usa el checkbox 'Externos en pantalla completa'\n"
+            "de la fila de estado.\n\n"
             f"Pulsa {self._fullscreen_exit_display_text()} para salir."
         )
 
@@ -1626,7 +3298,7 @@ class VmLifecycleMixin:
         self._vnc_fullscreen_container = None
 
         if getattr(self, "btn_vnc_fullscreen", None) is not None:
-            self.btn_vnc_fullscreen.setText("⛶ Pantalla completa")
+            self.btn_vnc_fullscreen.setText("⛶ Pantalla completa del visor")
 
     def _start_vnc_resize_watcher(self):
         """Arranca un watcher ligero que reajusta el widget VNC cuando el
@@ -1890,78 +3562,29 @@ class VmLifecycleMixin:
 
 
     def _force_widget_relayout(self):
-        """Reajusta el widget VNC y su scroll area al modo actual.
+        """Reajusta el widget VNC y su scroll area al modo de zoom actual.
 
-        Diferencias clave respecto a versiones anteriores:
-
-        • Modo "ajustar a ventana":
-            - NO se llama a w.resize(): dentro de un QScrollArea con
-              widgetResizable(True), resize() se ignora y confunde más
-              que ayuda. El tamaño del widget lo decide el scroll area
-              a partir del sizeHint() del widget — y como en este modo
-              sizeHint() devuelve un valor pequeño, el scroll area
-              estirará el widget hasta llenar el viewport.
-            - Se fuerza updateGeometry() en widget y scroll area para
-              que Qt recalcule los tamaños YA, sin esperar al siguiente
-              resize del padre.
-
-        • Modo "tamaño real":
-            - Se reafirma el tamaño fijo del widget (vncWidth × vncHeight).
-            - Se fuerza el scroll area a mostrar barras (widgetResizable
-              a False).
+        Delega en _apply_vnc_display_mode(), que ya conoce los tres modos
+        (fit / manual) y aplica el tamaño y las políticas correctas.
+        Después fuerza un updateGeometry para que el scroll area calcule
+        las barras inmediatamente sin esperar al siguiente resize.
         """
-        w = getattr(self, "vnc_widget", None)
-        if w is None:
-            return
-        chk = getattr(self, "chk_vnc_real_size", None)
-        real_size = bool(chk.isChecked()) if chk is not None else False
-
-        # Reaplicar el modo (por si los min/max quedaron inconsistentes).
         try:
             self._apply_vnc_display_mode()
         except Exception:
             pass
-
+        w = getattr(self, "vnc_widget", None)
+        if w is not None:
+            try:
+                w.updateGeometry()
+                w.update()
+            except Exception:
+                pass
         scroll = getattr(self, "vnc_scroll_area", None)
-
-        if not real_size:
-            # Modo ajustar: NO resize() manual. Confiamos en que el
-            # scroll area, con widgetResizable(True) y un sizeHint()
-            # pequeño, estire el widget al viewport.
-            if scroll is not None:
-                try:
-                    scroll.setWidgetResizable(True)
-                    scroll.updateGeometry()
-                    scroll.viewport().update()
-                except Exception:
-                    pass
+        if scroll is not None:
             try:
-                w.updateGeometry()
-                w.update()
-            except Exception:
-                pass
-        else:
-            # Modo tamaño real: reafirmar el tamaño del widget.
-            try:
-                vw = int(getattr(w, "vncWidth", 0) or 0)
-                vh = int(getattr(w, "vncHeight", 0) or 0)
-                if vw > 0 and vh > 0:
-                    w.setMinimumSize(vw, vh)
-                    w.setMaximumSize(vw, vh)
-                    w.resize(vw, vh)
-            except Exception:
-                pass
-            if scroll is not None:
-                try:
-                    scroll.setWidgetResizable(False)
-                    scroll.updateGeometry()
-                    scroll.viewport().update()
-                except Exception:
-                    pass
-            try:
-                w.updateGeometry()
-                w.update()
-                w.repaint()
+                scroll.updateGeometry()
+                scroll.viewport().update()
             except Exception:
                 pass
 
@@ -1983,10 +3606,6 @@ class VmLifecycleMixin:
             self.log_message("==> VNC: reconectando el widget (refresco solicitado).")
         except Exception:
             pass
-
-        # Guardamos el estado del checkbox "Tamaño real" para no perderlo.
-        chk = getattr(self, "chk_vnc_real_size", None)
-        was_real_size = bool(chk.isChecked()) if chk is not None else False
 
         # Forzamos que _sync_vnc_widget considere que hay que reconectar.
         # La forma más limpia: destruir el widget aquí mismo y dejar que el
@@ -2104,73 +3723,6 @@ class VmLifecycleMixin:
                 self.main_tabs.setCurrentIndex(idx)
         except Exception:
             pass
-
-    def _destroy_embedded_console_widget(self):
-        """Destruye el widget de consola embebida (VNC o SPICE), si existe.
-
-        Se llama cuando el usuario cambia de VM en la lista lateral: el
-        widget actual está conectado al socket de la VM anterior, no de
-        la nueva. Destruirlo deja el camino libre para que
-        _sync_console_widget cree uno nuevo con la VM actual.
-
-        También centraliza la limpieza que antes hacía cada _sync_* por
-        su cuenta (VNC y SPICE por separado).
-        """
-        # --- VNC embebido ---
-        w = getattr(self, "vnc_widget", None)
-        if w is not None:
-            try:
-                focus_filter = getattr(self, "_vnc_focus_filter", None)
-                if focus_filter is not None:
-                    try:
-                        focus_filter.detach()
-                        w.removeEventFilter(focus_filter)
-                    except Exception:
-                        pass
-                    self._vnc_focus_filter = None
-                if getattr(self, "_vnc_fullscreen_window", None) is not None:
-                    try:
-                        self._close_vnc_fullscreen()
-                    except Exception:
-                        pass
-                layout = self.console_page.layout()
-                scroll_area = getattr(self, "vnc_scroll_area", None)
-                if layout is not None and scroll_area is not None:
-                    layout.replaceWidget(scroll_area, self.vnc_placeholder)
-                if scroll_area is not None:
-                    scroll_area.takeWidget()
-                    scroll_area.deleteLater()
-                w.deleteLater()
-            except Exception:
-                pass
-            self.vnc_widget = None
-            self.vnc_scroll_area = None
-            self._vnc_widget_vm_dir = None
-            try:
-                self.vnc_placeholder.show()
-                self.vnc_placeholder.setText("Esperando conexión de la VM…")
-            except Exception:
-                pass
-
-        # --- SPICE embebido ---
-        sw = getattr(self, "spice_widget", None)
-        if sw is not None:
-            try:
-                if hasattr(sw, "stop"):
-                    sw.stop()
-                layout = self.console_page.layout()
-                if layout is not None:
-                    layout.replaceWidget(sw, self.vnc_placeholder)
-                sw.deleteLater()
-            except Exception:
-                pass
-            self.spice_widget = None
-            self._spice_widget_vm_dir = None
-            try:
-                self.vnc_placeholder.show()
-                self.vnc_placeholder.setText("Esperando conexión de la VM…")
-            except Exception:
-                pass
 
     def _apply_console_choice_from_vm(self, data):
         """Vuelca la elección de consola guardada en la VM a los combos.
@@ -2429,7 +3981,7 @@ class VmLifecycleMixin:
                     "background: #fff3cd; color: #7a5b00; font-weight:bold;"
                 )
             else:
-                text = "SPICE embebida: lista para usarse."
+                text = "SPICE embebida: la pantalla se verá dentro de la app."
                 style = (
                     "font-size:11px; padding:2px 6px; border-radius:4px; "
                     "background: #e6f4ea; color: #1e7e34;"
@@ -2454,7 +4006,7 @@ class VmLifecycleMixin:
                     "background: #fdecea; color: #b71c1c; font-weight:bold;"
                 )
         elif protocol == "vnc" and mode == "embedded":
-            text = "VNC embebida: lista para usarse."
+            text = "VNC embebida: la pantalla se verá dentro de la app."
             style = (
                 "font-size:11px; padding:2px 6px; border-radius:4px; "
                 "background: #e6f4ea; color: #1e7e34;"
@@ -2478,7 +4030,7 @@ class VmLifecycleMixin:
                     "background: #fdecea; color: #b71c1c; font-weight:bold;"
                 )
         elif mode == "native":
-            text = "Ventana nativa de QEMU: no hay visor externo ni embebido."
+            text = "Ventana nativa de QEMU: la VM abre su propia ventana."
             style = (
                 "font-size:11px; padding:2px 6px; border-radius:4px; "
                 "background: transparent; color: #757575;"
@@ -2510,7 +4062,7 @@ class VmLifecycleMixin:
         mode = MODE_EMBEDDED
         if self.current_vm_dir:
             try:
-                cfg = load_vm_config(self.current_vm_dir)
+                cfg = self._load_vm_config_cached(self.current_vm_dir)
                 _extra = cfg.get("extra") or {}
                 protocol = str(_extra.get("console_protocol") or PROTOCOL_VNC).lower()
                 mode = str(_extra.get("console_mode") or "").lower()
@@ -2907,7 +4459,6 @@ class VmLifecycleMixin:
                 layout.replaceWidget(self.vnc_placeholder, self.spice_widget)
                 self.vnc_placeholder.hide()
             self._spice_widget_vm_dir = self.current_vm_dir
-            self._spice_widget_vm_dir = self.current_vm_dir
             self.vnc_label_status.setText(f"SPICE: 127.0.0.1:{port}")
             self.log_message(f"==> SPICE: widget embebido (127.0.0.1:{port}).")
             self._focus_console_tab()
@@ -2921,6 +4472,68 @@ class VmLifecycleMixin:
             self._spice_embed_disabled = True
             self._sync_external_viewer(state, PROTOCOL_SPICE)
 
+
+    def _setup_vnc_logging(self, force_debug=None):
+        """Configura el nivel de log del cliente VNC embebido.
+
+        Por defecto INFO. Antes se forzaba DEBUG en cada creación del
+        widget, lo que escribía una línea por frame en launch.log (miles
+        por segundo), consumía CPU y hacía ilegibles otros logs.
+
+        El usuario puede activar DEBUG desde Configuración → Pantalla →
+        "Log VNC detallado (DEBUG)" para diagnosticar un problema
+        concreto. La elección se guarda en QSettings.
+
+        `force_debug`: si no es None, se usa ese valor en vez de leer
+        QSettings (lo usa el slot del checkbox).
+        """
+        import logging
+        from PyQt6.QtCore import QSettings
+
+        if force_debug is None:
+            try:
+                debug_on = bool(QSettings().value(
+                    "console/vnc_debug_log", False, type=bool))
+            except Exception:
+                debug_on = False
+        else:
+            debug_on = bool(force_debug)
+
+        # basicConfig solo si el root logger no tiene handlers todavía.
+        # Reutilizar el que ya exista evita pisar el formato del log
+        # general de la app (y duplicar líneas si se llamara dos veces).
+        root = logging.getLogger()
+        if not root.handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            )
+
+        level = logging.DEBUG if debug_on else logging.INFO
+        for name in ("QVNCWidget", "rfb", "RFB", "vnc_widget",
+                     "vnc_widget.rfb", "vnc_widget.qvncwidget"):
+            try:
+                logging.getLogger(name).setLevel(level)
+            except Exception:
+                continue
+        return debug_on
+
+    def _on_vnc_debug_log_toggled(self, checked):
+        """Slot del checkbox 'Log VNC detallado' de Configuración → Pantalla."""
+        from PyQt6.QtCore import QSettings
+        QSettings().setValue("console/vnc_debug_log", bool(checked))
+        try:
+            self._setup_vnc_logging(force_debug=bool(checked))
+        except Exception:
+            pass
+        try:
+            self.log_message(
+                "==> VNC: log detallado "
+                + ("ACTIVADO (DEBUG; puede llenar launch.log)."
+                   if checked else "desactivado (INFO).")
+            )
+        except Exception:
+            pass
 
     def _sync_embedded_vnc(self, state):
         """Conecta/desconecta el widget VNC según el estado de la VM.
@@ -2963,14 +4576,11 @@ class VmLifecycleMixin:
                 return
             try:
                 from vnc_widget_centered import CenteredVNCWidget as QVNCWidget
-                import logging
-                logging.basicConfig(
-                    level=logging.DEBUG,
-                    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-                )
-                logging.getLogger("QVNCWidget").setLevel(logging.DEBUG)
-                logging.getLogger("rfb").setLevel(logging.DEBUG)
-                logging.getLogger("RFB").setLevel(logging.DEBUG)
+                # Configurar el nivel de log del cliente VNC. Por defecto
+                # INFO (antes era DEBUG y escribía una línea por frame en
+                # launch.log, miles por segundo). El usuario puede activar
+                # DEBUG desde Configuración → Pantalla → "Log VNC detallado".
+                self._setup_vnc_logging()
 
                 self.vnc_widget = QVNCWidget(
                     parent=self.console_page,
@@ -3070,7 +4680,6 @@ class VmLifecycleMixin:
                     pass
                 self.vnc_widget = None
                 self._vnc_widget_vm_dir = None
-                self._vnc_widget_vm_dir = None
 
         elif state == "stopped" and vnc_connected:
             try:
@@ -3136,73 +4745,354 @@ class VmLifecycleMixin:
                 if getattr(self, "vnc_widget", None) is not None else None,
             )
 
-    def _apply_vnc_display_mode(self):
-        """Reaplica el modo de visualización del widget VNC.
+    # ------------------------------------------------------------------
+    # Zoom del visor embebido (VNC dentro de la app)
+    # ------------------------------------------------------------------
+    # El widget VNC pinta el backbuffer escalado a SU PROPIO tamaño
+    # (ver qvncwidget.paintEvent). Por eso el zoom se controla desde
+    # aquí cambiando el tamaño fijo del widget y el widgetResizable del
+    # QScrollArea, SIN tocar el widget ni el cliente RFB.
+    #
+    # Modos:
+    #   • "fit"    → widget expansible + widgetResizable(True). La imagen
+    #                se escala al viewport (comportamiento anterior al
+    #                checkbox "Tamaño real").
+    #   • "manual" → widget con tamaño fijo = vncWidth*pct/100 ×
+    #                vncHeight*pct/100 y widgetResizable(False).
+    #                Si no cabe, aparecen barras de desplazamiento.
+    #
+    # Persistencia en QSettings:
+    #   console/vnc_zoom_mode    (str: "fit" | "manual")
+    #   console/vnc_zoom_percent (int: 10..400)
+    # El antiguo console/vnc_real_size se migra al arrancar.
 
-        Defensivo: puede llamarse antes de que el widget VNC haya
-        completado el handshake RFB. En ese momento los atributos
-        vncWidth / vncHeight todavía no existen. Se llama igualmente:
-        set_fit_to_window() ahora tolera esa situación y, cuando llegue
-        la señal onInitialResize con las dimensiones reales, se
-        reaplicará el modo automáticamente.
+    _VNC_ZOOM_LEVELS = (10, 25, 50, 75, 100, 125, 150, 200, 300, 400)
+    _VNC_ZOOM_MIN = 10
+    _VNC_ZOOM_MAX = 400
+
+    def _migrate_vnc_zoom_settings(self):
+        """Migra la preferencia antigua (bool) al nuevo esquema de zoom.
+
+        Idempotente: si ya existe console/vnc_zoom_mode, no toca nada.
+        """
+        try:
+            from PyQt6.QtCore import QSettings
+        except Exception:
+            return
+        s = QSettings()
+        if s.contains("console/vnc_zoom_mode"):
+            return
+        old = s.value("console/vnc_real_size", None)
+        if old is None:
+            s.setValue("console/vnc_zoom_mode", "fit")
+            s.setValue("console/vnc_zoom_percent", 100)
+        else:
+            s.setValue("console/vnc_zoom_mode",
+                       "manual" if bool(old) else "fit")
+            s.setValue("console/vnc_zoom_percent", 100)
+        # No borramos la clave antigua por si el usuario revierte el
+        # parche; simplemente dejamos de leerla.
+
+    def _vnc_zoom_state(self):
+        """Devuelve (mode, percent). mode: 'fit' | 'manual'."""
+        try:
+            from PyQt6.QtCore import QSettings
+        except Exception:
+            return "fit", 100
+        s = QSettings()
+        mode = str(s.value("console/vnc_zoom_mode", "fit") or "fit")
+        if mode not in ("fit", "manual"):
+            mode = "fit"
+        try:
+            pct = int(s.value("console/vnc_zoom_percent", 100))
+        except (TypeError, ValueError):
+            pct = 100
+        if pct < self._VNC_ZOOM_MIN or pct > self._VNC_ZOOM_MAX:
+            pct = 100
+        return mode, pct
+
+    def _save_vnc_zoom_state(self, mode, percent):
+        try:
+            from PyQt6.QtCore import QSettings
+        except Exception:
+            return
+        s = QSettings()
+        s.setValue("console/vnc_zoom_mode", str(mode))
+        try:
+            s.setValue("console/vnc_zoom_percent", int(percent))
+        except (TypeError, ValueError):
+            s.setValue("console/vnc_zoom_percent", 100)
+
+    def _vnc_zoom_label_text(self):
+        mode, pct = self._vnc_zoom_state()
+        if mode == "fit":
+            return "Ajustado"
+        return f"{pct}%"
+
+    def _update_vnc_zoom_controls(self):
+        """Refresca los widgets de zoom (label central y resaltados)."""
+        lbl = getattr(self, "lbl_vnc_zoom_state", None)
+        if lbl is not None:
+            try:
+                lbl.setText(self._vnc_zoom_label_text())
+            except Exception:
+                pass
+        mode, pct = self._vnc_zoom_state()
+        for name, active in (
+            ("btn_vnc_zoom_fit", mode == "fit"),
+            ("btn_vnc_zoom_real", mode == "manual" and pct == 100),
+        ):
+            btn = getattr(self, name, None)
+            if btn is None:
+                continue
+            try:
+                if active:
+                    btn.setStyleSheet(
+                        "QPushButton { background-color: #1976d2; color: white; "
+                        "font-weight: bold; border: 1px solid #0d47a1; "
+                        "border-radius: 6px; padding: 4px 8px; }"
+                    )
+                else:
+                    btn.setStyleSheet("")
+            except Exception:
+                pass
+        # Habilitar/deshabilitar las lupas en los extremos del rango.
+        for name, enabled in (
+            ("btn_vnc_zoom_out",
+             mode == "manual" and pct > self._VNC_ZOOM_MIN),
+            ("btn_vnc_zoom_in",
+             mode == "manual" and pct < self._VNC_ZOOM_MAX),
+        ):
+            btn = getattr(self, name, None)
+            if btn is None:
+                continue
+            try:
+                btn.setEnabled(True)
+            except Exception:
+                pass
+
+    def _schedule_zoom_resize(self):
+        """Programa varias reaplicaciones del tamaño del widget de zoom.
+
+        Qt puede tardar uno o más ciclos del bucle de eventos en propagar
+        el cambio de tamaño al QScrollArea. Programamos tres reintentos
+        cortos (0 / 50 / 150 ms) para que el cambio se vea sin tener que
+        redimensionar la ventana a mano.
+        """
+        try:
+            from PyQt6.QtCore import QTimer
+        except Exception:
+            return
+        for delay in (0, 50, 150):
+            QTimer.singleShot(delay, self._force_zoom_resize)
+
+    def _force_zoom_resize(self):
+        """Aplica el tamaño del widget de zoom y fuerza al QScrollArea a
+        recomputar sus scrollbars.
+
+        - setFixedSize deja el widget del tamaño exacto que pide el zoom.
+        - updateGeometry() del widget avisa al padre de que cambió.
+        - El QScrollArea, con widgetResizable(False), no siempre
+          reacciona solo; se le postea un LayoutRequest explícito para
+          forzarlo a recomputar el rango de scroll y repintar el
+          viewport.
         """
         widget = getattr(self, "vnc_widget", None)
         scroll_area = getattr(self, "vnc_scroll_area", None)
         if widget is None or scroll_area is None:
             return
+        mode, pct = self._vnc_zoom_state()
+        if mode == "fit":
+            return
+        vw = int(getattr(widget, "vncWidth", 0) or 0)
+        vh = int(getattr(widget, "vncHeight", 0) or 0)
+        if vw <= 0 or vh <= 0:
+            return
+        tw = max(1, int(round(vw * pct / 100.0)))
+        th = max(1, int(round(vh * pct / 100.0)))
+        try:
+            widget.setFixedSize(tw, th)
+        except Exception:
+            pass
+        try:
+            widget.updateGeometry()
+        except Exception:
+            pass
+        try:
+            scroll_area.updateGeometry()
+            scroll_area.viewport().update()
+        except Exception:
+            pass
+        try:
+            from PyQt6.QtCore import QEvent
+            from PyQt6.QtWidgets import QApplication
+            QApplication.postEvent(
+                scroll_area, QEvent(QEvent.Type.LayoutRequest)
+            )
+        except Exception:
+            pass
 
+        # Log solo cuando el tamaño aplicado cambia (evita spam).
+        try:
+            last = getattr(self, "_last_zoom_applied_size", None)
+            if last != (tw, th):
+                self._last_zoom_applied_size = (tw, th)
+                self.log_message(f"[DIAG] zoom → setFixedSize({tw}x{th})")
+        except Exception:
+            pass
+
+    def _on_vnc_zoom_in(self):
+        mode, pct = self._vnc_zoom_state()
+        if mode == "fit":
+            new_pct = 100
+        else:
+            nxt = next((x for x in self._VNC_ZOOM_LEVELS if x > pct), None)
+            new_pct = nxt if nxt is not None else self._VNC_ZOOM_LEVELS[-1]
+        self._save_vnc_zoom_state("manual", new_pct)
+        self._apply_vnc_display_mode()
+        self._update_vnc_zoom_controls()
+        self._schedule_zoom_resize()
+
+    def _on_vnc_zoom_out(self):
+        mode, pct = self._vnc_zoom_state()
+        if mode == "fit":
+            new_pct = 100
+        else:
+            prv = next(
+                (x for x in reversed(self._VNC_ZOOM_LEVELS) if x < pct),
+                None,
+            )
+            new_pct = prv if prv is not None else self._VNC_ZOOM_LEVELS[0]
+        self._save_vnc_zoom_state("manual", new_pct)
+        self._apply_vnc_display_mode()
+        self._update_vnc_zoom_controls()
+        self._schedule_zoom_resize()
+
+    def _on_vnc_zoom_fit(self):
+        mode, pct = self._vnc_zoom_state()
+        self._save_vnc_zoom_state("fit", pct)
+        self._apply_vnc_display_mode()
+        self._update_vnc_zoom_controls()
+        self._schedule_zoom_resize()
+
+    def _on_vnc_zoom_real(self):
+        self._save_vnc_zoom_state("manual", 100)
+        self._apply_vnc_display_mode()
+        self._update_vnc_zoom_controls()
+        self._schedule_zoom_resize()
+
+    def _apply_vnc_display_mode(self):
+        """Aplica el modo de visualización del widget VNC.
+
+        Defensivo: puede llamarse antes de que el widget haya
+        completado el handshake RFB (vncWidth / vncHeight todavía no
+        existen). En ese caso, si estamos en modo "manual" no fijamos
+        tamaño (lo hará el watcher cuando llegue onInitialResize).
+        En modo "fit" sí aplicamos las políticas expansibles desde ya.
+        """
+        widget = getattr(self, "vnc_widget", None)
+        scroll_area = getattr(self, "vnc_scroll_area", None)
+        if widget is None or scroll_area is None:
+            return
         try:
             from PyQt6.QtCore import Qt as _Qt
+            from PyQt6.QtWidgets import QSizePolicy as _QSP
         except Exception:
             return
 
-        chk = getattr(self, "chk_vnc_real_size", None)
-        real_size = bool(chk.isChecked()) if chk is not None else False
+        mode, pct = self._vnc_zoom_state()
 
-        try:
-            widget.set_fit_to_window(not real_size)
-        except Exception as e:
-            # No re-lanzar: si falla aquí, en la próxima pasada del watcher
-            # (o cuando llegue onInitialResize) se reintentará.
+        # 1) Política del QScrollArea ANTES de tocar el tamaño del
+        #    widget. Si dejamos widgetResizable(True) mientras el widget
+        #    intenta fijar su tamaño, el scroll area lo sobreescribe
+        #    (estira el widget al viewport) y el zoom no se ve.
+        if mode == "fit":
             try:
-                self.log_message(
-                    f"[AVISO] VNC: no se pudo aplicar el modo todavía ({e})."
-                )
+                scroll_area.setWidgetResizable(True)
+                bar_policy = _Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                scroll_area.setHorizontalScrollBarPolicy(bar_policy)
+                scroll_area.setVerticalScrollBarPolicy(bar_policy)
+            except Exception:
+                pass
+        else:
+            try:
+                scroll_area.setWidgetResizable(False)
+                bar_policy = _Qt.ScrollBarPolicy.ScrollBarAsNeeded
+                scroll_area.setHorizontalScrollBarPolicy(bar_policy)
+                scroll_area.setVerticalScrollBarPolicy(bar_policy)
+            except Exception:
+                pass
+
+        # 2) Delegar el modo de pintado y el tamaño en el widget. El
+        #    wrapper CenteredVNCWidget implementa set_zoom(percent_or_None):
+        #      set_zoom(None)  → ajustar a ventana
+        #      set_zoom(pct)   → tamaño fijo vncWidth*pct/100 × ...
+        target_pct = None if mode == "fit" else pct
+        handled_by_widget = False
+        try:
+            fn = getattr(widget, "set_zoom", None)
+            if callable(fn):
+                fn(target_pct)
+                handled_by_widget = True
+        except Exception:
+            handled_by_widget = False
+
+        if not handled_by_widget:
+            # Fallback por si algún día se usa un widget sin set_zoom().
+            try:
+                fn = getattr(widget, "set_fit_to_window", None)
+                if callable(fn):
+                    fn(mode == "fit")
+            except Exception:
+                pass
+
+        # 3) Red de seguridad: forzar resize() explícito. Hay widgets o
+        #    combinaciones de layout en las que min/max solos no cambian
+        #    el tamaño actual del widget dentro de un scroll area con
+        #    widgetResizable(False); sin este resize, la llamada a
+        #    set_zoom no se traduce en un cambio visual.
+        if mode != "fit":
+            try:
+                vw = int(getattr(widget, "vncWidth", 0) or 0)
+                vh = int(getattr(widget, "vncHeight", 0) or 0)
+                if vw > 0 and vh > 0:
+                    tw = max(1, int(round(vw * pct / 100.0)))
+                    th = max(1, int(round(vh * pct / 100.0)))
+                    widget.resize(tw, th)
             except Exception:
                 pass
 
         try:
-            scroll_area.setWidgetResizable(not real_size)
-            bar_policy = (
-                _Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-                if not real_size
-                else _Qt.ScrollBarPolicy.ScrollBarAsNeeded
-            )
-            scroll_area.setHorizontalScrollBarPolicy(bar_policy)
-            scroll_area.setVerticalScrollBarPolicy(bar_policy)
             scroll_area.viewport().update()
         except Exception:
             pass
-
-
-    def _on_vnc_real_size_toggled(self, checked):
-        from PyQt6.QtCore import QSettings
-        QSettings().setValue("console/vnc_real_size", bool(checked))
-        self._apply_vnc_display_mode()
-
-    def _update_usb_button_state(self, state):
-        """Habilita el botón USB sólo si hay VM y está encendida.
-
-        Con la VM apagada o sin VM seleccionada, el menú del botón
-        mostraría un mensaje poco útil; es mejor deshabilitarlo.
-        """
-        btn = getattr(self, "btn_vm_usb", None)
-        if btn is None:
-            return
         try:
-            btn.setEnabled(self._vm_is_selected() and state in ("running", "paused"))
+            widget.updateGeometry()
+            widget.update()
         except Exception:
             pass
+
+        self._update_vnc_zoom_controls()
+
+    def _update_usb_button_state(self, state):
+        """Habilita los botones "💿 Medios" solo si hay VM y está encendida.
+
+        Hay DOS botones que comparten el mismo menú (CD/DVD + USB):
+          • btn_vm_usb         — pestaña Resumen, junto a Clonar / etc.
+          • btn_vm_usb_console — barra superior de la Consola Gráfica.
+
+        Con la VM apagada o sin VM seleccionada, el menú mostraría un
+        mensaje poco útil; es mejor deshabilitar los dos a la vez.
+        """
+        enabled = self._vm_is_selected() and state in ("running", "paused")
+        for attr in ("btn_vm_usb", "btn_vm_usb_console"):
+            btn = getattr(self, attr, None)
+            if btn is None:
+                continue
+            try:
+                btn.setEnabled(enabled)
+            except Exception:
+                pass
 
     # ==================================================================
     # Watchdog de QEMU: detecta muerte inesperada y muestra el motivo
@@ -3315,7 +5205,7 @@ class VmLifecycleMixin:
                 item = self.vm_list.item(i)
                 if item is None:
                     continue
-                name = self._vm_name_from_list_text(item.text())
+                name = self._vm_name_from_item(item)
                 if not name:
                     continue
                 state = self._runtime_state(name)
@@ -3332,7 +5222,7 @@ class VmLifecycleMixin:
             # Purgar entradas de VMs que ya no existen.
             known = set()
             for i in range(self.vm_list.count()):
-                known.add(self._vm_name_from_list_text(self.vm_list.item(i).text()))
+                known.add(self._vm_name_from_item(self.vm_list.item(i)))
             for k in list(self._vm_last_state.keys()):
                 if k not in known:
                     self._vm_last_state.pop(k, None)
@@ -3558,7 +5448,7 @@ class VmLifecycleMixin:
         # Si no hay data, cargarla.
         if data is None:
             try:
-                data = load_vm_config(vm_dir)
+                data = self._load_vm_config_cached(vm_dir)
             except Exception:
                 data = {}
 
@@ -3719,7 +5609,7 @@ class VmLifecycleMixin:
 
         for i in range(self.vm_list.count()):
             item = self.vm_list.item(i)
-            name = self._vm_name_from_list_text(item.text())
+            name = self._vm_name_from_item(item)
             state = self._runtime_state(name)
             wanted = self._vm_list_label(name, state)
             if item.text() != wanted:
@@ -3741,6 +5631,9 @@ class VmLifecycleMixin:
             # Botones Iniciar/Pausar/Apagar según estado.
             if hasattr(self, "_update_start_stop_buttons"):
                 self._update_start_stop_buttons(state)
+            # Botón "🧬 Desenlazar" (solo para clones enlazados apagados).
+            if hasattr(self, "_update_linked_clone_buttons_state"):
+                self._update_linked_clone_buttons_state(state)
             if hasattr(self, "manager_vm_title"):
                 self._update_manager_details()
         if self.current_vm_dir:
@@ -4073,6 +5966,18 @@ class VmLifecycleMixin:
             self.combo_cpu_model.setCurrentIndex(self.combo_cpu_model.findData("auto"))
         self.check_secure_boot.setChecked(False)
         self.check_tpm.setChecked(False)
+        if hasattr(self, "check_autostart_on_launch"):
+            self.check_autostart_on_launch.blockSignals(True)
+            self.check_autostart_on_launch.setChecked(False)
+            self.check_autostart_on_launch.blockSignals(False)
+        if hasattr(self, "check_snapshot_compat"):
+            self.check_snapshot_compat.blockSignals(True)
+            self.check_snapshot_compat.setChecked(False)
+            self.check_snapshot_compat.blockSignals(False)
+        try:
+            self._refresh_snapshot_compat_ui_on_os_change()
+        except Exception:
+            pass
         self._save_boot_order(["cdrom","disk","network"]) if self.current_vm_dir else None
         self.combo_network.setCurrentIndex(self.combo_network.findData("virtio-net-pci"))
         self.combo_network_mode.setCurrentIndex(self.combo_network_mode.findData("nat"))
@@ -4117,7 +6022,7 @@ class VmLifecycleMixin:
     def open_vm(self, vm_name: str):
         vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
         try:
-            data = load_vm_config(vm_dir)
+            data = self._load_vm_config_cached(vm_dir)
         except Exception as e:
             QMessageBox.warning(self, "Error", f"No se pudo leer la configuración de '{vm_name}': {e}")
             return
@@ -4127,6 +6032,13 @@ class VmLifecycleMixin:
         # muerte inesperada del watchdog.
         if hasattr(self, "_vm_death_flag"):
             self._vm_death_flag.discard(vm_name)
+        # linked_clone_behavior_fix_v1: avisar si el original de este
+        # clon enlazado está corriendo (evitado durante auto-arranque).
+        if not getattr(self, "_auto_starting", False):
+            try:
+                self._check_linked_clone_original_running(vm_dir, data)
+            except Exception:
+                pass
         self.input_vm_name.setText(data["name"] or vm_name)
         self.input_vm_name.setEnabled(False)
         if hasattr(self, "main_tabs"):
@@ -4166,6 +6078,14 @@ class VmLifecycleMixin:
                 self.combo_cpu_model.setCurrentIndex(cpu_idx)
         self.check_secure_boot.setChecked(bool(data.get("secure_boot", False)))
         self.check_tpm.setChecked(bool(data.get("tpm", False)))
+        # Sincronizar el checkbox de auto-inicio con lo guardado en
+        # extra["autostart_on_launch"] (blockSignals: no queremos que
+        # el simple hecho de abrir la VM reescriba el .ini).
+        if hasattr(self, "check_autostart_on_launch"):
+            _as = bool((data.get("extra") or {}).get("autostart_on_launch", False))
+            self.check_autostart_on_launch.blockSignals(True)
+            self.check_autostart_on_launch.setChecked(_as)
+            self.check_autostart_on_launch.blockSignals(False)
         self.update_firmware_options_visibility()
         self.refresh_boot_order_choices()
         mode_idx = self.combo_network_mode.findData(data.get("network_mode", "nat"))
@@ -4230,7 +6150,12 @@ class VmLifecycleMixin:
                 self.combo_win_ver.setCurrentIndex(win_idx)
             self.check_win_auto.setChecked(bool(extra.get("auto_detect", False)))
             if not extra.get("auto_detect"):
-                self.input_win_iso.setText(extra.get("iso_path", ""))
+                # portable_paths_v1: resolver ruta guardada (relativa) a
+                # absoluta para mostrarla en el input y que os.path.isfile
+                # funcione al arrancar.
+                _stored_iso = extra.get("iso_path", "") or ""
+                _abs_iso = vm_paths.to_absolute(vm_dir, _stored_iso) if _stored_iso else ""
+                self.input_win_iso.setText(_abs_iso)
         elif data["os_type"] == "android":
             # La fuente de instalación se lee desde la unidad CD/DVD
             # "Principal" en Almacenamiento. No hay widget en la parte
@@ -4246,6 +6171,33 @@ class VmLifecycleMixin:
             _lin_devices = self._storage_devices_all(vm_dir)
             _lin_choice, _ = principal_cdrom.derive_choice(extra, _lin_devices, "linux")
             self._refresh_lin_versions(select=_lin_choice)
+
+        # Restaurar el flag de modo compatibilidad de snapshots antes
+        # de tocar la UI, para que _refresh_snapshot_compat_ui_on_os_change
+        # lea el estado correcto.
+        if hasattr(self, "check_snapshot_compat"):
+            try:
+                _sc = bool((data.get("extra") or {}).get("snapshot_compat", False))
+                self.check_snapshot_compat.blockSignals(True)
+                self.check_snapshot_compat.setChecked(_sc)
+                self.check_snapshot_compat.blockSignals(False)
+            except Exception:
+                pass
+        try:
+            self._refresh_snapshot_compat_ui_on_os_change()
+        except Exception:
+            pass
+
+        # Cargar la programacion de snapshots automaticos en la UI.
+        try:
+            self._load_snapshot_schedule_to_ui(data)
+        except Exception:
+            pass
+        # Cargar la programacion de backups automaticos en la UI.
+        try:
+            self._load_backup_schedule_to_ui(data)
+        except Exception:
+            pass
 
         self._set_vm_status("saved")
         self.refresh_shared_folders_ui()
@@ -4451,6 +6403,16 @@ class VmLifecycleMixin:
         # Actualizar el texto de "Automático" para reflejar la elección real.
         self._refresh_auto_graphics_label()
 
+        # Re-aplicar las restricciones del modo compatibilidad de
+        # snapshots: al cambiar VNC → SPICE (o al revés), este slot
+        # rehabilita el combo de gráficos, pero si el flag está activo
+        # VirGL/Venus deben seguir bloqueados. _apply_snapshot_compat_ui
+        # ya considera la unión de (snapshot_compat OR vnc_on).
+        try:
+            self._apply_snapshot_compat_ui()
+        except Exception:
+            pass
+
         if hasattr(self, "_update_graphics_compat_hint"):
             self._update_graphics_compat_hint()
 
@@ -4590,11 +6552,16 @@ class VmLifecycleMixin:
                 extra = json.loads(cfg["extra"].get("data", "{}"))
             except Exception:
                 extra = {}
-            if (extra.get("android_iso") or "") != iso:
-                extra["android_iso"] = iso
+            # portable_paths_v1: guardar la ruta en forma portable
+            # (relativa si está dentro de la carpeta de la VM).
+            _portable_iso = vm_paths.to_portable(self.current_vm_dir, iso) if iso else ""
+            if (extra.get("android_iso") or "") != _portable_iso:
+                extra["android_iso"] = _portable_iso
                 cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
                 with open(cfg_path, "w", encoding="utf-8") as f:
                     cfg.write(f)
+                if hasattr(self, "_invalidate_vm_config_cache"):
+                    self._invalidate_vm_config_cache(self.current_vm_dir)
         except Exception as e:
             try:
                 self.log_message(f"[AVISO] No se pudo guardar la ISO de Android: {e}")
@@ -4621,7 +6588,24 @@ class VmLifecycleMixin:
                 extra = {}
             extra["pointer_device"] = self.combo_pointer.currentData() or "auto"
             cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+        # Auto-inicio de la VM al abrir la app. El checkbox vive en
+        # Configuración -> Sistema -> Opciones avanzadas.
+        if hasattr(self, "check_autostart_on_launch"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["autostart_on_launch"] = bool(
+                self.check_autostart_on_launch.isChecked()
+            )
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
         with open(cfg_path,"w",encoding="utf-8") as f: cfg.write(f)
+        if hasattr(self, "_invalidate_vm_config_cache"):
+            self._invalidate_vm_config_cache(self.current_vm_dir)
 
 
     def _update_os_notes_visibility(self, *args):
@@ -4665,7 +6649,7 @@ class VmLifecycleMixin:
                 item = sidebar.item(i)
                 if item is None:
                     continue
-                data = item.data(Qt.ItemDataRole.UserRole) or ""
+                data = item.data(_VM_USER_ROLE) or ""
                 if data == "Almacenamiento":
                     sidebar.setCurrentRow(i)
                     return

@@ -955,13 +955,26 @@ class PassthroughMixin:
                 f"No se pudo {'conectar' if connect else 'desconectar'} el USB.\n\n{e}",
             )
 
-    def _show_media_menu_at_cursor(self):
-        """Muestra el menú del botón USB. Usado por el atajo Ctrl+U.
+    def _show_media_menu_at_cursor(self, button=None):
+        """Despliega el menú de Medios (CD/DVD + USB).
+
+        Se llama desde tres sitios:
+          • El atajo Ctrl+M (sin argumento: elige el primer botón
+            disponible y habilitado).
+          • El botón "💿 Medios" de la pestaña Resumen.
+          • El botón "💿 Medios" de la barra superior de la Consola
+            Gráfica.
 
         Si el botón no está habilitado (VM apagada o sin VM), no hace
-        nada. Si está, despliega el menú bajo el botón.
+        nada.
         """
-        btn = getattr(self, "btn_vm_usb", None)
+        btn = button
+        if btn is None:
+            for attr in ("btn_vm_usb", "btn_vm_usb_console"):
+                cand = getattr(self, attr, None)
+                if cand is not None and cand.isEnabled():
+                    btn = cand
+                    break
         if btn is None or not btn.isEnabled():
             return
         menu = getattr(self, "menu_vm_usb", None)

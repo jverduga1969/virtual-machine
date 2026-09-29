@@ -18,6 +18,7 @@ from vm_config import load_vm_config, save_vm_config, get_os_profile
 from iso_sources import get_latest_iso_url, get_latest_windows_iso_url
 import iso_versions
 import principal_cdrom
+import vm_paths  # portable_paths_v1
 from host_deps import ensure_virtualization_dependencies, ensure_osx_kvm_present, find_ovmf_files
 from workers import InstallWorker
 
@@ -692,6 +693,12 @@ class InstallFlowMixin:
             # primera en el orden de arranque, sin importar lo que trajera 'boot_order'.
             boot_order = principal_cdrom.boot_first(
                 boot_order or ["cdrom", "disk", "network"], extra_params.get("storage_devices", []))
+        # portable_paths_v1: normalizar paths dentro de la carpeta de la VM
+        # antes de persistir, para que la VM sea portable entre hosts.
+        try:
+            vm_paths.normalize_extra_paths(vm_dir, extra_params)
+        except Exception:
+            pass
         try:
             boot_order = boot_order if boot_order else ["cdrom", "disk", "network"]
             save_vm_config(vm_dir, vm_name, os_type, ram, cores, disk, disk_type, format_data[0], format_data[1], extra_params, firmware, secure_boot, tpm, boot_device, network_model, audio_device, network_mode, network_interface, network_count, graphics_mode, graphics_vram, boot_order, network_devices=network_devices, passthrough_devices=passthrough_devices, chipset=self.combo_chipset.currentData())

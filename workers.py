@@ -29,6 +29,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from vm_config import load_vm_config
 from iso_sources import get_latest_iso_url, get_latest_windows_iso_url
 import iso_versions
+import vm_paths  # portable_paths_v1
 from network_utils import network_interface_exists, sanitize_tap_name
 from host_deps import find_ovmf_files
 from shared_folders import bash_squote, find_virtiofsd
@@ -233,6 +234,20 @@ class InstallWorker(QThread):
 
     def _graphics_args(self):
         """Selecciona gráficos seguros según SO, QEMU y capacidades del host."""
+        # Modo compatibilidad de snapshots (marcador snapshot_compat_v1):
+        # red de seguridad por si el .ini trae VirGL/Venus con el flag
+        # activo (editado a mano o de una versión anterior). La UI ya
+        # los deshabilita, pero aquí forzamos 2D para garantizar que
+        # savevm/snapshot-save funcionen.
+        if bool((self.extra_params or {}).get("snapshot_compat")) \
+                and self.graphics_mode in ("virgl", "venus"):
+            self.log_signal.emit(
+                "==> Modo compatibilidad de snapshots: se ignora "
+                f"'{self.graphics_mode}' y se usa VirtIO-GPU 2D "
+                "(la GPU del host impide snapshots completos)."
+            )
+            self.graphics_mode = "virtio"
+
         if self.os_type == "macos":
             return "", "macOS/OpenCore: gráficos gestionados por OSX-KVM"
 
@@ -822,6 +837,58 @@ class InstallWorker(QThread):
                 "Formato esperado: 52:54:00:xx:xx:xx."
             )
 
+        # Reglas de reenvío de puertos NAT. Solo aplican con mode=nat.
+        # Se validan aquí para no inyectar nada raro si el vm_config.ini
+        # se edita a mano.
+        raw_rules = cfg.get("hostfwd") or []
+        if not isinstance(raw_rules, list):
+            raw_rules = []
+        hostfwd = []
+        seen_rules = set()
+        for ri, r in enumerate(raw_rules):
+            if not isinstance(r, dict):
+                raise RuntimeError(
+                    f"Adaptador de red {idx+1}, regla NAT {ri+1}: no es un objeto válido."
+                )
+            proto = str(r.get("protocol") or "tcp").strip().lower()
+            if proto not in ("tcp", "udp"):
+                raise RuntimeError(
+                    f"Adaptador de red {idx+1}, regla NAT {ri+1}: protocolo "
+                    f"'{proto}' no válido (usa tcp o udp)."
+                )
+            try:
+                hp = int(r.get("host_port"))
+                gp = int(r.get("guest_port"))
+            except (TypeError, ValueError):
+                raise RuntimeError(
+                    f"Adaptador de red {idx+1}, regla NAT {ri+1}: puertos "
+                    f"inválidos (host={r.get('host_port')!r}, guest={r.get('guest_port')!r})."
+                )
+            if not (1 <= hp <= 65535):
+                raise RuntimeError(
+                    f"Adaptador de red {idx+1}, regla NAT {ri+1}: puerto host "
+                    f"{hp} fuera de rango (1-65535)."
+                )
+            if not (1 <= gp <= 65535):
+                raise RuntimeError(
+                    f"Adaptador de red {idx+1}, regla NAT {ri+1}: puerto guest "
+                    f"{gp} fuera de rango (1-65535)."
+                )
+            key = (proto, hp)
+            if key in seen_rules:
+                raise RuntimeError(
+                    f"Adaptador de red {idx+1}: regla NAT duplicada para "
+                    f"el puerto host {hp} ({proto.upper()})."
+                )
+            seen_rules.add(key)
+            hostfwd.append({"host_port": hp, "guest_port": gp, "protocol": proto})
+
+        if hostfwd and mode != "nat":
+            raise RuntimeError(
+                f"Adaptador de red {idx+1}: hay reglas de reenvío de puertos "
+                "pero el modo no es NAT (usa bridge/tap en su lugar)."
+            )
+
         # Bridge: comprobación adicional contra /sys.
         if mode == "bridge":
             if not interface:
@@ -843,6 +910,7 @@ class InstallWorker(QThread):
             "mode": mode,
             "interface": interface,
             "mac": mac,
+            "hostfwd": hostfwd,
         }
 
     def _validate_all_network_devices(self):
@@ -901,12 +969,25 @@ class InstallWorker(QThread):
                 args.append(f'-netdev tap,id={netid},ifname={tap},script=no,downscript=no -device {model},netdev={netid},id={netid}{macarg}{bootarg}')
             else:
                 smbarg = f',smb="{self._smb_share_host}"' if i == 0 and getattr(self, '_smb_share_host', '') else ''
+                # Reglas de reenvío de puertos NAT (hostfwd). Se emiten como
+                # una lista separada por comas dentro del propio -netdev user.
+                # El dict ya viene validado por _validate_network_device.
+                _rules = cfg.get("hostfwd") or []
+                hfwd = ""
+                if _rules:
+                    _parts = []
+                    for r in _rules:
+                        _proto = str(r.get("protocol", "tcp")).lower()
+                        _hp = int(r.get("host_port"))
+                        _gp = int(r.get("guest_port"))
+                        _parts.append(f"hostfwd={_proto}::{_hp}-:{_gp}")
+                    hfwd = "," + ",".join(_parts)
                 # netdev_user_dns_v1: forzamos dns=10.0.2.3 explícitamente.
                 # Algunos guests (macOS High Sierra, Mojave, Ventura)
                 # ignoran el DNS que QEMU sirve por DHCP interno y quedan
                 # sin resolver nombres aunque la red funcione. Forzarlo aquí
                 # es lo que usan las guías de OSX-KVM.
-                args.append(f'-netdev user,id={netid},dns=10.0.2.3{smbarg} -device {model},netdev={netid},id={netid}{macarg}{bootarg}')
+                args.append(f'-netdev user,id={netid},dns=10.0.2.3{smbarg}{hfwd} -device {model},netdev={netid},id={netid}{macarg}{bootarg}')
         return (" " + "\\\n    ").join(args)
 
 
@@ -1163,6 +1244,18 @@ class InstallWorker(QThread):
 
         return " ".join(parts)
     def _passthrough_args(self):
+        # Modo compatibilidad de snapshots (marcador snapshot_compat_v1):
+        # los dispositivos PCI/USB son hardware físico sin vmstate
+        # posible. Con el flag activo se omiten completamente.
+        if bool((self.extra_params or {}).get("snapshot_compat")) \
+                and self.passthrough_devices:
+            self.log_signal.emit(
+                "[AVISO] Modo compatibilidad de snapshots: el passthrough "
+                "PCI/USB queda deshabilitado para permitir snapshots "
+                "completos. Los dispositivos seleccionados NO se añaden "
+                "a esta VM."
+            )
+            return ""
         args=[]
         usb_used=False
         pci_selected=[d for d in self.passthrough_devices[:16] if d.get("kind")=="pci"]
@@ -1313,7 +1406,10 @@ class InstallWorker(QThread):
         try:
             cfg = load_vm_config(self.vm_dir)
             devices = (cfg.get("extra") or {}).get("storage_devices", [])
-            return devices if isinstance(devices, list) else []
+            if not isinstance(devices, list):
+                return []
+            # portable_paths_v1: resolver paths relativos a absolutos.
+            return vm_paths.resolve_storage_devices(self.vm_dir, devices)
         except Exception:
             return []
 
@@ -1728,6 +1824,12 @@ class InstallWorker(QThread):
             extra = json.loads(cfg["extra"].get("data", "{}"))
         except Exception:
             extra = {}
+        # portable_paths_v1: guardar paths relativos si están dentro de
+        # la carpeta de la VM.
+        try:
+            devices = vm_paths.normalize_storage_devices(self.vm_dir, devices)
+        except Exception:
+            pass
         extra["storage_devices"] = devices
         extra["cdrom_path"] = ""
         cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
@@ -1738,7 +1840,13 @@ class InstallWorker(QThread):
         """Ejecuta la VM y gestiona el passthrough PCI temporalmente."""
         pci_prepared = []
         try:
-            pci_selected = [d for d in (self.passthrough_devices or [])[:16] if d.get("kind") == "pci"]
+            # Modo compatibilidad de snapshots (marcador snapshot_compat_v1):
+            # no tocamos los drivers del host para passthrough, porque los
+            # dispositivos no se van a añadir a la VM.
+            _sc_active = bool((self.extra_params or {}).get("snapshot_compat"))
+            pci_selected = []
+            if not _sc_active:
+                pci_selected = [d for d in (self.passthrough_devices or [])[:16] if d.get("kind") == "pci"]
             if pci_selected:
                 self.log_signal.emit("==> Preparando PCI para VFIO (modo temporal)...")
                 pci_prepared = self._prepare_pci_passthrough(pci_selected)
@@ -1772,7 +1880,9 @@ class InstallWorker(QThread):
         if self.os_type == "macos":
             os_choice = self.extra_params.get("os_choice", "7")
             use_custom = self.extra_params.get("mac_use_custom", False)
-            custom_image = self.extra_params.get("mac_custom_image", "")
+            custom_image = vm_paths.to_absolute(
+                self.vm_dir, self.extra_params.get("mac_custom_image", "") or ""
+            )
             # macOS usa OSX-KVM como fuente de OpenCore, pero NO se copia la carpeta
             # OSX-KVM dentro de cada VM. El administrador construye directamente la
             # línea QEMU y solo conserva en la VM el estado que realmente es propio
@@ -1937,7 +2047,9 @@ wait $QEMU_PID
         elif self.os_type == "windows":
             cpu_arg = self._cpu_args()
             win_ver = self.extra_params.get("win_ver", "Windows 11")
-            iso_path = self.extra_params.get("iso_path", "")
+            iso_path = vm_paths.to_absolute(
+                self.vm_dir, self.extra_params.get("iso_path", "") or ""
+            )
             auto_detect = self.extra_params.get("auto_detect", False)
 
             # Si el CD/DVD está configurado para instalador automático, la
@@ -2025,7 +2137,9 @@ wait $QEMU_PID
             #   • Gráficos VirtIO-GPU 2D (lo resuelve _graphics_args).
             #   • La ISO de instalación viene del CD/DVD Principal que el
             #     usuario configuró en Almacenamiento.
-            android_iso = str(self.extra_params.get("android_iso") or "").strip()
+            android_iso = vm_paths.to_absolute(
+                self.vm_dir, str(self.extra_params.get("android_iso") or "").strip()
+            )
             if not android_iso or not os.path.isfile(android_iso):
                 self.log_signal.emit(
                     "[ERROR] Android: no hay ISO configurada. Ve a "

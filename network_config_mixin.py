@@ -64,6 +64,9 @@ class NetworkConfigMixin:
             label=f'{d.get("name")} — {d.get("model","virtio-net-pci")} — {mode}'
             if d.get("interface"): label += f' [{d.get("interface")}]'
             if d.get("mac"): label += f' — MAC {d.get("mac")}'
+            _rules = d.get("hostfwd") or []
+            if _rules:
+                label += f' — 🔀 {len(_rules)} regla(s) NAT'
             it=QListWidgetItem(label); it.setData(Qt.ItemDataRole.UserRole,d); self.network_devices_list.addItem(it)
 
     def add_network_device(self):
@@ -78,6 +81,9 @@ class NetworkConfigMixin:
         txt=f'{d.get("name","Red")} — {d.get("model","virtio-net-pci")} — {mode}'
         if d.get("interface"): txt += f' [{d.get("interface")}]'
         if d.get("mac"): txt += f' — MAC {d.get("mac")}'
+        _rules = d.get("hostfwd") or []
+        if _rules:
+            txt += f' — 🔀 {len(_rules)} regla(s) NAT'
         item.setText(txt)
 
     def edit_network_device(self):

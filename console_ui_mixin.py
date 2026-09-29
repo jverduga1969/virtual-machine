@@ -200,7 +200,10 @@ class ConsoleUiMixin:
             f"{vnc_block}<br><br>"
             f"{spice_block}<br><br>"
             f"{hybrid_block}<br><br>"
-            f"{hybrid_gl_block}"
+            # Nota: MODE_HYBRID_GL (Hibrida 3D: VNC embebido + ventana
+            # GL de QEMU) existe en console_backend pero NO esta
+            # expuesto en el combo "Modo" de Configuracion -> Pantalla.
+            # Cuando se exponga, anadir aqui su bloque descriptivo.
             "<hr>"
             f"{graphics_block}"
         )

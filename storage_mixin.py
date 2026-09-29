@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 import vm_config
+import vm_paths  # portable_paths_v1
 from vm_config import load_vm_config, save_vm_config
 from dialogs import DiskCreationDialog
 from workers import _qemu_safe_identifier
@@ -59,7 +60,7 @@ class StorageMixin:
             return []
         entries = []
         try:
-            cfg = load_vm_config(vm_dir)
+            cfg = self._load_vm_config_cached(vm_dir)
             primary_ext = cfg.get("disk_ext", "qcow2")
         except Exception:
             primary_ext = "qcow2"
@@ -82,6 +83,52 @@ class StorageMixin:
                 fmt = os.path.splitext(path)[1].lstrip(".")
             entries.append({"name": os.path.basename(path), "path": path, "format": fmt, "size": size})
         return entries
+
+    def _primary_disk_path(self, vm_dir=None):
+        """Devuelve (abs_path, tipo) del disco principal de la VM.
+
+        - macOS → mac_hdd_ng.qcow2 (modelo OSX-KVM, QCOW2 fijo).
+        - Otros → primer disco SATA/NVMe registrado en
+                  _storage_entries_with_types(vm_dir).
+        - Fallback → vm_disk.{disk_ext} del vm_config.ini.
+
+        Devuelve (None, None) si no encuentra nada. Es la base para el
+        clon enlazado: sobre este archivo se crea el backing file QCOW2.
+        Marcador linked_clone_v1.
+        """
+        vm_dir = vm_dir or self.current_vm_dir
+        if not vm_dir or not os.path.isdir(vm_dir):
+            return (None, None)
+
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+        except Exception:
+            data = {}
+        os_type = (data.get("os_type") or "").lower()
+
+        if os_type == "macos":
+            p = os.path.join(vm_dir, "mac_hdd_ng.qcow2")
+            if os.path.isfile(p):
+                return (os.path.abspath(p), "qcow2")
+            return (None, None)
+
+        try:
+            entries = self._storage_entries_with_types(vm_dir)
+        except Exception:
+            entries = []
+        for name, typ, path in entries:
+            if typ in ("sata", "nvme") and os.path.isfile(path):
+                return (os.path.abspath(path), typ)
+
+        try:
+            ext = data.get("disk_ext") or "qcow2"
+        except Exception:
+            ext = "qcow2"
+        p = os.path.join(vm_dir, f"vm_disk.{ext}")
+        if os.path.isfile(p):
+            return (os.path.abspath(p), ext)
+        return (None, None)
+
 
     def create_vm_disk(self):
         vm_dir = self.current_vm_dir
@@ -166,6 +213,331 @@ class StorageMixin:
         except Exception as e:
             QMessageBox.critical(self, "Redimensionar", f"No se pudo redimensionar el disco.\n\n{e}")
 
+
+    # ------------------------------------------------------------------
+    # Compactar disco QCOW2 (marcador compact_full_v5)
+    # ------------------------------------------------------------------
+    # qemu-img convert -c -O qcow2 reescribe el archivo eliminando bloques
+    # no usados. No cambia el tamaño virtual del disco: solo reduce el
+    # archivo físico en el host. Requiere VM apagada y ~1.1× el tamaño
+    # actual libre en el mismo sistema de archivos.
+
+    def compact_vm_disk(self):
+        if not self._vm_is_selected():
+            QMessageBox.information(self, "Compactar disco",
+                                    "Selecciona una máquina virtual.")
+            return
+
+        vm_dir = self.current_vm_dir
+        vm_name = os.path.basename(vm_dir)
+        state = self._runtime_state(vm_name)
+        if state != "stopped":
+            QMessageBox.warning(
+                self, "Compactar disco",
+                f"La VM '{vm_name}' está encendida.\n\n"
+                "Apágala antes de compactar sus discos QCOW2: con QEMU "
+                "activo el archivo está bloqueado y puede haber cambios "
+                "sin sincronizar a disco.",
+            )
+            return
+
+        qcow2_disks = [d for d in self._get_vm_disk_entries()
+                       if str(d.get("format", "")).lower() == "qcow2"]
+        if not qcow2_disks:
+            QMessageBox.information(
+                self, "Compactar disco",
+                "No hay discos QCOW2 en esta VM. La compactación solo "
+                "aplica a QCOW2 (no a RAW, VDI, VMDK).",
+            )
+            return
+
+        if len(qcow2_disks) == 1:
+            disk = qcow2_disks[0]
+        else:
+            labels = [f"{d['name']}  ({d['size']})" for d in qcow2_disks]
+            label, ok = QInputDialog.getItem(
+                self, "Compactar disco",
+                "Selecciona el disco QCOW2 a compactar:",
+                labels, 0, False,
+            )
+            if not ok:
+                return
+            disk = qcow2_disks[labels.index(label)]
+
+        disk_path = disk["path"]
+        name = disk["name"]
+
+        _box = QMessageBox(self)
+        _box.setWindowTitle("Confirmar compactado")
+        _box.setIcon(QMessageBox.Icon.Warning)
+        _box.setTextFormat(Qt.TextFormat.RichText)
+        _box.setText(
+            f"¿Está seguro de querer proceder con el compactado del medio "
+            f"<b>'{name}'</b>?<br><br>"
+            "<b>⚠ Recomendación:</b> haz un <b>backup del disco antes de "
+            "proceder</b>. El compactado reescribe el archivo por completo "
+            "(en un archivo temporal y luego reemplaza el original). Si el "
+            "proceso se interrumpe o el host se queda sin espacio, el disco "
+            "original podría quedar dañado.<br><br>"
+            "<b>Qué hace:</b><br>"
+            "&nbsp;&nbsp;• Reescribe el archivo QCOW2 eliminando bloques no usados.<br>"
+            "&nbsp;&nbsp;• Reduce el tamaño del archivo en el host.<br>"
+            "&nbsp;&nbsp;• <b>NO</b> cambia el tamaño virtual que ve la VM.<br>"
+            "&nbsp;&nbsp;• Necesita ~1.1× el tamaño actual libre en el host."
+        )
+        _box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        _box.setDefaultButton(QMessageBox.StandardButton.No)
+        if _box.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        tmp_path = disk_path + ".compact.qcow2"
+        orig_size = 0
+        try:
+            orig_size = os.path.getsize(disk_path)
+        except OSError:
+            pass
+
+        def _work(log_emit, is_cancelled, progress_emit):
+            import subprocess as _sp
+            log_emit(f"==> Compactando '{name}'…")
+            log_emit(f"    Origen:   {disk_path}")
+            log_emit(f"    Temporal: {tmp_path}")
+
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+            try:
+                proc = _sp.Popen(
+                    ["qemu-img", "convert", "-c", "-O", "qcow2", "-p",
+                     disk_path, tmp_path],
+                    stdout=_sp.PIPE, stderr=_sp.STDOUT,
+                    text=True, bufsize=1,
+                )
+            except FileNotFoundError:
+                raise RuntimeError("qemu-img no está en el PATH.")
+
+            last_pct = -1
+            if proc.stdout is not None:
+                for line in iter(proc.stdout.readline, ""):
+                    if is_cancelled():
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except Exception:
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                        if os.path.exists(tmp_path):
+                            try:
+                                os.remove(tmp_path)
+                            except OSError:
+                                pass
+                        raise RuntimeError("Compactado cancelado por el usuario.")
+                    if not line:
+                        continue
+                    m = re.search(r"(\d+(?:\.\d+)?)\s*%", line)
+                    if m:
+                        pct = int(float(m.group(1)))
+                        if pct != last_pct:
+                            last_pct = pct
+                            progress_emit(pct, f"Compactando '{name}'… {pct}%")
+                    else:
+                        progress_emit(-1, f"Compactando '{name}'…")
+
+            proc.wait()
+            if proc.returncode != 0:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+                raise RuntimeError(
+                    f"qemu-img convert terminó con código {proc.returncode}."
+                )
+
+            # Verificación: el temporal debe ser un QCOW2 válido.
+            try:
+                r = _sp.run(
+                    ["qemu-img", "info", "--output=json", tmp_path],
+                    capture_output=True, text=True, timeout=10, check=True,
+                )
+                import json as _json
+                info = _json.loads(r.stdout)
+                if info.get("format") != "qcow2":
+                    raise RuntimeError(
+                        f"El temporal no es QCOW2 (formato: {info.get('format')})."
+                    )
+            except Exception as e:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+                raise RuntimeError(f"No se pudo verificar el temporal: {e}")
+
+            # Rename atómico (mismo directorio → mismo FS).
+            try:
+                os.replace(tmp_path, disk_path)
+            except OSError as e:
+                raise RuntimeError(
+                    f"No se pudo reemplazar el disco original: {e}\n"
+                    f"El compactado quedó en: {tmp_path}"
+                )
+
+            try:
+                new_size = os.path.getsize(disk_path)
+            except OSError:
+                new_size = 0
+            savings = max(0, orig_size - new_size)
+            log_emit(
+                f"==> Compactado terminado: {orig_size} → {new_size} bytes "
+                f"(ahorro: {savings} bytes)."
+            )
+            return {
+                "name": name,
+                "orig": orig_size,
+                "new": new_size,
+                "savings": savings,
+            }
+
+        def _on_success(result):
+            if not result:
+                return
+            try:
+                fmt_orig = self._format_bytes_iexport(result["orig"])
+                fmt_new = self._format_bytes_iexport(result["new"])
+                fmt_sav = self._format_bytes_iexport(result["savings"])
+            except Exception:
+                fmt_orig = str(result["orig"])
+                fmt_new = str(result["new"])
+                fmt_sav = str(result["savings"])
+            QMessageBox.information(
+                self, "Disco compactado",
+                f"'{result['name']}' compactado correctamente.\n\n"
+                f"Antes: {fmt_orig}\n"
+                f"Después: {fmt_new}\n"
+                f"Ahorro: {fmt_sav}",
+            )
+            if hasattr(self, "_update_manager_details"):
+                try:
+                    self._update_manager_details()
+                except Exception:
+                    pass
+            # Refrescar el árbol para que la columna "Tamaño" muestre el
+            # nuevo espacio ocupado.
+            if hasattr(self, "refresh_storage_ui"):
+                try:
+                    self.refresh_storage_ui()
+                except Exception:
+                    pass
+
+        def _on_error(e):
+            QMessageBox.critical(
+                self, "Compactar disco",
+                f"No se pudo compactar el disco.\n\n{e}",
+            )
+
+        self.run_async(
+            _work,
+            f"Compactando '{name}'",
+            on_success=_on_success,
+            on_error=_on_error,
+            cancelable=True,
+            show_log=True,
+            subtitle="Reescribiendo el archivo QCOW2 sin bloques no usados…",
+        )
+
+
+    def _update_storage_buttons_state(self):
+        """Habilita Modificar / Compactar / Eliminar según el ítem del árbol.
+
+        Reglas (marcador storage_v6):
+          • Grupo del árbol (sin UserRole) → los tres deshabilitados.
+          • Disco SATA/NVMe → Modificar y Eliminar activos. Compactar solo
+            si el disco está en formato QCOW2.
+          • Floppy → Modificar y Eliminar activos. Compactar NO.
+          • CD/DVD → Modificar y Eliminar activos. Compactar NO.
+
+        Se llama desde el slot itemSelectionChanged de storage_tree y
+        también al final de refresh_storage_ui (rebuild → sin selección).
+        """
+        tree = getattr(self, "storage_tree", None)
+        if tree is None:
+            return
+        item = tree.currentItem()
+        meta = None
+        if item is not None:
+            try:
+                meta = item.data(0, Qt.ItemDataRole.UserRole)
+            except Exception:
+                meta = None
+        is_device = isinstance(meta, dict) and bool(meta.get("kind"))
+        kind = (meta or {}).get("kind") if is_device else None
+
+        # ¿Es un disco QCOW2? Solo esos se pueden compactar.
+        is_qcow2 = False
+        if is_device and kind == "disk":
+            path = meta.get("path") or ""
+            dev = meta.get("device") or "sata"
+            if dev in ("sata", "nvme") and path and os.path.isfile(path):
+                try:
+                    r = subprocess.run(
+                        ["qemu-img", "info", "--output=json", path],
+                        capture_output=True, text=True, timeout=5, check=True,
+                    )
+                    fmt = (json.loads(r.stdout).get("format") or "").lower()
+                    is_qcow2 = (fmt == "qcow2")
+                except Exception:
+                    is_qcow2 = path.lower().endswith(".qcow2")
+
+        # Modificar y Eliminar: cualquier dispositivo concreto.
+        for attr in ("btn_storage_modify_device",
+                     "btn_storage_delete_device"):
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                try:
+                    btn.setEnabled(is_device)
+                except Exception:
+                    pass
+
+        # Compactar: solo discos QCOW2.
+        btn_compact = getattr(self, "btn_storage_disk_manager", None)
+        if btn_compact is not None:
+            try:
+                btn_compact.setEnabled(is_device and is_qcow2)
+            except Exception:
+                pass
+            try:
+                if is_device and kind == "cdrom":
+                    btn_compact.setToolTip(
+                        "Las unidades CD/DVD no se compactan.\n"
+                        "Solo aplica a discos duros en formato QCOW2."
+                    )
+                elif is_device and kind == "disk" and not is_qcow2:
+                    btn_compact.setToolTip(
+                        "El disco seleccionado no está en formato QCOW2.\n"
+                        "La compactación solo aplica a discos QCOW2."
+                    )
+                else:
+                    btn_compact.setToolTip(
+                        "Compacta un disco QCOW2 de la VM seleccionada.\n"
+                        "\n"
+                        "Reduce el archivo físico en el host eliminando bloques\n"
+                        "no usados (equivalente a 'qemu-img convert -c'). NO\n"
+                        "cambia el tamaño virtual que ve el sistema invitado.\n"
+                        "\n"
+                        "Se pedirá confirmación y se recomienda hacer un backup\n"
+                        "antes de proceder. Requiere que la VM esté apagada."
+                    )
+            except Exception:
+                pass
+
     def refresh_boot_order_choices(self):
         # El orden de arranque se administra exclusivamente desde Almacenamiento.
         # Ya no existe un control separado/redundante en la configuración.
@@ -177,12 +549,20 @@ class StorageMixin:
         if not vm_dir or not os.path.isdir(vm_dir):
             return []
         try:
-            data = load_vm_config(vm_dir)
+            data = self._load_vm_config_cached(vm_dir)
             extra = data.get("extra") or {}
             devices = extra.get("storage_devices", [])
             devices = devices if isinstance(devices, list) else []
         except Exception:
             data, extra, devices = {}, {}, []
+
+        # portable_paths_v1: resolver paths guardados (relativos) a absolutos
+        # para que os.path.isfile() y los consumidores los usen directamente.
+        # La escritura los vuelve a relativizar en _write_storage_devices.
+        try:
+            devices = vm_paths.resolve_storage_devices(vm_dir, devices)
+        except Exception:
+            pass
 
         changed = False
         # Migra dispositivos sin ID y normaliza IDs antiguos para que QEMU los acepte.
@@ -196,6 +576,33 @@ class StorageMixin:
         # Descubre discos que ya existen en la carpeta de la VM pero no quedaron registrados
         # en storage_devices. Esto corrige VMs creadas con versiones anteriores y mantiene
         # el árbol de almacenamiento consistente con Información.
+        # portable_paths_v1_prune: descartar entradas huérfanas antes del
+        # auto-descubrimiento. Un disco registrado cuyo archivo ya no existe
+        # en el host (típico tras mover la VM sin actualizar el .ini, o tras
+        # una entrada heredada apuntando a otro sitio) provocaría que el
+        # auto-descubrimiento añada una SEGUNDA entrada para el mismo archivo
+        # real: la VM termina con dos "hd_mint.qcow2" en el árbol, uno sin
+        # tamaño. No se tocan los CD/DVD vacíos (path="" sin source) ni los
+        # placeholders de descarga (source="installer"/"recovery").
+        pruned = []
+        for d in devices:
+            if not isinstance(d, dict):
+                pruned.append(d)
+                continue
+            p = str(d.get("path") or "")
+            if p and not os.path.exists(p) and not d.get("source"):
+                try:
+                    self.log_message(
+                        f"[AVISO] storage_devices: se descarta entrada huérfana "
+                        f"'{d.get('name','?')}' (path inexistente: {p})."
+                    )
+                except Exception:
+                    pass
+                changed = True
+                continue
+            pruned.append(d)
+        devices = pruned
+
         registered_paths={os.path.abspath(d.get("path","")) for d in devices if d.get("path")}
         try:
             for name in sorted(os.listdir(vm_dir)):
@@ -239,17 +646,25 @@ class StorageMixin:
             extra = json.loads(cfg["extra"].get("data", "{}"))
         except Exception:
             extra = {}
+        # portable_paths_v1: guardar paths relativos si están dentro
+        # de la carpeta de la VM (portabilidad de VirtualMachines/).
+        try:
+            devices = vm_paths.normalize_storage_devices(self.current_vm_dir, devices)
+        except Exception:
+            pass
         extra["storage_devices"] = devices
         # Nueva estructura: ya no dependemos de un único cdrom_path.
         extra["cdrom_path"] = ""
         cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
         with open(cfg_path, "w", encoding="utf-8") as f: cfg.write(f)
+        if hasattr(self, "_invalidate_vm_config_cache"):
+            self._invalidate_vm_config_cache(self.current_vm_dir)
 
     def _current_boot_order_tokens(self):
         if not self.current_vm_dir or not os.path.isdir(self.current_vm_dir):
             return ["network"]
         try:
-            data = load_vm_config(self.current_vm_dir)
+            data = self._load_vm_config_cached(self.current_vm_dir)
             saved = data.get("boot_order") or []
         except Exception:
             saved = []
@@ -340,12 +755,13 @@ class StorageMixin:
         result = []
         seen = set()
         try:
-            cfg = load_vm_config(vm_dir)
+            cfg = self._load_vm_config_cached(vm_dir)
             devices = (cfg.get("extra") or {}).get("storage_devices", [])
         except Exception:
             devices = []
         for d in devices if isinstance(devices, list) else []:
-            path = d.get("path", "")
+            # portable_paths_v1: resolver path relativo contra vm_dir.
+            path = vm_paths.to_absolute(vm_dir, d.get("path", ""))
             if not path or not os.path.isfile(path) or d.get("device") == "cdrom":
                 continue
             typ = d.get("device", "sata")
@@ -362,6 +778,73 @@ class StorageMixin:
                 else: typ = "sata"
                 result.append((name, typ, path))
         return result
+    @staticmethod
+    def _parse_size_to_bytes(s):
+        """Convierte '80G', '1.5T', '512M' a bytes. None si no encaja."""
+        if not s:
+            return None
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([KMGTP]?)B?",
+                         s.strip(), re.IGNORECASE)
+        if not m:
+            return None
+        try:
+            n = float(m.group(1))
+        except ValueError:
+            return None
+        unit = (m.group(2) or "").upper()
+        mult = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3,
+                "T": 1024 ** 4, "P": 1024 ** 5}
+        return int(n * mult.get(unit, 1))
+
+    def _device_size_label(self, device):
+        """Devuelve el tamaño legible de un dispositivo para la 3ª columna
+        del árbol de almacenamiento ("Tamaño").
+
+        Para discos SATA/NVMe: tamaño virtual + espacio real ocupado.
+        Para CD/DVD: tamaño del archivo o un indicador de descarga/vacío.
+        Para floppies: tamaño del archivo.
+        """
+        typ = device.get("device", "sata")
+        path = device.get("path", "") or ""
+        source = str(device.get("source") or "")
+
+        if typ == "cdrom":
+            if source in ("installer", "recovery"):
+                return "\U0001f310 descarga"
+            if not path or not os.path.isfile(path):
+                return "vacío"
+            try:
+                return self._format_bytes_iexport(os.path.getsize(path))
+            except Exception:
+                return "—"
+
+        if not path or not os.path.isfile(path):
+            return "—"
+
+        if typ == "floppy":
+            try:
+                return self._format_bytes_iexport(os.path.getsize(path))
+            except Exception:
+                return "—"
+
+        # Discos SATA/NVMe: tamaño virtual + espacio ocupado en el host.
+        try:
+            r = subprocess.run(
+                ["qemu-img", "info", "--output=json", path],
+                capture_output=True, text=True, timeout=8, check=True,
+            )
+            info = json.loads(r.stdout)
+            virt = int(info.get("virtual-size", 0) or 0)
+            actual = int(info.get("actual-size", 0) or 0)
+            if virt and actual:
+                return (f"{self._format_bytes_iexport(virt)} "
+                        f"(ocupa {self._format_bytes_iexport(actual)})")
+            if virt:
+                return self._format_bytes_iexport(virt)
+        except Exception:
+            pass
+        return "—"
+
 
     def refresh_storage_ui(self):
         if hasattr(self, "storage_tree"):
@@ -390,12 +873,14 @@ class StorageMixin:
                         media_label = os.path.basename(path) if path else "vacío"
                         detail_label = path or "Sin medio"
                     label=f"{name} — {media_label}"
-                    item=QTreeWidgetItem([label, detail_label])
+                    size_col = self._device_size_label(d)
+                    item=QTreeWidgetItem([label, detail_label, size_col])
                     item.setData(0, Qt.ItemDataRole.UserRole, {"kind":"cdrom","id":d.get("id"),"path":path,"source":source})
                     groups["cdrom"].addChild(item)
                 elif typ in groups or typ == "nvme":
                     group_key = "sata" if typ == "nvme" else typ
-                    item=QTreeWidgetItem([name, path])
+                    size_col = self._device_size_label(d)
+                    item=QTreeWidgetItem([name, path, size_col])
                     item.setData(0, Qt.ItemDataRole.UserRole, {"kind":"disk","id":d.get("id"),"path":path,"device":typ})
                     groups[group_key].addChild(item)
             for key in ("sata","nvme","floppy","cdrom"):
@@ -414,6 +899,12 @@ class StorageMixin:
             item=QListWidgetItem(self._boot_token_label(token)); item.setData(Qt.ItemDataRole.UserRole, token); self.storage_list.addItem(item)
         if self.storage_list.count(): self.storage_list.setCurrentRow(0)
         self.storage_list.blockSignals(False)
+        # Tras reconstruir el árbol no hay selección: resetear botones.
+        if hasattr(self, "_update_storage_buttons_state"):
+            try:
+                self._update_storage_buttons_state()
+            except Exception:
+                pass
 
     def _boot_order_from_list(self):
         if not getattr(self, "current_vm_dir", None) or not hasattr(self, "storage_list"):
@@ -425,7 +916,7 @@ class StorageMixin:
         if not self.current_vm_dir:
             return ""
         try:
-            data = load_vm_config(self.current_vm_dir)
+            data = self._load_vm_config_cached(self.current_vm_dir)
             extra = data.get("extra") or {}
             return extra.get("cdrom_path", "")
         except Exception:
@@ -736,6 +1227,8 @@ class StorageMixin:
         cfg.set("hardware", "boot_device", "cdrom" if str(first).startswith("cdrom") else ("network" if first == "network" else "disk"))
         with open(cfg_path, "w", encoding="utf-8") as f:
             cfg.write(f)
+        if hasattr(self, "_invalidate_vm_config_cache"):
+            self._invalidate_vm_config_cache(self.current_vm_dir)
         self.log_message("==> Orden de arranque guardado: " + " → ".join(self._boot_token_label(x) for x in order))
 
     def manage_cdrom(self):
@@ -842,15 +1335,97 @@ class StorageMixin:
         form.addRow('Nombre:', name_edit)
         form.addRow('Dispositivo:', QLabel(devtype.upper()))
         form.addRow('Archivo:', row)
-        size_edit = QLineEdit('')
-        size_edit.setPlaceholderText('Vacío = no cambiar; ejemplo: 120G')
+        # --- Tamaño ---
+        # Mostramos el tamaño ACTUAL del disco y pre-rellenamos el campo
+        # "Nuevo tamaño" con ese valor en formato que qemu-img entiende.
+        # El disco solo puede CRECER: si el usuario escribe un valor menor,
+        # se avisa y se restaura el valor actual sin cerrar el diálogo.
+        def _bytes_to_qemu_size(n):
+            try:
+                n = int(n)
+            except (TypeError, ValueError):
+                return ""
+            if n <= 0:
+                return ""
+            for unit, div in (("T", 1024 ** 4), ("G", 1024 ** 3),
+                              ("M", 1024 ** 2), ("K", 1024)):
+                if n >= div:
+                    v = n / div
+                    if v == int(v):
+                        return f"{int(v)}{unit}"
+                    return f"{v:.2f}".rstrip("0").rstrip(".") + unit
+            return str(n)
+
+        _current_bytes = 0
+        if devtype != 'floppy':
+            # Llamada directa a qemu-img: independiente de cualquier helper
+            # previo. El mismo patrón se usa en _device_size_label() y se
+            # sabe que funciona con el qemu-img del host.
+            try:
+                _r = subprocess.run(
+                    ["qemu-img", "info", "--output=json", old_path],
+                    capture_output=True, text=True, timeout=10, check=True,
+                )
+                _current_bytes = int(
+                    json.loads(_r.stdout).get("virtual-size", 0) or 0
+                )
+            except Exception:
+                _current_bytes = 0
+        try:
+            _current_txt = (self._format_bytes_iexport(_current_bytes)
+                            if _current_bytes else "—")
+        except Exception:
+            _current_txt = f"{_current_bytes} B" if _current_bytes else "—"
+        _current_qemu = _bytes_to_qemu_size(_current_bytes)
+
+        size_edit = QLineEdit(_current_qemu)
+        size_edit.setPlaceholderText('Ejemplo: 120G (solo crecer)')
+        form.addRow('Tamaño actual:', QLabel(_current_txt))
         form.addRow('Nuevo tamaño:', size_edit)
         lay.addLayout(form)
-        hint = QLabel('Puedes cambiar el archivo asociado y aumentar el tamaño del disco. El redimensionado no reduce el disco automáticamente.')
+        hint = QLabel(
+            'Puedes cambiar el archivo asociado y aumentar el tamaño del disco. '
+            'El disco solo puede CRECER: si escribes un valor menor al actual, '
+            'se rechaza y el campo vuelve al tamaño original.'
+        )
         hint.setWordWrap(True); hint.setStyleSheet('color:#666;')
         lay.addWidget(hint)
+
+        def _validate_and_accept():
+            txt = size_edit.text().strip()
+            # Sin cambios reales -> aceptar tal cual (no hay resize que hacer).
+            if (devtype == 'floppy' or _current_bytes <= 0
+                    or not txt or txt == _current_qemu):
+                dialog.accept()
+                return
+            new_bytes = None
+            if hasattr(self, '_parse_size_to_bytes'):
+                try:
+                    new_bytes = self._parse_size_to_bytes(txt)
+                except Exception:
+                    new_bytes = None
+            if new_bytes is None:
+                QMessageBox.warning(
+                    dialog, 'Tamaño inválido',
+                    f"'{txt}' no es un tamaño válido.\n\n"
+                    "Usa un formato como 80G, 200G o 1T."
+                )
+                size_edit.setText(_current_qemu)
+                return
+            if new_bytes < _current_bytes:
+                QMessageBox.warning(
+                    dialog, 'No se puede encoger',
+                    f"El disco no puede encogerse: tamaño actual {_current_txt}, "
+                    f"indicado {txt}.\n\n"
+                    "El valor se ha restaurado al tamaño actual. Si necesitas un "
+                    "disco más pequeño, crea uno nuevo y migra los datos."
+                )
+                size_edit.setText(_current_qemu)
+                return
+            dialog.accept()
+
         buttons = QHBoxLayout(); buttons.addStretch(); cancel=QPushButton('Cancelar'); ok=QPushButton('Aplicar')
-        cancel.clicked.connect(dialog.reject); ok.clicked.connect(dialog.accept); buttons.addWidget(cancel); buttons.addWidget(ok); lay.addLayout(buttons)
+        cancel.clicked.connect(dialog.reject); ok.clicked.connect(_validate_and_accept); buttons.addWidget(cancel); buttons.addWidget(ok); lay.addLayout(buttons)
         def browse_path():
             fp, _ = QFileDialog.getOpenFileName(self, 'Seleccionar disco existente', os.path.dirname(old_path), 'Imágenes de disco (*.qcow2 *.img *.raw *.vdi *.vmdk);;Todos los archivos (*)')
             if fp: path_edit.setText(fp)
@@ -869,10 +1444,11 @@ class StorageMixin:
                 # Actualizar nombre manteniendo ruta
                 self._unregister_storage_path(old_path)
                 self._register_storage_device(new_name, old_path, devtype)
-            if size_edit.text().strip():
+            _txt = size_edit.text().strip()
+            if _txt and _txt != _current_qemu:
                 if devtype == 'floppy':
                     raise RuntimeError('El tamaño de una disquetera se modifica recreando la imagen; aquí no se redimensiona.')
-                subprocess.run(['qemu-img', 'resize', new_path, size_edit.text().strip()], check=True, capture_output=True, text=True, timeout=60)
+                subprocess.run(['qemu-img', 'resize', new_path, _txt], check=True, capture_output=True, text=True, timeout=600)
             self.refresh_storage_ui(); self._update_manager_details()
             QMessageBox.information(self, 'Dispositivo modificado', 'El dispositivo se modificó correctamente.')
         except Exception as e:

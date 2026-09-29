@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QMessageBox, QGroupBox,
     QFileDialog, QCheckBox, QDialog, QFormLayout, QSpinBox,
     QRadioButton, QButtonGroup, QSizePolicy,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QPainter, QPen, QBrush, QPixmap
@@ -112,8 +113,19 @@ class NetworkDeviceDialog(QDialog):
         i=self.mode.findData(data.get("mode","nat")); self.mode.setCurrentIndex(max(0,i))
         self.target=QComboBox(); self.target.setEditable(True)
         self.mac=QLineEdit(data.get("mac","")); self.mac.setPlaceholderText("Opcional: 52:54:00:xx:xx:xx")
+        # Reglas de reenvío de puertos NAT (solo aplican al backend NAT).
+        # El usuario las edita desde el botón "🔀 Reglas NAT…" que aparece
+        # cuando el modo es NAT. Se persisten en network_devices[i]["hostfwd"].
+        self._hostfwd = [dict(r) for r in (data.get("hostfwd") or []) if isinstance(r, dict)]
         self.mode.currentIndexChanged.connect(self.update_target)
         form.addRow("Nombre:", self.name); form.addRow("Modelo:", self.model); form.addRow("Backend:", self.mode); form.addRow("Bridge / TAP:", self.target); form.addRow("MAC:", self.mac)
+        self.btn_nat_rules = QPushButton("🔀 Reglas NAT…")
+        self.btn_nat_rules.setToolTip(
+            "Redirigir puertos del host al guest a través del NAT de QEMU\n"
+            "(hostfwd). Solo aplica cuando el backend es NAT."
+        )
+        self.btn_nat_rules.clicked.connect(self._open_nat_rules)
+        form.addRow("", self.btn_nat_rules)
         buttons=QHBoxLayout(); buttons.addStretch(); ok=QPushButton("Aceptar"); cancel=QPushButton("Cancelar"); ok.clicked.connect(self.accept); cancel.clicked.connect(self.reject); buttons.addWidget(cancel); buttons.addWidget(ok); form.addRow(buttons)
         self._load_targets(data.get("interface","")); self.update_target()
     def _load_targets(self, preferred=""):
@@ -126,8 +138,29 @@ class NetworkDeviceDialog(QDialog):
         mode=self.mode.currentData(); self.target.setEnabled(mode!="nat")
         if mode=="tap" and not self.target.currentText(): self.target.setEditText("qvm-net")
         if mode=="nat": self.target.setEditText("")
+        # El botón "Reglas NAT…" solo tiene sentido con backend NAT.
+        btn = getattr(self, "btn_nat_rules", None)
+        if btn is not None:
+            is_nat = (mode == "nat")
+            btn.setVisible(is_nat)
+            n = len(getattr(self, "_hostfwd", []) or [])
+            btn.setText(f"🔀 Reglas NAT… ({n})" if n else "🔀 Reglas NAT…")
+
+    def _open_nat_rules(self):
+        """Abre el sub-diálogo de reenvío de puertos NAT."""
+        dlg = NatPortForwardDialog(self, getattr(self, "_hostfwd", []))
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._hostfwd = dlg.values()
+            self.update_target()
     def values(self):
-        return {"name":self.name.text().strip() or "Red", "model":self.model.currentData(), "mode":self.mode.currentData(), "interface":self.target.currentData() or self.target.currentText().strip(), "mac":self.mac.text().strip()}
+        return {
+            "name": self.name.text().strip() or "Red",
+            "model": self.model.currentData(),
+            "mode": self.mode.currentData(),
+            "interface": self.target.currentData() or self.target.currentText().strip(),
+            "mac": self.mac.text().strip(),
+            "hostfwd": list(getattr(self, "_hostfwd", []) or []),
+        }
 
 class DiskCreationDialog(QDialog):
     """Dialogo único para crear/adjuntar almacenamiento o configurar CD/DVD."""
@@ -394,4 +427,140 @@ class DiskCreationDialog(QDialog):
             "existing": existing,
         }
 
+
+class NatPortForwardDialog(QDialog):
+    """Editor de reglas de reenvío de puertos NAT (-netdev user,hostfwd=...).
+
+    Cada regla redirige puerto_host:localhost → puerto_guest:guest a través
+    del backend NAT de QEMU. Solo se permiten TCP y UDP, puertos 1-65535 y
+    no se admiten dos reglas con el mismo (protocolo, puerto host).
+    """
+
+    def __init__(self, parent=None, rules=None):
+        super().__init__(parent)
+        self.setWindowTitle("Reglas de reenvío de puertos NAT")
+        self.setModal(True)
+        self.resize(580, 400)
+
+        self._rules = [dict(r) for r in (rules or []) if isinstance(r, dict)]
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            "Redirige puertos del host al guest a través del NAT de QEMU "
+            "(<code>-netdev user,hostfwd=...</code>). Cada regla conecta "
+            "<b>localhost:puerto_host</b> del anfitrión con "
+            "<b>puerto_guest</b> dentro del sistema invitado.<br><br>"
+            "Ejemplo: host 2222 → guest 22 reenvía SSH; luego entra con "
+            "<code>ssh -p 2222 usuario@localhost</code>."
+        )
+        info.setTextFormat(Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # --- Fila de alta ---
+        add_row = QHBoxLayout()
+        add_row.addWidget(QLabel("Puerto host:"))
+        self.sp_host = QSpinBox()
+        self.sp_host.setRange(1, 65535)
+        self.sp_host.setValue(2222)
+        self.sp_host.setToolTip("Puerto en el host (donde tú te conectas).")
+        add_row.addWidget(self.sp_host)
+        add_row.addSpacing(10)
+        add_row.addWidget(QLabel("Puerto guest:"))
+        self.sp_guest = QSpinBox()
+        self.sp_guest.setRange(1, 65535)
+        self.sp_guest.setValue(22)
+        self.sp_guest.setToolTip("Puerto dentro de la VM (a donde se reenvía).")
+        add_row.addWidget(self.sp_guest)
+        add_row.addSpacing(10)
+        add_row.addWidget(QLabel("Protocolo:"))
+        self.cmb_proto = QComboBox()
+        self.cmb_proto.addItem("TCP", "tcp")
+        self.cmb_proto.addItem("UDP", "udp")
+        add_row.addWidget(self.cmb_proto)
+        add_row.addStretch()
+        self.btn_add = QPushButton("➕ Añadir regla")
+        self.btn_add.clicked.connect(self._add_rule)
+        add_row.addWidget(self.btn_add)
+        layout.addLayout(add_row)
+
+        # --- Tabla ---
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(
+            ["Puerto host", "Puerto guest", "Protocolo"]
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.table.setAlternatingRowColors(True)
+        layout.addWidget(self.table, 1)
+
+        # --- Botones inferiores ---
+        bottom = QHBoxLayout()
+        self.btn_remove = QPushButton("🗑 Quitar seleccionada")
+        self.btn_remove.clicked.connect(self._remove_selected)
+        bottom.addWidget(self.btn_remove)
+        bottom.addStretch()
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.clicked.connect(self.reject)
+        bottom.addWidget(btn_cancel)
+        btn_ok = QPushButton("Aceptar")
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self.accept)
+        bottom.addWidget(btn_ok)
+        layout.addLayout(bottom)
+
+        self._refresh_table()
+
+    def _refresh_table(self):
+        self.table.setRowCount(0)
+        for r in self._rules:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0,
+                               QTableWidgetItem(str(r.get("host_port", ""))))
+            self.table.setItem(row, 1,
+                               QTableWidgetItem(str(r.get("guest_port", ""))))
+            self.table.setItem(row, 2,
+                               QTableWidgetItem(
+                                   str(r.get("protocol", "tcp")).upper()))
+
+    def _add_rule(self):
+        hp = int(self.sp_host.value())
+        gp = int(self.sp_guest.value())
+        proto = self.cmb_proto.currentData() or "tcp"
+
+        # Mismo (protocolo, puerto_host) → duplicado exacto, no permitir.
+        for r in self._rules:
+            if (int(r.get("host_port", 0)) == hp
+                    and str(r.get("protocol", "tcp")).lower() == proto):
+                QMessageBox.warning(
+                    self, "Regla duplicada",
+                    f"Ya existe una regla para el puerto host {hp} "
+                    f"({proto.upper()}).\n\nElige otro puerto host o "
+                    "cambia el protocolo.",
+                )
+                return
+
+        self._rules.append(
+            {"host_port": hp, "guest_port": gp, "protocol": proto}
+        )
+        self._refresh_table()
+
+    def _remove_selected(self):
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self._rules):
+            return
+        del self._rules[row]
+        self._refresh_table()
+
+    def values(self):
+        return [dict(r) for r in self._rules]
 
