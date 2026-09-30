@@ -183,6 +183,64 @@ python3 virtual_machine.py
   shell de rescate con `Detecting Android-x86...`. Las ISOs con kernel
   5.10+ o Bliss OS 15+ sí soportan VirtIO-GPU y se puede elegir a mano.
 
+### Notas específicas de macOS
+
+- **Modelo OSX-KVM**: la instalación de macOS sigue el modelo del
+  proyecto OSX-KVM con tres discos: `OpenCore.qcow2` (bootloader en
+  modo snapshot, master en `OSX-KVM/`), `BaseSystem.img` (medio de
+  instalación, RAW) y `mac_hdd_ng.qcow2` (disco del sistema, QCOW2,
+  128 GB). OpenCore es **siempre el primer disco de arranque**.
+- **`BaseSystem.img` es opcional**. Solo se necesita si vas a
+  instalar macOS desde System Recovery. Si tienes un medio propio
+  configurado, o si `mac_hdd_ng.qcow2` ya tiene un sistema instalado
+  (más de 2 GB ocupados), la app arranca sin pedir nada. Si no existe
+  ninguno de los dos, descarga el Recovery de Apple al pulsar Iniciar.
+- **Discos e ISOs adicionales**: los discos y unidades ópticas que
+  añadas en Configuración → Almacenamiento se conectan a un **segundo
+  controlador AHCI** (`sataext`), sin desplazar los tres discos fijos
+  de OpenCore (`sata.2/3/4`).
+- **Red**: la NIC se elige automáticamente según la versión. High
+  Sierra (10.13) y Mojave (10.14) usan `vmxnet3` (no traen driver
+  virtio-net nativo en el instalador); Catalina (10.15) y posteriores
+  usan `virtio-net-pci`. La MAC se genera por VM y se conserva entre
+  arranques.
+- **Gráficos**: macOS **solo funciona con VGA genérico** en QEMU.
+  No existe driver nativo para QXL, VMware SVGA II ni VirtIO-GPU. La
+  UI bloquea esas opciones en la app con un tooltip explicativo. El
+  único modo funcional es **Automático**.
+- **Carpetas compartidas**: por SMB (los kernels de macOS no traen
+  9p ni VirtioFS).
+- **Snapshots**: solo de disco. Los tres discos fijos de OSX-KVM no
+  permiten snapshots completos (RAM + dispositivos) sin reescribir
+  OSX-KVM.
+
+#### Limitación conocida: High Sierra y Mojave no descargan los paquetes de Apple
+
+Los instaladores de **High Sierra (10.13)** y **Mojave (10.14)** no
+consiguen completar las descargas de paquetes desde los servidores de
+Apple **desde dentro del guest**. La red funciona (el instalador
+alcanza Apple, resuelve DNS, establece la conexión TLS inicial), pero
+el proceso se queda a medias cuando empieza a bajar los paquetes
+grandes. Causa probable: la pila TLS/certificados de `URLSession` en
+versiones antiguas no negocia correctamente con los servidores
+modernos de Apple.
+
+**Workaround**: instalar High Sierra o Mojave **offline**, con el
+instalador `.app` completo descargado previamente en otro Mac (o desde
+Linux con `gibMacOS`). Procedimiento:
+
+1. Descarga `Install macOS High Sierra.app` (o Mojave) en otro Mac, o
+   usa [`gibMacOS`](https://github.com/corpnewt/gibMacOS) para bajarlo
+   desde Linux.
+2. Crea una ISO de arranque con el contenido del `.app` (por ejemplo,
+   con `createinstallmedia` de macOS o con `dmg2img` + `mkisofs`).
+3. En la VM, monta esa ISO como CD/DVD "Principal" y arranca desde
+   ella. El instalador no necesita conectarse a Apple para los
+   paquetes; ya vienen en el medio.
+
+**Catalina y versiones posteriores no tienen este problema**: el
+instalador baja los paquetes correctamente desde dentro del guest.
+
 ### Diagnóstico
 
 - Consola de progreso con filtros por nivel y búsqueda.
