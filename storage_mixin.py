@@ -2,11 +2,14 @@
 # Copyright (C) 2025 Jimmy Verduga
 
 """Mixin: gestión de almacenamiento — discos (crear/redimensionar/
-eliminar), CD/DVD, y orden de arranque. Incluye dos pares de métodos
-duplicados heredados del archivo original (_get_cdrom_path,
-configure_boot_order, _save_boot_order aparecen dos veces): Python usa la
-segunda definición y descarta la primera silenciosamente. Se conserva tal
-cual para no cambiar comportamiento; es candidato a limpieza aparte.
+eliminar), CD/DVD, y orden de arranque.
+
+Marcador storage_mixin_dedup_v1: en el archivo original había tres
+métodos duplicados (_get_cdrom_path, configure_boot_order,
+_save_boot_order) que Python resolvía descartando la primera definición
+en silencio. Se eliminaron las primeras (legacy) y se conservan las
+segundas, que son las que ya se ejecutaban: sin cambio de
+comportamiento, sin duplicación.
 """
 import os
 import re
@@ -496,15 +499,53 @@ class StorageMixin:
                 except Exception:
                     is_qcow2 = path.lower().endswith(".qcow2")
 
-        # Modificar y Eliminar: cualquier dispositivo concreto.
-        for attr in ("btn_storage_modify_device",
-                     "btn_storage_delete_device"):
-            btn = getattr(self, attr, None)
-            if btn is not None:
-                try:
-                    btn.setEnabled(is_device)
-                except Exception:
-                    pass
+        # expand_only_v1: el boton Modificar cambia de etiqueta segun
+        # el dispositivo y solo permite acciones coherentes.
+        #   • CD/DVD  -> "✏ Modificar" (cambiar medio)
+        #   • Disco   -> "↗ Expandir"   (cambiar tamano, sin nombre/path)
+        #   • Floppy  -> deshabilitado  (no se redimensiona)
+        modify_btn = getattr(self, "btn_storage_modify_device", None)
+        if modify_btn is not None:
+            try:
+                if not is_device:
+                    modify_btn.setText("✏ Modificar")
+                    modify_btn.setEnabled(False)
+                    modify_btn.setToolTip("")
+                elif kind == "cdrom":
+                    modify_btn.setText("✏ Modificar")
+                    modify_btn.setEnabled(True)
+                    modify_btn.setToolTip(
+                        "Cambiar el medio de esta unidad CD/DVD."
+                    )
+                elif kind == "disk":
+                    dev = (meta or {}).get("device") or "sata"
+                    if dev == "floppy":
+                        modify_btn.setText("✏ Modificar")
+                        modify_btn.setEnabled(False)
+                        modify_btn.setToolTip(
+                            "Los disquetes no se pueden redimensionar.\n"
+                            "Elimina este y crea otro si necesitas otro tamaño."
+                        )
+                    else:
+                        modify_btn.setText("↗ Expandir")
+                        modify_btn.setEnabled(True)
+                        modify_btn.setToolTip(
+                            "Aumentar el tamaño virtual de este disco.\n"
+                            "El disco solo puede CRECER."
+                        )
+                else:
+                    modify_btn.setText("✏ Modificar")
+                    modify_btn.setEnabled(False)
+            except Exception:
+                pass
+
+        # Eliminar: cualquier dispositivo concreto.
+        del_btn = getattr(self, "btn_storage_delete_device", None)
+        if del_btn is not None:
+            try:
+                del_btn.setEnabled(is_device)
+            except Exception:
+                pass
 
         # Compactar: solo discos QCOW2.
         btn_compact = getattr(self, "btn_storage_disk_manager", None)
@@ -537,6 +578,52 @@ class StorageMixin:
                     )
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------
+    # Re-escaneo automatico de la biblioteca de medios
+    # ------------------------------------------------------------------
+    # Marcador: media_library_vm_scan_autotrigger_v1.
+    #
+    # Cuando el usuario cambia almacenamiento de una VM (crear / eliminar /
+    # modificar un disco, cambiar el medio de un CD/DVD), se vuelve a
+    # escanear VirtualMachines/ para mantener el indice de la Biblioteca
+    # de Medios al dia.
+
+    def _scan_media_vms_after_storage_change(self):
+        """Re-escanea las VMs tras un cambio de almacenamiento."""
+        try:
+            import media_library as _ml
+        except Exception:
+            return
+        try:
+            lib = _ml.MediaLibrary()
+            res = lib.scan_vms()
+        except Exception as e:
+            try:
+                self.log_message(
+                    f"[AVISO] No se pudo re-escanear la biblioteca de "
+                    f"medios: {e}"
+                )
+            except Exception:
+                pass
+            return
+        try:
+            nuevas = int(res.get("nuevas") or 0)
+            actualizadas = int(res.get("actualizadas") or 0)
+            huerfanas = len(res.get("huerfanas_de_vm") or [])
+            if nuevas or actualizadas or huerfanas:
+                self.log_message(
+                    f"==> Biblioteca de Medios: {nuevas} nueva(s), "
+                    f"{actualizadas} actualizada(s), {huerfanas} "
+                    f"huerfana(s) de VM."
+                )
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "refresh_media_library_table"):
+                self.refresh_media_library_table()
+        except Exception:
+            pass
 
     def refresh_boot_order_choices(self):
         # El orden de arranque se administra exclusivamente desde Almacenamiento.
@@ -912,15 +999,6 @@ class StorageMixin:
         order = [self.storage_list.item(k).data(Qt.ItemDataRole.UserRole) for k in range(self.storage_list.count())]
         self._save_boot_order(order)
 
-    def _get_cdrom_path(self):
-        if not self.current_vm_dir:
-            return ""
-        try:
-            data = self._load_vm_config_cached(self.current_vm_dir)
-            extra = data.get("extra") or {}
-            return extra.get("cdrom_path", "")
-        except Exception:
-            return ""
 
     def move_storage_boot(self, delta):
         if not hasattr(self, "storage_list") or not self.current_vm_dir:
@@ -969,6 +1047,10 @@ class StorageMixin:
         old=[t for t in self._current_boot_order_tokens() if t != (f"cdrom:{dev.get('id')}" if typ=="cdrom" else f"disk:{dev.get('id')}" )]
         self._save_boot_order(old)
         self.refresh_storage_ui(); self.refresh_boot_order_choices(); self._update_manager_details()
+        try:
+            self._scan_media_vms_after_storage_change()
+        except Exception:
+            pass
 
     def _unregister_storage_path(self, path):
         devices=self._storage_devices_all(self.current_vm_dir)
@@ -1073,6 +1155,10 @@ class StorageMixin:
                 ident = self._register_cdrom_device(values.get("name") or "CD/DVD", path, source=source)
                 self.log_message(f"==> Unidad CD/DVD creada: {values.get('name') or 'CD/DVD'}")
                 self.refresh_storage_ui(); self.refresh_boot_order_choices(); self._update_manager_details()
+                try:
+                    self._scan_media_vms_after_storage_change()
+                except Exception:
+                    pass
             except Exception as e:
                 QMessageBox.critical(self, "CD/DVD", f"No se pudo configurar la unidad óptica.\n\n{e}")
                 return
@@ -1083,6 +1169,10 @@ class StorageMixin:
         else:
             self._create_virtual_disk_from_values(self.current_vm_dir, values, devtype)
         self.refresh_boot_order_choices()
+        try:
+            self._scan_media_vms_after_storage_change()
+        except Exception:
+            pass
 
     def _register_storage_device(self, name, path, devtype):
         devices=self._storage_devices_all(self.current_vm_dir)
@@ -1143,33 +1233,6 @@ class StorageMixin:
         else:
             devices.append({"id":"dev_" + uuid.uuid4().hex[:12],"name":"CD/DVD 1","path":os.path.abspath(path) if path else "","device":"cdrom"})
         self._write_storage_devices(devices)
-
-    def configure_boot_order(self):
-        if not self._vm_is_selected():
-            QMessageBox.information(self, "Arranque", "Primero crea o selecciona una máquina virtual."); return
-        from PyQt6.QtWidgets import QDialog, QDialogButtonBox
-        tokens=self._current_boot_order_tokens(); dialog=QDialog(self); dialog.setWindowTitle("⚙ Orden de dispositivos de arranque"); dialog.resize(500,380)
-        layout=QVBoxLayout(dialog); layout.addWidget(QLabel("El primero será el dispositivo que QEMU/UEFI intentará arrancar primero."))
-        lst=QListWidget(); layout.addWidget(lst,1)
-        for token in tokens:
-            it=QListWidgetItem(self._boot_token_label(token)); it.setData(Qt.ItemDataRole.UserRole,token); lst.addItem(it)
-        row=QHBoxLayout(); up=QPushButton("⬆ Subir"); down=QPushButton("⬇ Bajar"); row.addWidget(up); row.addWidget(down); row.addStretch(); layout.addLayout(row)
-        def move(delta):
-            i=lst.currentRow(); j=i+delta
-            if i<0 or j<0 or j>=lst.count(): return
-            item=lst.takeItem(i); lst.insertItem(j,item); lst.setCurrentRow(j)
-        up.clicked.connect(lambda: move(-1)); down.clicked.connect(lambda: move(1))
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel); layout.addWidget(buttons); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject)
-        if dialog.exec()!=QDialog.DialogCode.Accepted: return
-        self._save_boot_order([lst.item(i).data(Qt.ItemDataRole.UserRole) for i in range(lst.count())]); self.refresh_storage_ui()
-
-    def _save_boot_order(self, order):
-        if not self.current_vm_dir: return
-        cfg_path=os.path.join(self.current_vm_dir,"vm_config.ini"); cfg=configparser.ConfigParser(interpolation=None); cfg.read(cfg_path,encoding="utf-8")
-        if not cfg.has_section("hardware"): cfg.add_section("hardware")
-        cfg.set("hardware","boot_order",json.dumps(order)); first=order[0] if order else "disk"
-        cfg.set("hardware","boot_device","cdrom" if first.startswith("cdrom") else ("network" if first=="network" else "disk"))
-        with open(cfg_path,"w",encoding="utf-8") as f: cfg.write(f)
 
     def configure_boot_order(self):
         if not self._vm_is_selected():
@@ -1260,6 +1323,10 @@ class StorageMixin:
                     # Recovery mantiene su flujo de descarga al iniciar.
                     self._update_cdrom_device(ident, '', source='recovery')
                 self.refresh_storage_ui(); self.refresh_boot_order_choices(); self._update_manager_details()
+                try:
+                    self._scan_media_vms_after_storage_change()
+                except Exception:
+                    pass
             except Exception as e: QMessageBox.critical(self,'CD/DVD',str(e))
             return
         current=cd.get('path','')
@@ -1268,10 +1335,59 @@ class StorageMixin:
                 self._qmp_hmp(self.current_vm_dir,f"eject -f {device_id}"); QMessageBox.information(self,"CD/DVD","Medio expulsado.")
             except Exception as e: QMessageBox.warning(self,"CD/DVD",str(e))
             return
-        iso,_=QFileDialog.getOpenFileName(self,"Seleccionar ISO","","Imágenes ISO (*.iso *.img *.dmg);;Todos los archivos (*)")
-        if not iso:return
+        # media_library_picker_v1: ofrecer dos vias para elegir el medio.
+        box = QMessageBox(self)
+        box.setWindowTitle("Cambiar medio en caliente")
+        box.setText(
+            f"Origen del nuevo medio para '{cd.get('name','CD/DVD')}':"
+        )
+        btn_disk = box.addButton("📁 Buscar en disco…",
+                                 QMessageBox.ButtonRole.AcceptRole)
+        btn_lib = box.addButton("📚 Elegir de la biblioteca…",
+                                QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is None:
+            return
+        if clicked == btn_disk:
+            iso, _ = QFileDialog.getOpenFileName(
+                self, "Seleccionar ISO", "",
+                "Imágenes ISO (*.iso *.img *.dmg);;Todos los archivos (*)"
+            )
+            if not iso:
+                return
+        elif clicked == btn_lib:
+            try:
+                from dialogs import MediaPickerDialog
+            except Exception as _imp_err:
+                QMessageBox.warning(
+                    self, "Biblioteca de Medios",
+                    f"No se pudo abrir el selector de la biblioteca.\n\n{_imp_err}"
+                )
+                return
+            _os = ""
+            try:
+                _os = self.combo_main_os.currentData() or ""
+            except Exception:
+                _os = ""
+            # media_library_device_picker_storage_v1: filtrar por ISO.
+            dlg = MediaPickerDialog(self, filter_os_type=_os,
+                                    filter_media_type="iso")
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            chosen = dlg.chosen()
+            if not chosen or not chosen.get("path"):
+                return
+            iso = chosen["path"]
+        else:
+            return
         try:
             self._qmp_hmp(self.current_vm_dir,f"change {device_id} {iso}"); self._update_cdrom_device(ident,iso); self.refresh_storage_ui(); self._update_manager_details(); QMessageBox.information(self,"CD/DVD","Medio cambiado en caliente.")
+            try:
+                self._scan_media_vms_after_storage_change()
+            except Exception:
+                pass
         except Exception as e: QMessageBox.critical(self,"CD/DVD",str(e))
 
     def modify_storage_device(self):
@@ -1312,7 +1428,12 @@ class StorageMixin:
             for d in devices:
                 if d.get('id')==ident: d['name']=values.get('name') or d.get('name','CD/DVD')
             self._write_storage_devices(devices)
-            self.refresh_storage_ui(); self.refresh_boot_order_choices(); self._update_manager_details(); return
+            self.refresh_storage_ui(); self.refresh_boot_order_choices(); self._update_manager_details()
+            try:
+                self._scan_media_vms_after_storage_change()
+            except Exception:
+                pass
+            return
 
         path = meta.get("path") if isinstance(meta, dict) else item.data(0, Qt.ItemDataRole.UserRole)
         info = None
@@ -1320,26 +1441,24 @@ class StorageMixin:
             if os.path.abspath(dpath) == os.path.abspath(path):
                 info = (name, typ, dpath); break
         if not info:
-            QMessageBox.information(self, 'Modificar dispositivo', 'No se encontró la información del dispositivo seleccionado.')
+            QMessageBox.information(self, 'Expandir disco',
+                                    'No se encontro la informacion del '
+                                    'dispositivo seleccionado.')
             return
         old_name, devtype, old_path = info
-        dialog = QDialog(self)
-        dialog.setWindowTitle('✏ Modificar dispositivo de almacenamiento')
-        dialog.resize(620, 300)
-        lay = QVBoxLayout(dialog)
-        form = QFormLayout()
-        name_edit = QLineEdit(old_name)
-        path_edit = QLineEdit(old_path)
-        browse = QPushButton('📁 Buscar…')
-        row = QHBoxLayout(); row.addWidget(path_edit, 1); row.addWidget(browse)
-        form.addRow('Nombre:', name_edit)
-        form.addRow('Dispositivo:', QLabel(devtype.upper()))
-        form.addRow('Archivo:', row)
-        # --- Tamaño ---
-        # Mostramos el tamaño ACTUAL del disco y pre-rellenamos el campo
-        # "Nuevo tamaño" con ese valor en formato que qemu-img entiende.
-        # El disco solo puede CRECER: si el usuario escribe un valor menor,
-        # se avisa y se restaura el valor actual sin cerrar el diálogo.
+
+        # expand_only_v1_disk: solo se puede cambiar el TAMANO. El
+        # nombre y la ruta del archivo quedan fijos para evitar
+        # referencias rotas en la config de la VM (cambiar el path del
+        # disco principal podia romper el arranque).
+        if devtype == "floppy":
+            QMessageBox.information(
+                self, "Expandir disco",
+                "Los disquetes no se pueden redimensionar.\n\n"
+                "Eliminalo y crea otro si necesitas otro tamano."
+            )
+            return
+
         def _bytes_to_qemu_size(n):
             try:
                 n = int(n)
@@ -1357,45 +1476,51 @@ class StorageMixin:
             return str(n)
 
         _current_bytes = 0
-        if devtype != 'floppy':
-            # Llamada directa a qemu-img: independiente de cualquier helper
-            # previo. El mismo patrón se usa en _device_size_label() y se
-            # sabe que funciona con el qemu-img del host.
-            try:
-                _r = subprocess.run(
-                    ["qemu-img", "info", "--output=json", old_path],
-                    capture_output=True, text=True, timeout=10, check=True,
-                )
-                _current_bytes = int(
-                    json.loads(_r.stdout).get("virtual-size", 0) or 0
-                )
-            except Exception:
-                _current_bytes = 0
+        try:
+            _r = subprocess.run(
+                ["qemu-img", "info", "--output=json", old_path],
+                capture_output=True, text=True, timeout=10, check=True,
+            )
+            _current_bytes = int(
+                json.loads(_r.stdout).get("virtual-size", 0) or 0
+            )
+        except Exception:
+            _current_bytes = 0
+
         try:
             _current_txt = (self._format_bytes_iexport(_current_bytes)
-                            if _current_bytes else "—")
+                            if _current_bytes else "\u2014")
         except Exception:
-            _current_txt = f"{_current_bytes} B" if _current_bytes else "—"
+            _current_txt = f"{_current_bytes} B" if _current_bytes else "\u2014"
         _current_qemu = _bytes_to_qemu_size(_current_bytes)
 
+        dialog = QDialog(self)
+        dialog.setWindowTitle("\u2197 Expandir disco")
+        dialog.resize(520, 280)
+        lay = QVBoxLayout(dialog)
+        form = QFormLayout()
+        form.addRow("Dispositivo:", QLabel(devtype.upper()))
+        form.addRow("Archivo:", QLabel(os.path.basename(old_path)))
+        form.addRow("Tamano actual:", QLabel(_current_txt))
         size_edit = QLineEdit(_current_qemu)
-        size_edit.setPlaceholderText('Ejemplo: 120G (solo crecer)')
-        form.addRow('Tamaño actual:', QLabel(_current_txt))
-        form.addRow('Nuevo tamaño:', size_edit)
+        size_edit.setPlaceholderText("Ejemplo: 120G (solo crecer)")
+        form.addRow("Nuevo tamano:", size_edit)
         lay.addLayout(form)
+
         hint = QLabel(
-            'Puedes cambiar el archivo asociado y aumentar el tamaño del disco. '
-            'El disco solo puede CRECER: si escribes un valor menor al actual, '
-            'se rechaza y el campo vuelve al tamaño original.'
+            "El disco solo puede CRECER. Si escribes un valor menor al "
+            "actual, se rechaza y el campo vuelve al tamano original.\n\n"
+            "Agrandar el archivo NO agranda la particion dentro del guest: "
+            "tras aplicar el cambio, amplia tambien la particion/volumen "
+            "desde el sistema invitado."
         )
-        hint.setWordWrap(True); hint.setStyleSheet('color:#666;')
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#666;")
         lay.addWidget(hint)
 
         def _validate_and_accept():
             txt = size_edit.text().strip()
-            # Sin cambios reales -> aceptar tal cual (no hay resize que hacer).
-            if (devtype == 'floppy' or _current_bytes <= 0
-                    or not txt or txt == _current_qemu):
+            if _current_bytes <= 0 or not txt or txt == _current_qemu:
                 dialog.accept()
                 return
             new_bytes = None
@@ -1406,8 +1531,8 @@ class StorageMixin:
                     new_bytes = None
             if new_bytes is None:
                 QMessageBox.warning(
-                    dialog, 'Tamaño inválido',
-                    f"'{txt}' no es un tamaño válido.\n\n"
+                    dialog, 'Tamano invalido',
+                    f"'{txt}' no es un tamano valido.\n\n"
                     "Usa un formato como 80G, 200G o 1T."
                 )
                 size_edit.setText(_current_qemu)
@@ -1415,42 +1540,50 @@ class StorageMixin:
             if new_bytes < _current_bytes:
                 QMessageBox.warning(
                     dialog, 'No se puede encoger',
-                    f"El disco no puede encogerse: tamaño actual {_current_txt}, "
-                    f"indicado {txt}.\n\n"
-                    "El valor se ha restaurado al tamaño actual. Si necesitas un "
-                    "disco más pequeño, crea uno nuevo y migra los datos."
+                    f"El disco no puede encogerse: tamano actual "
+                    f"{_current_txt}, indicado {txt}.\n\n"
+                    "El valor se ha restaurado al tamano actual. Si "
+                    "necesitas un disco mas pequeno, crea uno nuevo y "
+                    "migra los datos."
                 )
                 size_edit.setText(_current_qemu)
                 return
             dialog.accept()
 
-        buttons = QHBoxLayout(); buttons.addStretch(); cancel=QPushButton('Cancelar'); ok=QPushButton('Aplicar')
-        cancel.clicked.connect(dialog.reject); ok.clicked.connect(_validate_and_accept); buttons.addWidget(cancel); buttons.addWidget(ok); lay.addLayout(buttons)
-        def browse_path():
-            fp, _ = QFileDialog.getOpenFileName(self, 'Seleccionar disco existente', os.path.dirname(old_path), 'Imágenes de disco (*.qcow2 *.img *.raw *.vdi *.vmdk);;Todos los archivos (*)')
-            if fp: path_edit.setText(fp)
-        browse.clicked.connect(browse_path)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_b = QPushButton("Cancelar")
+        ok_b = QPushButton("Aplicar")
+        cancel_b.clicked.connect(dialog.reject)
+        ok_b.clicked.connect(_validate_and_accept)
+        btn_row.addWidget(cancel_b)
+        btn_row.addWidget(ok_b)
+        lay.addLayout(btn_row)
+
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        new_path = os.path.abspath(path_edit.text().strip())
-        new_name = name_edit.text().strip() or os.path.basename(new_path)
+        _txt = size_edit.text().strip()
+        if not _txt or _txt == _current_qemu:
+            return
         try:
-            if not os.path.isfile(new_path):
-                raise RuntimeError('El archivo seleccionado no existe.')
-            if os.path.abspath(new_path) != os.path.abspath(old_path):
-                self._unregister_storage_path(old_path)
-                self._register_storage_device(new_name, new_path, devtype)
-            else:
-                # Actualizar nombre manteniendo ruta
-                self._unregister_storage_path(old_path)
-                self._register_storage_device(new_name, old_path, devtype)
-            _txt = size_edit.text().strip()
-            if _txt and _txt != _current_qemu:
-                if devtype == 'floppy':
-                    raise RuntimeError('El tamaño de una disquetera se modifica recreando la imagen; aquí no se redimensiona.')
-                subprocess.run(['qemu-img', 'resize', new_path, _txt], check=True, capture_output=True, text=True, timeout=600)
-            self.refresh_storage_ui(); self._update_manager_details()
-            QMessageBox.information(self, 'Dispositivo modificado', 'El dispositivo se modificó correctamente.')
+            subprocess.run(
+                ['qemu-img', 'resize', old_path, _txt],
+                check=True, capture_output=True, text=True, timeout=600,
+            )
+            self.refresh_storage_ui()
+            self._update_manager_details()
+            QMessageBox.information(
+                self, "Disco expandido",
+                f"El disco se expandio correctamente a {_txt}.\n\n"
+                "Recuerda ampliar tambien la particion/volumen dentro del "
+                "sistema invitado si quieres aprovechar el nuevo espacio."
+            )
+            try:
+                self._scan_media_vms_after_storage_change()
+            except Exception:
+                pass
         except Exception as e:
-            QMessageBox.critical(self, 'Modificar dispositivo', f'No se pudo modificar el dispositivo.\n\n{e}')
-
+            QMessageBox.critical(
+                self, "Expandir disco",
+                f"No se pudo expandir el disco.\n\n{e}"
+            )

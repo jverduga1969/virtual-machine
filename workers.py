@@ -151,22 +151,113 @@ class InstallWorker(QThread):
             "Clipboard: QEMU vdagent activo (bidireccional). El guest necesita spice-vdagent/SPICE Guest Tools."
         )
 
-    def _audio_args(self):
-        """Detecta PulseAudio/PipeWire o ALSA y crea una tarjeta de sonido QEMU."""
-        backend = None
-        if shutil.which("pactl"):
+    def _qemu_supports_audiodev(self, backend_name):
+        """¿QEMU del host soporta el backend -audiodev <backend_name>?
+
+        Se consulta una sola vez por backend y se guarda en una caché
+        a nivel de instancia (`self._audiodev_cache`) para no pagar el
+        coste de `-audiodev help` en cada arranque.
+        """
+        cache = getattr(self, "_audiodev_cache", None)
+        if cache is None:
+            cache = {}
+            self._audiodev_cache = cache
+        if backend_name in cache:
+            return cache[backend_name]
+        qemu = shutil.which("qemu-system-x86_64")
+        if not qemu:
+            cache[backend_name] = False
+            return False
+        try:
+            r = subprocess.run(
+                [qemu, "-audiodev", "help"],
+                capture_output=True, text=True, timeout=5,
+            )
+            txt = (r.stdout or "") + "\n" + (r.stderr or "")
+            # La salida es una lista de nombres válidos; basta con
+            # buscar el backend como palabra suelta.
+            ok_ = re.search(
+                r"\b" + re.escape(backend_name) + r"\b", txt
+            ) is not None
+            cache[backend_name] = ok_
+            return ok_
+        except Exception:
+            cache[backend_name] = False
+            return False
+
+    def _detect_audio_backend(self):
+        """Elige el mejor backend de audio disponible en el host.
+
+        Marcador: audio_pipewire_v1
+
+        Orden de preferencia:
+          1. PipeWire nativo (QEMU >= 7 y pipewire en el host).
+          2. PulseAudio (o pipewire-pulse, que responde a pactl).
+          3. ALSA (/dev/snd).
+
+        La elección se valida contra `qemu-system-x86_64 -audiodev help`
+        para no mandar a QEMU un backend que no conoce. Devuelve el
+        nombre del backend o None si no hay ninguno disponible.
+        """
+        # 1) PipeWire nativo.
+        if self._qemu_supports_audiodev("pipewire") and shutil.which("pipewire"):
+            # Comprobación rápida: pw-cli info 0 responde solo si el
+            # servidor PipeWire del usuario está corriendo.
+            if shutil.which("pw-cli"):
+                try:
+                    r = subprocess.run(
+                        ["pw-cli", "info", "0"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=3,
+                    )
+                    if r.returncode == 0:
+                        return "pipewire"
+                except Exception:
+                    pass
+            else:
+                # Sin pw-cli no podemos verificar; confiamos en pipewire.
+                return "pipewire"
+
+        # 2) PulseAudio (pactl funciona también con pipewire-pulse).
+        if self._qemu_supports_audiodev("pa") and shutil.which("pactl"):
             try:
-                r = subprocess.run(["pactl", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+                r = subprocess.run(
+                    ["pactl", "info"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=3,
+                )
                 if r.returncode == 0:
-                    backend = "pa"
+                    return "pa"
             except Exception:
                 pass
-        if backend is None and (shutil.which("aplay") or os.path.exists("/dev/snd")):
-            backend = "alsa"
+
+        # 3) ALSA.
+        if (self._qemu_supports_audiodev("alsa")
+                and (shutil.which("aplay") or os.path.exists("/dev/snd"))):
+            return "alsa"
+
+        return None
+
+    def _audio_args(self):
+        """Crea la tarjeta de sonido QEMU con el mejor backend del host.
+
+        Marcador: audio_pipewire_v1
+
+        Preferencia de backend: PipeWire → PulseAudio → ALSA.
+        El combo de la UI sigue eligiendo el MODELO de tarjeta
+        (intel-hda / ac97 / sb16 / none); el backend es transparente
+        y solo se refleja en el log.
+        """
+        backend = self._detect_audio_backend()
         if backend is None:
             raise RuntimeError(
-                "No se encontró un backend de audio del host. Se necesita PulseAudio/PipeWire (pactl) "
-                "o ALSA (/dev/snd) para proporcionar sonido a la máquina virtual."
+                "No se encontró un backend de audio utilizable. "
+                "Se necesita PipeWire (pipewire+pw-cli), PulseAudio "
+                "(pactl) o ALSA (/dev/snd) en el host, y que el QEMU "
+                "instalado anuncie el backend correspondiente en "
+                "'-audiodev help'."
             )
         if self.audio_device in ("none", "off", "disabled"):
             return "none", ""
@@ -176,6 +267,8 @@ class InstallWorker(QThread):
             "sb16": "-device sb16,audiodev=audio0",
         }
         device_args = device_map.get(self.audio_device, device_map["intel-hda"])
+        if backend == "pipewire":
+            return "pipewire", f"-audiodev pipewire,id=audio0 {device_args}"
         if backend == "pa":
             return "pa", f"-audiodev pa,id=audio0 {device_args}"
         return "alsa", f"-audiodev alsa,id=audio0 {device_args}"
@@ -406,112 +499,6 @@ class InstallWorker(QThread):
 
         # Fallback universal: dejar que QEMU use su VGA por defecto.
         return "", "QEMU VGA estándar"
-
-    def _patch_macos_graphics(self, script_path):
-        """Aplica la elección gráfica al OpenCore-Boot.sh de esta VM.
-        macOS/OSX-KVM usa normalmente '-device VGA,vgamem_mb=128'. Algunas
-        opciones son experimentales en macOS porque el guest puede requerir
-        drivers adicionales; se muestran como tales en la UI.
-        """
-        mode = self.graphics_mode or "auto"
-        try:
-            with open(script_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            # Eliminar líneas gráficas conocidas del script antes de insertar la elegida.
-            content = re.sub(r'(?m)^\s*-device\s+VGA[^\n]*\n?', '', content)
-            content = re.sub(r'(?m)^\s*-vga\s+(?:std|qxl|vmware|none)[^\n]*\n?', '', content)
-            # Evitar quedarse con '-display gtk,gl=on' heredado de otra configuración.
-            if mode == "none":
-                # Se mantiene el resto de OpenCore pero sin ventana de video.
-                content = re.sub(r'(?m)^\s*-display\s+[^\n]*\n?', '', content)
-                injection = "-vga none -display none \\\n    "
-            elif mode == "qxl":
-                injection = "-vga qxl \\\n    "
-            elif mode in ("vmware", "vmware-svga"):
-                injection = "-vga vmware \\\n    "
-            elif mode in ("virtio",):
-                injection = "-device virtio-vga \\\n    "
-            elif mode in ("virgl", "venus"):
-                injection = "-device virtio-vga-gl,hostmem=256M \\\n    "
-            else:
-                # Auto = controlador VGA que utiliza actualmente OSX-KVM.
-                injection = "-device VGA,vgamem_mb=128 \\\n    "
-
-            marker = "qemu-system-x86_64"
-            if marker not in content:
-                raise RuntimeError("No se pudo localizar qemu-system-x86_64 en OpenCore-Boot.sh.")
-            content = content.replace(marker, marker + " " + injection, 1)
-
-            with open(script_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            notes = {
-                "auto": "VGA estándar OSX-KVM",
-                "qxl": "Red Hat QXL (experimental en macOS; requiere soporte del guest)",
-                "vmware": "VMware SVGA II (experimental en macOS; puede requerir drivers)",
-                "virtio": "VirtIO-GPU (experimental en macOS; no se recomienda como primera opción)",
-                "virgl": "VirtIO-GPU + VirGL (experimental; no recomendado para snapshots)",
-                "venus": "VirtIO-GPU + Venus (experimental; no recomendado para snapshots)",
-                "none": "Sin video / Headless",
-            }
-            self.log_signal.emit(f"==> macOS: controlador gráfico seleccionado: {notes.get(mode, mode)}.")
-        except Exception as e:
-            raise RuntimeError(f"No se pudo configurar los gráficos de macOS: {e}")
-
-    def _patch_macos_audio(self, script_path):
-        """Configura de forma robusta el audio de OSX-KVM para QEMU moderno.
-        QEMU 8.2+ ya no usa un -audiodev como backend implícito: cada tarjeta debe
-        referenciarlo mediante audiodev=..., o debe existir un backend por defecto
-        configurado con -audio.
-        """
-        try:
-            with open(script_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            if self.audio_device in ("none", "off", "disabled"):
-                # Elimina cualquier backend y tarjetas de sonido conocidas del script.
-                content = re.sub(r'\s+-audiodev\s+[^\s]+(?:\s+[^\n]*)?', '', content)
-                content = re.sub(r'\s+-audio\s+[^\s]+', '', content)
-                content = re.sub(r'\s+-device\s+(?:ich9-intel-hda|intel-hda|AC97|ac97|sb16)(?:,[^\s\n]+)?', '', content)
-                content = re.sub(r'\s+-device\s+hda-(?:duplex|output|micro)(?:,[^\s\n]+)?', '', content)
-                with open(script_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                self.log_signal.emit("==> macOS: audio deshabilitado.")
-                return
-
-            backend, _ = self._audio_args()
-            # Construir un backend explícito y una tarjeta HDA explícitamente asociada.
-            if backend == "pa":
-                audiodev_line = "-audiodev pa,id=audio0"
-            elif backend == "alsa":
-                audiodev_line = "-audiodev alsa,id=audio0"
-            else:
-                raise RuntimeError(f"Backend de audio no soportado: {backend}")
-
-            # Elimina definiciones previas de audio0 para evitar IDs duplicados y cualquier
-            # tarjeta HDA/AC97 que pudiera quedar con un backend implícito.
-            content = re.sub(r'\s+-audiodev\s+[^\s,]+,id=audio0(?:,[^\s]+)*', '', content)
-            content = re.sub(r'\s+-device\s+hda-duplex(?:,[^\s\n]+)?', '', content)
-            content = re.sub(r'\s+-device\s+ich9-intel-hda(?:,[^\s\n]+)?', '', content)
-            content = re.sub(r'\s+-device\s+intel-hda(?:,[^\s\n]+)?', '', content)
-
-            marker = "qemu-system-x86_64"
-            if marker not in content:
-                raise RuntimeError("No se pudo localizar qemu-system-x86_64 en OpenCore-Boot.sh.")
-
-            insertion = (
-                f"{marker} {audiodev_line} "
-                "-device ich9-intel-hda "
-                "-device hda-duplex,audiodev=audio0 "
-            )
-            content = content.replace(marker, insertion, 1)
-
-            with open(script_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            self.log_signal.emit(f"==> macOS: audio HDA configurado con backend {backend.upper()} (audiodev=audio0).")
-        except Exception as e:
-            raise RuntimeError(f"No se pudo configurar el audio de macOS: {e}")
 
     def _uefi_args(self):
         if self.firmware != "uefi":
@@ -1243,6 +1230,26 @@ class InstallWorker(QThread):
             parts.append(extra_global)
 
         return " ".join(parts)
+    def _serial_args(self):
+        """Devuelve el flag -serial file:<vm_dir>/serial.log si la VM lo
+        tiene activado en extra.serial_to_file.
+
+        Marcador: serial_to_file_v1
+
+        Util para diagnosticar problemas de arranque cuando la consola
+        grafica no muestra nada: la BIOS/OVMF, el cargador de arranque
+        y el kernel suelen volcar su progreso al puerto serie del
+        guest.
+
+        El archivo se escribe en la carpeta de la VM y se TRUNCA en
+        cada arranque (comportamiento por defecto de QEMU con file:).
+        Solo conserva, por tanto, la ultima sesion.
+        """
+        if not bool((self.extra_params or {}).get("serial_to_file", False)):
+            return ""
+        log_path = os.path.join(self.vm_dir, "serial.log")
+        return f'-serial file:"{log_path}"'
+
     def _passthrough_args(self):
         # Modo compatibilidad de snapshots (marcador snapshot_compat_v1):
         # los dispositivos PCI/USB son hardware físico sin vmstate
@@ -1339,34 +1346,6 @@ class InstallWorker(QThread):
             raise RuntimeError(f"OVMF VARS no quedó disponible: {vars_dst}")
         self.log_signal.emit("==> Firmware OVMF de macOS verificado: CODE compartido + VARS privado.")
         return code_src, vars_dst
-
-    def _patch_macos_network(self, script_path):
-        """Ajusta el modelo de NIC del OpenCore-Boot.sh. macOS usa una sola NIC en este flujo."""
-        try:
-            with open(script_path, "r") as f:
-                content = f.read()
-            model = self._network_model_for_guest()
-            patterns = [
-                r'(?<=-device )e1000-82545em', r'(?<=-device )e1000e',
-                r'(?<=-device )e1000', r'(?<=-device )virtio-net-pci',
-                r'(?<=-device )vmxnet3', r'(?<=-device )rtl8139',
-                r'(?<=model=)virtio', r'(?<=model=)e1000', r'(?<=model=)rtl8139',
-            ]
-            changed = False
-            for pat in patterns:
-                content2, count = re.subn(pat, model, content, count=1)
-                if count:
-                    content = content2
-                    changed = True
-                    break
-            if changed:
-                with open(script_path, "w") as f:
-                    f.write(content)
-                self.log_signal.emit(f"==> Dispositivo de red macOS: {model} (NAT/OSX-KVM).")
-            else:
-                self.log_signal.emit("==> No se detectó una NIC conocida en OpenCore-Boot.sh; se conserva la configuración de OSX-KVM.")
-        except Exception as e:
-            raise RuntimeError(f"No se pudo configurar la red de macOS: {e}")
 
     def _boot_token_label(self, token):
         """Etiqueta legible para el log del worker, sin depender de métodos de la UI."""
@@ -1836,6 +1815,36 @@ class InstallWorker(QThread):
         with open(cfg_path, "w", encoding="utf-8") as f:
             cfg.write(f)
 
+    def _write_extra_extra_keys(self, **kwargs):
+        """Actualiza extra.data en vm_config.ini con las claves indicadas.
+
+        Se usa desde la rama macOS para persistir la MAC asignada
+        (macos_mac_uniqueness_v1) y desde cualquier otra rama que
+        necesite guardar valores en extra sin reescribir todo el bloque.
+        Pasar None como valor borra la clave.
+        """
+        if not kwargs:
+            return
+        cfg_path = os.path.join(self.vm_dir, "vm_config.ini")
+        if not os.path.isfile(cfg_path):
+            return
+        cfg = configparser.ConfigParser(interpolation=None)
+        cfg.read(cfg_path, encoding="utf-8")
+        if not cfg.has_section("extra"):
+            cfg.add_section("extra")
+        try:
+            extra = json.loads(cfg["extra"].get("data", "{}"))
+        except Exception:
+            extra = {}
+        for k, v in kwargs.items():
+            if v is None:
+                extra.pop(k, None)
+            else:
+                extra[k] = v
+        cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            cfg.write(f)
+
     def run(self):
         """Ejecuta la VM y gestiona el passthrough PCI temporalmente."""
         pci_prepared = []
@@ -1930,9 +1939,25 @@ class InstallWorker(QThread):
                 else:
                     shutil.copy2(custom_image, base_system)
                     self.log_signal.emit("==> Imagen personalizada de macOS preparada como BaseSystem.img.")
-            elif not os.path.isfile(base_system) or os.path.getsize(base_system) == 0:
+            # macos_recovery_optional_v1: BaseSystem.img solo es
+            # obligatorio si el usuario configuro una unidad de
+            # System Recovery. Si tiene un medio propio o el sistema
+            # ya esta instalado, se permite arrancar sin el.
+            _recovery_unit_configured = any(
+                d.get("device") == "cdrom"
+                and str(d.get("source") or "") == "recovery"
+                for d in self._storage_devices_from_config()
+            )
+            _has_base_system = (
+                os.path.isfile(base_system)
+                and os.path.getsize(base_system) > 0
+            )
+            if (not _has_base_system and not use_custom
+                    and _recovery_unit_configured):
                 raise RuntimeError(
-                    "No existe BaseSystem.img para esta VM. Descarga/prepara primero el Recovery de macOS.\n"
+                    "No existe BaseSystem.img y hay una unidad System "
+                    "Recovery configurada. Descarga el Recovery o "
+                    "quita esa unidad.\n"
                     f"Ruta esperada: {base_system}"
                 )
 
@@ -1964,20 +1989,98 @@ class InstallWorker(QThread):
             # Algunos guests ignoran el DNS que QEMU sirve por DHCP
             # interno de slirp y quedan sin resolver nombres aunque
             # la red funcione.
+            # macos_mac_uniqueness_v1: MAC unica y persistente por VM.
+            # La MAC fija 52:54:00:c9:18:27 chocaba si varias VMs
+            # macOS corrian en la misma LAN slirp/bridge. Se guarda en
+            # extra["macos_nic_mac"] y se reutiliza en cada arranque.
+            _mac_mac = str(self.extra_params.get("macos_nic_mac") or "").strip()
+            _mac_valid = bool(re.match(
+                r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", _mac_mac
+            ))
+            if not _mac_valid:
+                _u = uuid.uuid4().bytes
+                _mac_mac = "52:54:00:%02x:%02x:%02x" % (_u[0], _u[1], _u[2])
+                try:
+                    self._write_extra_extra_keys(macos_nic_mac=_mac_mac)
+                    self.log_signal.emit(
+                        f"==> macOS: MAC nueva asignada y guardada: {_mac_mac}"
+                    )
+                except Exception as _mac_err:
+                    self.log_signal.emit(
+                        f"[AVISO] macOS: no se pudo persistir la MAC "
+                        f"({_mac_err}); se usara solo en este arranque."
+                    )
+            else:
+                self.log_signal.emit(
+                    f"==> macOS: MAC recuperada de la config: {_mac_mac}"
+                )
             network_args = (
                 f"-netdev user,id=net0,dns=10.0.2.3 "
-                f"-device {_mac_nic},netdev=net0,id=net0,mac=52:54:00:c9:18:27"
+                f"-device {_mac_nic},netdev=net0,id=net0,mac={_mac_mac}"
             )
             # NO activar +invtsc: QEMU lo expone como un dispositivo CPU no migrable
             # y bloquea los snapshots completos (savevm/snapshot-save) con:
             # "State blocked by non-migratable CPU device (invtsc flag)".
             # vmware-cpuid-freq mantiene la presentación de frecuencia esperada por macOS.
-            cpu_model = "Skylake-Client,-hle,-rtm,kvm=on,vendor=GenuineIntel,vmware-cpuid-freq=on" if str(os_choice) in ("8", "9") else "Penryn,kvm=on,vendor=GenuineIntel,vmware-cpuid-freq=on"
+            # macos_cpu_model_v1: respetar la eleccion del usuario en
+            # Configuracion -> Procesador. En "auto" se mantiene el
+            # modelo recomendado por OSX-KVM segun la version (Penryn
+            # para las antiguas, Skylake-Client para Sequoia/Tahoe).
+            _auto_cpu_macos = (
+                "Skylake-Client,-hle,-rtm,kvm=on,vendor=GenuineIntel,vmware-cpuid-freq=on"
+                if str(os_choice) in ("8", "9")
+                else "Penryn,kvm=on,vendor=GenuineIntel,vmware-cpuid-freq=on"
+            )
+            _user_cpu = str(self.extra_params.get("cpu_model") or "auto").strip()
+            if not _user_cpu or _user_cpu.lower() == "auto":
+                cpu_model = _auto_cpu_macos
+            elif _user_cpu.lower() == "host":
+                cpu_model = "host,kvm=on"
+                self.log_signal.emit(
+                    "==> macOS: CPU = host (maximo rendimiento, no "
+                    "portable a otros hosts con CPU distinta)."
+                )
+            else:
+                cpu_model = _user_cpu
+                self.log_signal.emit(
+                    f"==> macOS: CPU elegida por el usuario: {cpu_model}"
+                )
             my_options = "+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,check"
             qmp_path = os.path.join(self.vm_dir, "qemu.qmp")
             pid_path = os.path.join(self.vm_dir, "qemu.pid")
 
+            # macos_graphics_guard_v1
+            # 1) VirGL y Venus requieren un backend de display con
+            #    gl=on (gtk/sdl). En macOS no lo usamos (VNC embebido
+            #    o ventana nativa sin GL). Si el .ini trae virgl/venus
+            #    se degrada a auto con aviso claro, en lugar de
+            #    mandar a QEMU un -device virtio-vga-gl sin display GL
+            #    que abortaria el arranque.
             mode = self.graphics_mode or "auto"
+            if mode in ("virgl", "venus"):
+                self.log_signal.emit(
+                    f"[AVISO] macOS: '{mode}' no es compatible "
+                    "(necesita un backend de pantalla con OpenGL "
+                    "activo, y macOS no lo usa). Se arrancara con "
+                    "'auto'."
+                )
+                mode = "auto"
+
+            # 2) VRAM: usar el valor del combo grafico si es un tamano
+            #    valido. macOS/OpenCore se comporta mejor en 128 MB;
+            #    el rango seguro es 32..512 MB.
+            try:
+                _vram_txt = str(self.graphics_vram or "").strip().upper()
+                if _vram_txt.endswith("M"):
+                    _vram_mb = int(_vram_txt[:-1])
+                elif _vram_txt.endswith("G"):
+                    _vram_mb = int(_vram_txt[:-1]) * 1024
+                else:
+                    _vram_mb = int(_vram_txt)
+            except Exception:
+                _vram_mb = 128
+            _vram_mb = max(32, min(512, _vram_mb))
+
             if mode == "none":
                 mac_graphics = "-vga none -display none"
             elif mode == "qxl":
@@ -1986,10 +2089,9 @@ class InstallWorker(QThread):
                 mac_graphics = "-device vmware-svga"
             elif mode == "virtio":
                 mac_graphics = "-device virtio-vga"
-            elif mode in ("virgl", "venus"):
-                mac_graphics = "-device virtio-vga-gl,hostmem=256M,blob=true"
             else:
-                mac_graphics = "-device VGA,vgamem_mb=128"
+                # auto o cualquier otro valor -> VGA de OSX-KVM.
+                mac_graphics = f"-device VGA,vgamem_mb={_vram_mb}"
 
             self.log_signal.emit(f"==> macOS: CPU {cpu_model.split(',')[0]}, RAM {self.ram}, {self.cores} CPU(s).")
             if self._clipboard_enabled():
@@ -1999,6 +2101,22 @@ class InstallWorker(QThread):
             self.log_signal.emit("==> macOS: red NAT + VirtIO.")
             self.log_signal.emit("==> OVMF listo: CODE compartido + VARS exclusiva de esta VM.")
             self.log_signal.emit("==> OpenCore.qcow2: usando la imagen maestra en modo snapshot (sin copiarla).")
+
+            # macos_basesystem_check_conditional_v1: el check del
+            # script bash solo exige BaseSystem.img si el usuario
+            # configuro la unidad de Recovery (o si hay un custom
+            # image, que ya se verifico arriba). En el resto de
+            # casos no se exige porque se arranca sin InstallMedia.
+            if _has_base_system or _recovery_unit_configured or use_custom:
+                _basesystem_check = (
+                    f'if [ ! -s "{base_system}" ]; then '
+                    f'echo "ERROR: BaseSystem.img no esta disponible: {base_system}"; '
+                    f'exit 1; fi'
+                )
+            else:
+                _basesystem_check = (
+                    '# BaseSystem.img no requerido: se arranca sin InstallMedia.'
+                )
 
             mac_disk = filename
             script_content = f'''#!/bin/bash
@@ -2011,7 +2129,7 @@ echo "==> Creando/verificando disco virtual de macOS..."
 if [ ! -s "{code_path}" ]; then echo "ERROR: OVMF CODE no está disponible: {code_path}"; exit 1; fi
 if [ ! -s "{vars_path}" ]; then echo "ERROR: OVMF VARS no está disponible: {vars_path}"; exit 1; fi
 if [ ! -s "{source_opencore}" ]; then echo "ERROR: OpenCore.qcow2 no está disponible: {source_opencore}"; exit 1; fi
-if [ ! -s "{base_system}" ]; then echo "ERROR: BaseSystem.img no está disponible: {base_system}"; exit 1; fi
+{_basesystem_check}
 
 trap 'rm -f "{qmp_path}" "{pid_path}"' EXIT
 
@@ -2027,7 +2145,7 @@ qemu-system-x86_64 \
     -drive if=pflash,format=raw,readonly=on,file="{code_path}" \
     -drive if=pflash,format=raw,file="{vars_path}" \
     -smbios type=2 \
-    {audio_args} \
+    {audio_args} {self._serial_args()} \
     -device ich9-ahci,id=sata \
     -drive id=OpenCoreBoot,if=none,snapshot=on,format=qcow2,file="{source_opencore}" \
     -device ide-hd,bus=sata.2,drive=OpenCoreBoot \
@@ -2044,6 +2162,116 @@ QEMU_PID=$!
 echo $QEMU_PID > "{pid_path}"
 wait $QEMU_PID
 '''
+
+            # --- macos_extras_v1 ---
+            # 1) Si no hay BaseSystem.img y no hay unidad de Recovery,
+            #    quitar el bloque InstallMedia del comando QEMU.
+            if not _has_base_system:
+                script_content = script_content.replace(
+                    f'-drive id=InstallMedia,if=none,file="{base_system}",format=raw',
+                    '',
+                )
+                script_content = script_content.replace(
+                    '-device ide-hd,bus=sata.3,drive=InstallMedia',
+                    '',
+                )
+                self.log_signal.emit(
+                    "==> macOS: BaseSystem.img no existe y no hay unidad "
+                    "de Recovery configurada; se arranca sin InstallMedia."
+                )
+
+            # 2) Extras: CDs y discos adicionales del usuario.
+            #    Van a un segundo controlador AHCI (id=sataext) para no
+            #    chocar con los 3 puertos fijos de OSX-KVM (sata.2/3/4).
+            _extras_parts = []
+            # macos_extras_filter_v1: mismo filtro para los CDs;
+            # BaseSystem.img ya vive en InstallMedia y no debe
+            # adjuntarse por segunda vez.
+            _reserved_paths_cd = set()
+            for _rp in (mac_disk, base_system, source_opencore):
+                if _rp:
+                    try:
+                        _reserved_paths_cd.add(os.path.abspath(_rp))
+                    except Exception:
+                        pass
+            _cd_devs = [
+                d for d in self._storage_devices_from_config()
+                if d.get("device") == "cdrom"
+                and str(d.get("source") or "") != "recovery"
+                and d.get("path") and os.path.isfile(d.get("path"))
+                and os.path.abspath(d.get("path")) not in _reserved_paths_cd
+            ]
+            # macos_extras_filter_v1: excluir de los extras cualquier
+            # archivo que ya forme parte del bloque fijo de OSX-KVM
+            # (OpenCore.qcow2, BaseSystem.img, mac_hdd_ng.qcow2). Si se
+            # adjuntan dos veces, QEMU falla con 'Failed to get write
+            # lock' (el InstallMedia ya abre BaseSystem.img).
+            _reserved_paths = set()
+            for _rp in (mac_disk, base_system, source_opencore):
+                if _rp:
+                    try:
+                        _reserved_paths.add(os.path.abspath(_rp))
+                    except Exception:
+                        pass
+            _extra_disks = [
+                d for d in self._storage_devices_from_config()
+                if d.get("device") in ("sata", "nvme")
+                and d.get("path") and os.path.isfile(d.get("path"))
+                and os.path.abspath(d.get("path")) not in _reserved_paths
+            ]
+            if _cd_devs or _extra_disks:
+                _extras_parts.append("-device ich9-ahci,id=sataext")
+                for _i, _d in enumerate(_cd_devs[:4]):
+                    _cpath = _d["path"]
+                    _cdrv = f"maccd{_i}"
+                    _csafe = _qemu_safe_identifier(
+                        _d.get("id") or f"mac_cd{_i}", "mac_cd"
+                    )
+                    _extras_parts.append(
+                        f'-drive if=none,id={_cdrv},media=cdrom,'
+                        f'readonly=on,file="{_cpath}"'
+                    )
+                    _extras_parts.append(
+                        f'-device ide-cd,drive={_cdrv},'
+                        f'bus=sataext.{_i},unit=0,id={_csafe}'
+                    )
+                _base_port = 4
+                for _i, _d in enumerate(_extra_disks[:4]):
+                    _dpath = _d["path"]
+                    try:
+                        _dinfo = subprocess.run(
+                            ["qemu-img", "info", "--output=json", _dpath],
+                            capture_output=True, text=True,
+                            timeout=10, check=True,
+                        )
+                        _dfmt = json.loads(_dinfo.stdout).get("format", "qcow2")
+                    except Exception:
+                        _dfmt = "qcow2"
+                    _ddrv = f"macextra{_i}"
+                    _dsafe = _qemu_safe_identifier(
+                        _d.get("id") or f"mac_extra{_i}", "mac_extra"
+                    )
+                    _extras_parts.append(
+                        f'-drive file="{_dpath}",format={_dfmt},'
+                        f'if=none,id={_ddrv}'
+                    )
+                    _extras_parts.append(
+                        f'-device ide-hd,drive={_ddrv},id={_dsafe},'
+                        f'bus=sataext.{_base_port + _i},unit=0'
+                    )
+                if _extras_parts:
+                    _extras_text = " ".join(_extras_parts)
+                    _machdd_anchor = '-device ide-hd,bus=sata.4,drive=MacHDD'
+                    if _machdd_anchor in script_content:
+                        script_content = script_content.replace(
+                            _machdd_anchor,
+                            _machdd_anchor + ' ' + _extras_text,
+                            1,
+                        )
+                        self.log_signal.emit(
+                            f"==> macOS: a\u00f1adidos {len(_cd_devs[:4])} "
+                            f"CD(s) y {len(_extra_disks[:4])} disco(s) extra."
+                        )
         elif self.os_type == "windows":
             cpu_arg = self._cpu_args()
             win_ver = self.extra_params.get("win_ver", "Windows 11")
@@ -2102,6 +2330,7 @@ wait $QEMU_PID
                 self.finished_signal.emit(1)
                 return
             self.log_signal.emit(f"==> Gráficos: {graphics_note}")
+            self.log_signal.emit(f"==> Audio: backend {audio_backend.upper()}.")
             secure_note = " + Secure Boot" if self.secure_boot else ""
             tpm_note = " + TPM 2.0" if self.tpm else ""
             socket_path = os.path.join(self.vm_dir, "swtpm.sock")
@@ -2123,7 +2352,7 @@ qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} -smp {self.core
     -cpu {cpu_arg} -smp cores={self.cores},threads=1 \
     {disk_args} \
     {firmware_args} {tpm_args} {audio_args} {graphics_args} {clipboard_args} {self._passthrough_args()} \
-    {cdrom_args} {self._network_args(boot_index_network)} \
+    {self._serial_args()} {cdrom_args} {self._network_args(boot_index_network)} \
     -qmp unix:"{qmp_path}",server=on,wait=off &
 QEMU_PID=$!
 echo $QEMU_PID > "{pid_path}"
@@ -2177,6 +2406,7 @@ wait $QEMU_PID
                 self.finished_signal.emit(1)
                 return
             self.log_signal.emit(f"==> Gráficos: {graphics_note}")
+            self.log_signal.emit(f"==> Audio: backend {audio_backend.upper()}.")
             self.log_signal.emit(f"==> Android: ISO de instalación: {os.path.basename(android_iso)}")
 
             socket_path = os.path.join(self.vm_dir, "swtpm.sock")
@@ -2197,7 +2427,7 @@ echo "==> Iniciando QEMU para Android ({self.firmware.upper()})..."
 qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} -smp {self.cores} \\
     -cpu {cpu_arg} {disk_args} \\
     {firmware_args} {tpm_args} {audio_args} {graphics_args} {clipboard_args} {self._passthrough_args()} \\
-    {cdrom_args} {self._network_args(boot_index_network)} \\
+    {self._serial_args()} {cdrom_args} {self._network_args(boot_index_network)} \\
     -qmp unix:"{qmp_path}",server=on,wait=off &
 QEMU_PID=$!
 echo $QEMU_PID > "{pid_path}"
@@ -2231,6 +2461,7 @@ wait $QEMU_PID
                 self.finished_signal.emit(1)
                 return
             self.log_signal.emit(f"==> Gráficos: {graphics_note}")
+            self.log_signal.emit(f"==> Audio: backend {audio_backend.upper()}.")
             secure_note = " + Secure Boot" if self.secure_boot else ""
             tpm_note = " + TPM 2.0" if self.tpm else ""
             socket_path = os.path.join(self.vm_dir, "swtpm.sock")
@@ -2252,7 +2483,7 @@ echo "==> Iniciando QEMU para {distro} ({self.firmware.upper()}{secure_note}{tpm
 qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} -smp {self.cores} \
     -cpu {cpu_arg} {disk_args} \
     {firmware_args} {tpm_args} {audio_args} {graphics_args} {clipboard_args} {self._passthrough_args()} \
-    {self._cdrom_runtime_args("$ISO_FINAL")} {self._network_args(boot_index_network)} \
+    {self._serial_args()} {self._cdrom_runtime_args("$ISO_FINAL")} {self._network_args(boot_index_network)} \
     -qmp unix:"{qmp_path}",server=on,wait=off &
 QEMU_PID=$!
 echo $QEMU_PID > "{pid_path}"

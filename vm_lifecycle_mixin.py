@@ -1854,6 +1854,98 @@ class VmLifecycleMixin:
             "Este aviso no volverá a aparecer para esta VM en esta sesión."
         )
 
+    def _check_linked_clone_backing_intact(self, vm_dir, data=None):
+        """Avisa si un clon enlazado apunta a un backing file que ya no
+        existe en el host.
+
+        Marcador: linked_clone_broken_detection_v1
+
+        Caso típico: el usuario movió SOLO la carpeta del clon (sin
+        llevarse también la del original). La cabecera QCOW2 del clon
+        sigue apuntando a un archivo relativo que ya no existe en su
+        nueva ubicación. QEMU falla al arrancar con:
+
+            Could not open backing file: No such file or directory
+
+        Se avisa una sola vez por sesión y VM, y se sigue adelante: la VM
+        se abre para que el usuario vea la configuración y pueda intentar
+        '🧬 Desenlazar' (que puede fallar si el backing ya no está), o
+        mover también la VM original.
+        """
+        if not vm_dir:
+            return
+        if data is None:
+            try:
+                data = self._load_vm_config_cached(vm_dir)
+            except Exception:
+                return
+        extra = (data or {}).get("extra") or {}
+        if not extra.get("linked_clone"):
+            return
+
+        warned = getattr(self, "_linked_clone_broken_warned", None)
+        if warned is None:
+            warned = set()
+            self._linked_clone_broken_warned = warned
+        if vm_dir in warned:
+            return
+
+        # Determinar el backing esperado. Preferimos extra.linked_backing_rel
+        # (lo escribimos al crear el clon). Si no está, leemos la cabecera
+        # QCOW2 del disco principal: ahí está la fuente de verdad.
+        backing_rel = str(extra.get("linked_backing_rel") or "").strip()
+        primary_abs, _ptype = self._primary_disk_path(vm_dir)
+        if not backing_rel and primary_abs and os.path.isfile(primary_abs):
+            try:
+                r = subprocess.run(
+                    ["qemu-img", "info", "--output=json", primary_abs],
+                    capture_output=True, text=True, timeout=10, check=True,
+                )
+                backing_rel = str(
+                    json.loads(r.stdout).get("backing-filename") or ""
+                ).strip()
+            except Exception:
+                backing_rel = ""
+
+        if not backing_rel:
+            # Sin backing declarado, no podemos verificar. No avisamos.
+            return
+
+        backing_abs = vm_paths.to_absolute(vm_dir, backing_rel)
+        if backing_abs and os.path.isfile(backing_abs):
+            return
+
+        warned.add(vm_dir)
+        original_name = str(extra.get("linked_original") or "").strip() or "(desconocido)"
+        try:
+            self.log_message(
+                f"[AVISO] Clon enlazado: el backing file del clon "
+                f"'{os.path.basename(vm_dir)}' no existe en {backing_abs}. "
+                f"QEMU no podrá arrancar esta VM hasta que el original "
+                f"('{original_name}') vuelva a estar accesible."
+            )
+        except Exception:
+            pass
+        QMessageBox.warning(
+            self, "Clon enlazado con backing roto",
+            f"Este clon enlazado espera el backing en:\n\n"
+            f"    {backing_rel}\n\n"
+            f"Resuelto contra su carpeta queda en:\n\n"
+            f"    {backing_abs}\n\n"
+            f"Ese archivo no existe. La VM original "
+            f"('{original_name}') probablemente se movió o se borró.\n\n"
+            "QEMU fallará al arrancar con:\n"
+            "    Could not open backing file: No such file or directory\n\n"
+            "Opciones:\n"
+            "  • Mueve también la VM original de vuelta a su carpeta, o\n"
+            "  • Copia la carpeta 'VirtualMachines/' entera (con original\n"
+            "    y clon juntos) a la nueva ubicación, o\n"
+            "  • Si aún puedes, usa '🧬 Desenlazar' en la pestaña Resumen\n"
+            "    para independizar este clon (puede fallar si el backing\n"
+            "    ya no está disponible).\n\n"
+            "Este aviso no volverá a aparecer para esta VM en esta sesión."
+        )
+
     def _clone_current_vm_full(self, source_dir, clone_name, destination):
         """Clon completo: copia recursiva + MACs e IDs nuevos."""
         try:
@@ -2069,14 +2161,20 @@ class VmLifecycleMixin:
                 old_path = d.get("path") or ""
                 if not old_path:
                     continue
-                old_abs = os.path.abspath(old_path)
+                # portable_paths_v1: los paths guardados en el original
+                # pueden ser relativos a source_dir. Resolverlos contra
+                # source_dir antes de comparar con primary_abs, y al
+                # reescribir en el clon, guardarlos relativos a
+                # destination (to_portable) para que el clon siga
+                # siendo portable a otro host.
+                old_abs = vm_paths.to_absolute(source_dir, old_path)
                 if old_abs == primary_abs_norm:
-                    d["path"] = clone_disk_abs
+                    d["path"] = vm_paths.to_portable(destination, clone_disk_abs)
                 elif old_abs.startswith(source_dir_abs + os.sep):
                     rel_p = os.path.relpath(old_abs, source_dir_abs)
                     new_p = os.path.join(destination, rel_p)
                     if os.path.isfile(new_p):
-                        d["path"] = new_p
+                        d["path"] = vm_paths.to_portable(destination, new_p)
             extra["storage_devices"] = _devices
             parser.set("extra", "data", json.dumps(extra, ensure_ascii=False))
 
@@ -2106,6 +2204,9 @@ class VmLifecycleMixin:
             "    la vista del sistema de archivos queda anclada al estado\n"
             "    del primer arranque. Trata el original como de solo lectura\n"
             "    mientras el clon exista.\n"
+            "  • Los snapshots completos (RAM) no funcionarán en este clon\n"
+            "    — solo de disco. QEMU no puede restaurar (loadvm) un\n"
+            "    snapshot completo sobre un QCOW2 con backing file.\n"
             "  • Los snapshots del clon no son reproducibles mientras el\n"
             "    original pueda cambiar: al restaurar, se mezcla el delta\n"
             "    guardado con el estado ACTUAL del backing.\n"
@@ -2396,10 +2497,16 @@ class VmLifecycleMixin:
         try:
             data = self._load_vm_config_cached(vm_dir)
             for d in (data.get("extra") or {}).get("storage_devices", []):
-                path = os.path.abspath(d.get("path", "")) if d.get("path") else ""
+                # portable_paths_v1: el path guardado puede ser relativo a
+                # vm_dir; resolverlo contra vm_dir antes de comparar con
+                # commonpath, para no confundir un disco interno con un
+                # medio externo (ni al reves).
+                _stored = d.get("path", "") or ""
+                path = vm_paths.to_absolute(vm_dir, _stored) if _stored else ""
                 if path and os.path.exists(path) and os.path.commonpath([vm_dir, path]) != vm_dir:
                     external_media.append(path)
-            cd_path = os.path.abspath((data.get("extra") or {}).get("cdrom_path", "")) if (data.get("extra") or {}).get("cdrom_path") else ""
+            _cd_stored = (data.get("extra") or {}).get("cdrom_path", "") or ""
+            cd_path = vm_paths.to_absolute(vm_dir, _cd_stored) if _cd_stored else ""
             if cd_path and os.path.exists(cd_path) and os.path.commonpath([vm_dir, cd_path]) != vm_dir:
                 external_media.append(cd_path)
         except Exception:
@@ -5985,6 +6092,10 @@ class VmLifecycleMixin:
         self.combo_audio.setCurrentIndex(self.combo_audio.findData("intel-hda"))
         self.combo_graphics.setCurrentIndex(self.combo_graphics.findData("auto"))
         self.combo_graphics_vram.setCurrentIndex(self.combo_graphics_vram.findData("256M"))
+        if hasattr(self, "check_serial_to_file"):
+            self.check_serial_to_file.blockSignals(True)
+            self.check_serial_to_file.setChecked(False)
+            self.check_serial_to_file.blockSignals(False)
         self.update_network_options()
         self.refresh_network_devices_ui()
         self._passthrough_saved=[]
@@ -6027,6 +6138,74 @@ class VmLifecycleMixin:
             QMessageBox.warning(self, "Error", f"No se pudo leer la configuración de '{vm_name}': {e}")
             return
 
+        # macos_storage_cleanup_v1: en macOS, los archivos del bloque
+        # fijo de OSX-KVM (BaseSystem.img, mac_hdd_ng.qcow2, OpenCore.qcow2)
+        # NO deben estar registrados como discos SATA/NVMe del usuario.
+        # Si una version antigua los dejo ahi, QEMU intentaria abrirlos
+        # por segunda vez (junto al bloque fijo del script) y fallaria
+        # con "Failed to get write lock". Se purgan aqui, antes de que
+        # workers.py lea la configuracion.
+        try:
+            _os_type = (data.get("os_type") or "").lower()
+            if _os_type == "macos":
+                _extra = data.get("extra") or {}
+                _devices = _extra.get("storage_devices") or []
+                if isinstance(_devices, list) and _devices:
+                    _reserved_names = {
+                        "basesystem.img",
+                        "mac_hdd_ng.qcow2",
+                        "opencore.qcow2",
+                    }
+                    _kept = []
+                    _removed = []
+                    for _d in _devices:
+                        if not isinstance(_d, dict):
+                            _kept.append(_d)
+                            continue
+                        _kind = str(_d.get("device") or "")
+                        _p = str(_d.get("path") or "")
+                        _base = os.path.basename(_p).lower() if _p else ""
+                        if _kind in ("sata", "nvme", "floppy") and _base in _reserved_names:
+                            _removed.append(_d)
+                        else:
+                            _kept.append(_d)
+                    if _removed:
+                        _cfg_path = os.path.join(vm_dir, "vm_config.ini")
+                        if os.path.isfile(_cfg_path):
+                            import configparser as _cfgmod
+                            _c = _cfgmod.ConfigParser(interpolation=None)
+                            _c.read(_cfg_path, encoding="utf-8")
+                            if not _c.has_section("extra"):
+                                _c.add_section("extra")
+                            try:
+                                _extra_data = json.loads(_c["extra"].get("data", "{}"))
+                            except Exception:
+                                _extra_data = {}
+                            _extra_data["storage_devices"] = _kept
+                            _c.set("extra", "data", json.dumps(_extra_data, ensure_ascii=False))
+                            with open(_cfg_path, "w", encoding="utf-8") as _fh:
+                                _c.write(_fh)
+                            if hasattr(self, "_invalidate_vm_config_cache"):
+                                self._invalidate_vm_config_cache(vm_dir)
+                            _names = [
+                                os.path.basename(str(_d.get("path") or ""))
+                                for _d in _removed
+                            ]
+                            self.log_message(
+                                "==> macOS: purgadas "
+                                + str(len(_removed))
+                                + " entrada(s) reservada(s) de storage_devices: "
+                                + ", ".join(_names)
+                            )
+        except Exception as _clean_err:
+            try:
+                self.log_message(
+                    "[AVISO] macOS: no se pudo purgar storage_devices: "
+                    + str(_clean_err)
+                )
+            except Exception:
+                pass
+
         self.current_vm_dir = vm_dir
         # El usuario abrió la VM: se considera atendida la alerta de
         # muerte inesperada del watchdog.
@@ -6037,6 +6216,13 @@ class VmLifecycleMixin:
         if not getattr(self, "_auto_starting", False):
             try:
                 self._check_linked_clone_original_running(vm_dir, data)
+            except Exception:
+                pass
+            # linked_clone_broken_detection_v1: si el backing del clon ya no
+            # existe (típico al mover solo la carpeta del clon), avisar antes
+            # de que QEMU falle con un error críptico.
+            try:
+                self._check_linked_clone_backing_intact(vm_dir, data)
             except Exception:
                 pass
         self.input_vm_name.setText(data["name"] or vm_name)
@@ -6109,6 +6295,11 @@ class VmLifecycleMixin:
             self.combo_pointer.blockSignals(True)
             self.combo_pointer.setCurrentIndex(_ptr_idx)
             self.combo_pointer.blockSignals(False)
+        if hasattr(self, "check_serial_to_file"):
+            _ser = bool((data.get("extra") or {}).get("serial_to_file", False))
+            self.check_serial_to_file.blockSignals(True)
+            self.check_serial_to_file.setChecked(_ser)
+            self.check_serial_to_file.blockSignals(False)
         graphics_idx = self.combo_graphics.findData(data.get("graphics_mode", "auto"))
         if graphics_idx >= 0:
             self.combo_graphics.setCurrentIndex(graphics_idx)
@@ -6600,6 +6791,20 @@ class VmLifecycleMixin:
                 extra = {}
             extra["autostart_on_launch"] = bool(
                 self.check_autostart_on_launch.isChecked()
+            )
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+        # serial_to_file_v1: persistir el flag de captura del puerto
+        # serie (lo consume workers._serial_args()).
+        if hasattr(self, "check_serial_to_file"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["serial_to_file"] = bool(
+                self.check_serial_to_file.isChecked()
             )
             cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
 

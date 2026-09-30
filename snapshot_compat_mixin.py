@@ -89,26 +89,103 @@ class SnapshotCompatMixin:
             except Exception:
                 pass
 
-        # --- 1) Combo Gráficos: deshabilitar VirGL/Venus ---
+        # --- 1) Combo Gráficos: deshabilitar opciones incompatibles ---
+        # Marcador: macos_graphics_ui_v1 (extendido a este mixin)
+        #
+        # Este loop es la ÚLTIMA palabra sobre el estado de los items
+        # del combo Gráficos. Combina tres condiciones de bloqueo:
+        #   • snapshot_compat activo     -> VirGL/Venus
+        #   • VNC embebido / híbrido     -> VirGL/Venus
+        #   • macOS                      -> VirGL/Venus/QXL/VMware/
+        #                                   VirtIO/Headless
+        # "Automático" NUNCA se bloquea: siempre es el fallback.
+        #
+        # Nota histórica: la restricción macOS vivía también en
+        # virtual_machine._apply_macos_graphics_restrictions, pero
+        # este loop la pisaba al reejecutarse (open_vm llama a
+        # _refresh_snapshot_compat_ui_on_os_change después de
+        # update_graphics_options). Centralizar aquí evita el
+        # pisado y futuras regresiones si otro mixin toca el combo.
+        try:
+            _is_macos = self.combo_main_os.currentData() == "macos"
+        except Exception:
+            _is_macos = False
+
         combo = getattr(self, "combo_graphics", None)
         if combo is not None:
-            incompatible = {"virgl", "venus"}
+            _gl_blocked = {"virgl", "venus"}
+            _macos_blocked = {"qxl", "vmware", "vmware-svga",
+                              "virtio", "none"}
+            _macos_tooltips = {
+                "qxl": (
+                    "QXL no tiene driver para macOS. OpenCore puede "
+                    "mostrar el selector de arranque, pero cuando "
+                    "macOS carga su framebuffer la pantalla se queda "
+                    "en negro o a resolución mínima.\n\n"
+                    "Usa 'Automático' (VGA genérico): único modelo "
+                    "que macOS reconoce sin driver externo."
+                ),
+                "vmware": (
+                    "VMware SVGA II no tiene driver nativo en macOS "
+                    "sobre QEMU. El driver de darwin.iso (VMware "
+                    "Tools) está diseñado para hardware VMware real, "
+                    "y QEMU no implementa todas las capacidades que "
+                    "ese driver espera (alpha cursor, pitchlock...).\n\n"
+                    "Usa 'Automático' (VGA genérico)."
+                ),
+                "vmware-svga": (
+                    "VMware SVGA II no tiene driver nativo en macOS "
+                    "sobre QEMU.\n\n"
+                    "Usa 'Automático' (VGA genérico)."
+                ),
+                "virtio": (
+                    "VirtIO-GPU no tiene driver para macOS: la "
+                    "pantalla no se inicializa.\n\n"
+                    "Usa 'Automático' (VGA genérico)."
+                ),
+                "none": (
+                    "Sin video: OpenCore necesita mostrar su "
+                    "selector de arranque en pantalla.\n\n"
+                    "Usa 'Automático' (VGA genérico)."
+                ),
+                "virgl": (
+                    "macOS no usa un backend de pantalla con OpenGL "
+                    "activo; VirGL no puede funcionar aquí.\n\n"
+                    "Usa 'Automático' (VGA genérico)."
+                ),
+                "venus": (
+                    "macOS no usa un backend de pantalla con OpenGL "
+                    "activo; Venus no puede funcionar aquí.\n\n"
+                    "Usa 'Automático' (VGA genérico)."
+                ),
+            }
             model = combo.model()
             for i in range(combo.count()):
                 data = combo.itemData(i)
                 item = model.item(i)
                 if item is None:
                     continue
-                blocked = (
-                    (active and data in incompatible)
-                    or (vnc_on and data in incompatible)
-                )
+                blocked = False
+                if data in _gl_blocked and (active or vnc_on):
+                    blocked = True
+                if _is_macos and data in (_gl_blocked | _macos_blocked):
+                    blocked = True
                 try:
                     item.setEnabled(not blocked)
                 except Exception:
                     pass
+                if _is_macos and data in _macos_tooltips:
+                    try:
+                        combo.setItemData(i, _macos_tooltips[data], 3)
+                    except Exception:
+                        pass
             cur = combo.currentData()
-            if active and cur in incompatible:
+            _fallback = False
+            if active and cur in _gl_blocked:
+                _fallback = True
+            if _is_macos and cur in (_gl_blocked | _macos_blocked):
+                _fallback = True
+            if _fallback and cur != "auto":
                 idx = combo.findData("auto")
                 if idx >= 0:
                     combo.blockSignals(True)

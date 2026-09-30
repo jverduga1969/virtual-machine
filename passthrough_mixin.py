@@ -733,12 +733,19 @@ class PassthroughMixin:
     # y setfacl.
 
     def _goto_passthrough_tab(self):
-        """Navega a la pestaña Passthrough (usada por el menú de USB)."""
+        """Navega a la seccion Passthrough (Config VM -> sidebar).
+
+        split_vm_host_config_v1: Passthrough ya no es una pestana propia;
+        vive como seccion del sidebar de Configuracion VM. Este metodo
+        ahora va a la pestana "Configuracion VM" y selecciona su fila.
+        """
         try:
-            idx = getattr(self, "_passthrough_tab_index", None)
-            if idx is None:
-                idx = 2
-            self.main_tabs.setCurrentIndex(idx)
+            self.main_tabs.setCurrentIndex(
+                getattr(self, "_passthrough_tab_index", 1)
+            )
+            row = getattr(self, "_passthrough_sidebar_row", None)
+            if row is not None and hasattr(self, "config_sidebar"):
+                self.config_sidebar.setCurrentRow(int(row))
         except Exception:
             pass
 

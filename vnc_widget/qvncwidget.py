@@ -167,14 +167,113 @@ class QVNCWidget(QWidget, RFBClient):
         return int(xPos), int(yPos)
 
     # Key events
+    # vnc_keysym_fix_v1: traduccion correcta Qt.Key -> keysym X11.
+    #
+    # Sin este mapa, las teclas especiales se enviaban con su codigo
+    # de Qt (rango 0x01000000+) que en RFB significa "keysym Unicode"
+    # (los 24 bits bajos son el codepoint). Por eso Ctrl se enviaba
+    # como '!' (U+0021), Alt como '#' (U+0023), Meta como '"' (U+0022)
+    # y Tab/Backspace/Flechas como codepoints invalidos.
+    #
+    # El mapa cubre solo teclas que NO son ASCII imprimible. Para el
+    # resto (letras, digitos, simbolos) se usa ev.text(), que ya trae
+    # el caracter tras aplicar la distribucion de teclado del host.
+    _QT_KEY_TO_X11_KEYSYM = {
+        Qt.Key.Key_Shift:     0xFFE1,  # Shift_L
+        Qt.Key.Key_Control:   0xFFE3,  # Control_L
+        Qt.Key.Key_Alt:       0xFFE9,  # Alt_L
+        Qt.Key.Key_Meta:      0xFFEB,  # Super_L
+        Qt.Key.Key_AltGr:     0xFFEA,  # Alt_R
+        Qt.Key.Key_CapsLock:  0xFFE5,
+        Qt.Key.Key_Tab:       0xFF09,
+        Qt.Key.Key_Backtab:   0xFE20,
+        Qt.Key.Key_Backspace: 0xFF08,
+        Qt.Key.Key_Return:    0xFF0D,
+        Qt.Key.Key_Enter:     0xFF8D,
+        Qt.Key.Key_Escape:    0xFF1B,
+        Qt.Key.Key_Delete:    0xFFFF,
+        Qt.Key.Key_Insert:    0xFF63,
+        Qt.Key.Key_Home:      0xFF50,
+        Qt.Key.Key_End:       0xFF57,
+        Qt.Key.Key_PageUp:    0xFF55,
+        Qt.Key.Key_PageDown:  0xFF56,
+        Qt.Key.Key_Left:      0xFF51,
+        Qt.Key.Key_Up:        0xFF52,
+        Qt.Key.Key_Right:     0xFF53,
+        Qt.Key.Key_Down:      0xFF54,
+        Qt.Key.Key_Print:     0xFF61,
+        Qt.Key.Key_ScrollLock:0xFF14,
+        Qt.Key.Key_Pause:     0xFF13,
+        Qt.Key.Key_Menu:      0xFF67,
+        Qt.Key.Key_Help:      0xFF6A,
+        Qt.Key.Key_F1:  0xFFBE,
+        Qt.Key.Key_F2:  0xFFBF,
+        Qt.Key.Key_F3:  0xFFC0,
+        Qt.Key.Key_F4:  0xFFC1,
+        Qt.Key.Key_F5:  0xFFC2,
+        Qt.Key.Key_F6:  0xFFC3,
+        Qt.Key.Key_F7:  0xFFC4,
+        Qt.Key.Key_F8:  0xFFC5,
+        Qt.Key.Key_F9:  0xFFC6,
+        Qt.Key.Key_F10: 0xFFC7,
+        Qt.Key.Key_F11: 0xFFC8,
+        Qt.Key.Key_F12: 0xFFC9,
+    }
+
+    def _qt_key_to_keysym(self, ev: QKeyEvent) -> int:
+        """Convierte un QKeyEvent al keysym X11 que espera RFB.
+
+        vnc_keysym_fix_v1.
+        """
+        try:
+            k = ev.key()
+        except Exception:
+            return 0
+        # 1) Teclas especiales: mapa explicito.
+        m = self._QT_KEY_TO_X11_KEYSYM.get(k)
+        if m is not None:
+            return m
+        # 2) Caracteres imprimibles: usar el texto (ya aplicada la
+        #    distribucion del host). El codepoint ASCII coincide con
+        #    el keysym X11; para >127 se usa el rango Unicode keysym.
+        try:
+            text = ev.text()
+        except Exception:
+            text = ""
+        if text:
+            cp = ord(text[0])
+            # Descartar caracteres de control (Ctrl+A da '\x01'): esos
+            # NO son el keysym del caracter, son el efecto del modificador.
+            # En ese caso caemos al ev.key() crudo (que para Ctrl+A es
+            # 'A' = 0x41, el keysym correcto).
+            if cp >= 0x20 and cp != 0x7F:
+                if cp < 0x80:
+                    return cp
+                if cp <= 0x10FFFF:
+                    return 0x01000000 + cp
+        # 3) Fallback: devolver el codigo de Qt tal cual.
+        try:
+            return int(k)
+        except Exception:
+            return k if isinstance(k, int) else 0
+
+    def focusNextPrevChild(self, _next: bool) -> bool:
+        """vnc_keysym_fix_v1: bloquear la navegacion por Tab.
+
+        Qt intercepta Tab/Backtab ANTES de keyPressEvent para mover el
+        foco entre widgets. Devolviendo False aqui, le decimos que NO
+        mueva el foco, y el evento sigue su curso hasta keyPressEvent,
+        donde lo enviamos a la VM.
+        """
+        return False
 
     def keyPressEvent(self, ev: QKeyEvent):
         if self.readOnly:
             return
-        self.keyEvent(RFBInput.fromQKeyEvent(ev.key(), ev.text()), down=1)
+        self.keyEvent(self._qt_key_to_keysym(ev), down=1)
 
     def keyReleaseEvent(self, ev: QKeyEvent):
         if self.readOnly:
             return
-        self.keyEvent(RFBInput.fromQKeyEvent(ev.key(), ev.text()), down=0)
+        self.keyEvent(self._qt_key_to_keysym(ev), down=0)
 

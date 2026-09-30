@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QRadioButton, QButtonGroup, QFileDialog, QCheckBox, QListWidget, QListWidgetItem, QInputDialog, QTabWidget, QSplitter, QDialog, QFormLayout, QGridLayout, QFrame, QSlider, QTreeWidget, QTreeWidgetItem, QScrollArea, QSizePolicy, QProgressBar, QProgressDialog, QSpinBox, QToolButton, QMenu
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer, QSettings, QSize, QObject
-from PyQt6.QtGui import QFont, QPainter, QPen, QBrush, QPixmap, QAction
+from PyQt6.QtGui import QFont, QPainter, QPen, QBrush, QPixmap, QAction, QIcon
 
 # Combinaciones ofrecidas para salir de la pantalla completa de la consola VNC.
 # Cada tupla es (etiqueta visible, valor guardado). El valor "RCTRL" es un
@@ -100,6 +100,7 @@ from snapshot_compat_mixin import SnapshotCompatMixin
 from scheduler_mixin import SchedulerMixin
 from snapshot_schedule_mixin import SnapshotScheduleMixin
 from backup_schedule_mixin import BackupScheduleMixin
+from media_library_mixin import MediaLibraryMixin
 from async_ui_mixin import AsyncUiMixin
 from snapshots_graph import SnapshotsGraphView
 from console_ui_mixin import ConsoleUiMixin
@@ -252,7 +253,7 @@ class _LinVersionsBridge(QObject):
     done = pyqtSignal(int, str, object, object)  # token, distro, versiones, error
 
 
-class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, ConsoleUiMixin, QMainWindow):
+class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, ConsoleUiMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Virtual.Machine 38.1 • Administrador QEMU/KVM")
@@ -684,22 +685,46 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.config_sidebar.setSpacing(2)
         self.config_sidebar.setIconSize(QSize(18, 18))
         from PyQt6.QtWidgets import QStyle as _QStyle
+        # split_vm_host_config_v1: "Virtualización" sale del sidebar
+        # (sus grupos se van a la pestaña Configuración Host).
+        # "Passthrough" y "Compartición" entran como secciones propias.
+        # sidebar_icons_v2: iconos del tema del sistema (Breeze en
+        # KDE) con reserva al SP_* clasico de Qt si el tema activo no
+        # tiene el nombre pedido.
         _sections = [
-            (_QStyle.StandardPixmap.SP_ComputerIcon, "Sistema"),
-            (_QStyle.StandardPixmap.SP_ComputerIcon, "Procesador"),
-            (_QStyle.StandardPixmap.SP_DriveHDIcon, "Memoria"),
-            (_QStyle.StandardPixmap.SP_DesktopIcon, "Pantalla"),
-            (_QStyle.StandardPixmap.SP_DriveHDIcon, "Almacenamiento"),
-            (_QStyle.StandardPixmap.SP_DriveNetIcon, "Red"),
-            (_QStyle.StandardPixmap.SP_DriveFDIcon, "Dispositivos"),
-            (_QStyle.StandardPixmap.SP_FileDialogDetailedView, "Virtualización"),
+            ("computer",       _QStyle.StandardPixmap.SP_ComputerIcon, "Sistema"),
+            ("cpu",            _QStyle.StandardPixmap.SP_ComputerIcon, "Procesador"),
+            ("memory",         _QStyle.StandardPixmap.SP_DriveHDIcon,  "Memoria"),
+            ("video-display",  _QStyle.StandardPixmap.SP_DesktopIcon,  "Pantalla"),
+            ("drive-harddisk", _QStyle.StandardPixmap.SP_DriveHDIcon,  "Almacenamiento"),
+            ("network-wired",  _QStyle.StandardPixmap.SP_DriveNetIcon, "Red"),
+            ("audio-card",     _QStyle.StandardPixmap.SP_MediaVolume,  "Dispositivos"),
+            ("plug",           _QStyle.StandardPixmap.SP_ArrowForward, "Passthrough"),
+            ("folder-open",    _QStyle.StandardPixmap.SP_DirOpenIcon,  "Compartición"),
         ]
         _style = self.style()
-        for pixmap_enum, label in _sections:
+
+        def _resolve_icon(theme_name, sp_fallback):
+            """Devuelve el icono del tema, o el SP_* si el tema no lo tiene."""
+            try:
+                ic = QIcon.fromTheme(theme_name)
+                if ic is not None and not ic.isNull():
+                    return ic
+            except Exception:
+                pass
+            return _style.standardIcon(sp_fallback)
+
+        self._passthrough_sidebar_row = None
+        self._comparticion_sidebar_row = None
+        for _idx, (theme_name, sp_fb, label) in enumerate(_sections):
             it = QListWidgetItem("  " + label)
-            it.setIcon(_style.standardIcon(pixmap_enum))
+            it.setIcon(_resolve_icon(theme_name, sp_fb))
             it.setData(Qt.ItemDataRole.UserRole, label)
             self.config_sidebar.addItem(it)
+            if label == "Passthrough":
+                self._passthrough_sidebar_row = _idx
+            elif label == "Compartición":
+                self._comparticion_sidebar_row = _idx
 
         # --- Stack de páginas ---
         self.config_stack = QStackedWidget()
@@ -716,8 +741,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         main_layout.addStretch(1)
 
         # Crear páginas vacías en el orden de _sections.
+        # sidebar_icons_v2_fix1: cada tupla tiene ahora 3 campos
+        # (nombre_icono_tema, SP_fallback, label).
         self._config_page_layouts = {}
-        for _, label in _sections:
+        for _, _, label in _sections:
             page = QWidget()
             lay = QVBoxLayout(page)
             lay.setContentsMargins(22, 18, 22, 18)
@@ -733,7 +760,11 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # Almacenamiento: se rellena desde _build_storage_group.
         self._populate_config_red()
         self._populate_config_dispositivos()
-        self._populate_config_otros()
+        # split_vm_host_config_v1: las deps del host ya no son una
+        # sección del sidebar de Config VM. Se construyen aquí y se
+        # insertan en la pestaña "Configuración Host" (ver
+        # _build_main_container).
+        self._host_deps_group = self._build_host_deps_group()
 
         # Ahora que TODOS los widgets existen (firmware, chipset, cpu,
         # graphics, secure_boot, tpm, etc.), aplicar el perfil del SO
@@ -852,12 +883,21 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         adv_grid.setHorizontalSpacing(20)
         adv_grid.setVerticalSpacing(6)
 
+        # advanced_options_hidden_v1
+        # ACPI / APIC / IOMMU / PCIe Root Port: QEMU los configura
+        # automaticamente segun el chipset y el SO. En este proyecto
+        # no existe ningun caso de uso real donde desactivarlos
+        # aporte algo, asi que se OCULTAN de la UI. Se siguen
+        # creando por si otro codigo los referencia.
         self.check_acpi = QCheckBox("Habilitar ACPI")
         self.check_acpi.setChecked(True)
         self.check_apic = QCheckBox("Habilitar APIC")
         self.check_apic.setChecked(True)
         self.check_iommu = QCheckBox("Habilitar IOMMU")
         self.check_pcie_root = QCheckBox("PCIe Root Port")
+        for _w in (self.check_acpi, self.check_apic,
+                   self.check_iommu, self.check_pcie_root):
+            _w.setVisible(False)
 
         adv_grid.addWidget(self.check_acpi, 0, 0)
         adv_grid.addWidget(self.check_apic, 1, 0)
@@ -1576,6 +1616,29 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_pointer.currentIndexChanged.connect(self._on_pointer_device_changed)
         lay.addWidget(self.combo_pointer)
 
+        # Captura del puerto serie a un archivo (marcador serial_to_file_v1).
+        # Util para diagnosticar problemas de arranque cuando la consola
+        # grafica no muestra nada.
+        self.check_serial_to_file = QCheckBox(
+            "Capturar el puerto serie a un archivo (serial.log)"
+        )
+        self.check_serial_to_file.setToolTip(
+            "Activa -serial file:<vm_dir>/serial.log en la linea de QEMU.\n"
+            "\n"
+            "El puerto serie del guest se vuelca a un archivo dentro de la\n"
+            "carpeta de la VM. La BIOS/OVMF, el cargador de arranque y el\n"
+            "kernel suelen escribir ahi su progreso: es la forma mas directa\n"
+            "de ver por que una VM se queda en pantalla negra o se reinicia.\n"
+            "\n"
+            "El archivo se SOBREESCRIBE en cada arranque: solo conserva la\n"
+            "ultima sesion. Se puede abrir con '📂 Carpeta' en la pestana\n"
+            "Resumen."
+        )
+        self.check_serial_to_file.stateChanged.connect(
+            self._on_serial_to_file_changed
+        )
+        lay.addWidget(self.check_serial_to_file)
+
         note = QLabel(
             "Para pasar hardware físico (PCI/USB) a esta VM, usa la pestaña "
             "<b>Dispositivos</b> de la parte superior de la ventana."
@@ -1595,15 +1658,26 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         except Exception:
             pass
 
-    def _populate_config_otros(self):
-        lay = self._config_page_layouts["Virtualización"]
-        lay.addWidget(self._config_section_title(
-            "Virtualización",
-            "Diagnóstico del sistema de virtualización y opciones misceláneas.",
-        ))
+    def _on_serial_to_file_changed(self, *args):
+        """Guarda la preferencia de captura serie al cambiarla (si hay VM).
 
-        # Panel de estado de dependencias (antes era un QGroupBox invisible en
-        # main_layout). Ahora vive aquí y se hace visible por defecto.
+        Marcador: serial_to_file_v1.
+        """
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+        except Exception:
+            pass
+
+    def _build_host_deps_group(self):
+        """Construye el QGroupBox del estado de virtualización del host.
+
+        split_vm_host_config_v1: antes se añadía al sidebar de Config VM
+        (sección "Virtualización"). Ahora este método SOLO construye el
+        widget; la pestaña "Configuración Host" lo inserta.
+        """
         deps_group = QGroupBox("Estado del sistema de virtualización")
         deps_layout = QVBoxLayout(deps_group)
 
@@ -1642,8 +1716,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         deps_buttons.addWidget(self.btn_repair_deps)
         deps_buttons.addStretch()
         deps_layout.addLayout(deps_buttons)
-        lay.addWidget(deps_group)
-        lay.addStretch()
+        # split_vm_host_config_v1: devolvemos el widget en vez de
+        # añadirlo a un layout. El llamador decide dónde va.
+        return deps_group
 
     def _build_storage_group(self, main_layout):
         """Bloque de almacenamiento. Vive DENTRO de la sección
@@ -1777,7 +1852,14 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
     def _build_main_container(self, main_layout):
         """Panel izquierdo (lista de VMs) + centro (tabs) + derecho (recursos).
-        Al final monta el QWidget contenedor y lo pone como central."""
+        Al final monta el QWidget contenedor y lo pone como central.
+
+        split_vm_host_config_v1: la lista de pestanas ahora es
+        Resumen / Configuracion VM / Configuracion Host / Snapshots /
+        Backups / Medios / Consola Grafica / Consola de Progreso / Ayuda.
+        Passthrough y Carpetas compartidas dejaron de ser pestanas
+        propias y viven como secciones del sidebar de Configuracion VM.
+        """
         # Centro de control estilo VirtualBox: lista única a la izquierda + área principal.
         left_panel = QWidget()
         # Solo un mínimo: el QSplitter decide el máximo real.
@@ -2411,7 +2493,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.btn_sf_install_deps.clicked.connect(self.install_shared_folder_dependencies)
         sf_dep_buttons.addWidget(self.btn_sf_check_deps); sf_dep_buttons.addWidget(self.btn_sf_install_deps); sf_dep_buttons.addStretch()
         sf_dep_layout.addLayout(sf_dep_buttons)
-        sf_layout.addWidget(sf_dep_group)
+        # split_vm_host_config_v1: dependencias del host para carpetas
+        # compartidas se mueven a la pestana Configuracion Host.
+        self._sf_dep_group = sf_dep_group
 
         self.shared_folders_tree=QTreeWidget()
         self.shared_folders_tree.setHeaderLabels(["Host","Guest / etiqueta","Método","Montaje en el guest","Acceso"])
@@ -2481,7 +2565,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.shared_subtabs.addTab(guest_tools_page,"Guest Tools")
         self.shared_subtabs.addTab(clipboard_page,"Clipboard")
         shared_outer_layout.addWidget(self.shared_subtabs,1)
-        shared_scroll=QScrollArea(); shared_scroll.setWidgetResizable(True); shared_scroll.setFrameShape(QScrollArea.Shape.NoFrame); shared_scroll.setWidget(shared_page)
+        # split_vm_host_config_v1: shared_page ya no se envuelve en un
+        # scroll ni se anade al main_tabs. Se insertara como seccion
+        # del sidebar de Config VM mas abajo.
         self.refresh_shared_folder_dependencies()
 
         # Passthrough de dispositivos del host (PCI/USB).
@@ -2532,7 +2618,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         vfio_btns.addWidget(self.btn_vfio_firmware)
         vfio_btns.addStretch()
         vfio_lay.addLayout(vfio_btns)
-        pt_layout.addWidget(vfio_group)
+        # split_vm_host_config_v1: el grupo de diagnostico VFIO se
+        # mueve a la pestana Configuracion Host. Lo guardamos como
+        # atributo y NO lo anadimos a pt_layout.
+        self._vfio_group = vfio_group
 
         # --- Permisos USB (regla udev) ---
         # Se comprueba si existe la regla que permite el passthrough USB
@@ -2571,8 +2660,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.btn_usb_perm_install.clicked.connect(self.install_usb_permissions)
         usb_perm_row.addWidget(self.btn_usb_perm_install)
         usb_perm_layout.addLayout(usb_perm_row)
-
-        pt_layout.addWidget(usb_perm_group)
+        # split_vm_host_config_v1: permisos USB del host se mueven a
+        # la pestana Configuracion Host.
+        self._usb_perm_group = usb_perm_group
 
         self.passthrough_tree = QTreeWidget()
         self.passthrough_tree.setHeaderLabels(["Usar", "Tipo", "Dispositivo", "IOMMU / Driver", "Estado"] )
@@ -2608,10 +2698,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         except Exception:
             pass
 
-        pt_scroll = QScrollArea()
-        pt_scroll.setWidgetResizable(True)
-        pt_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        pt_scroll.setWidget(passthrough_page)
+        # split_vm_host_config_v1: passthrough_page ya no se envuelve
+        # en un scroll ni se anade al main_tabs. Se insertara como
+        # seccion del sidebar de Config VM mas abajo, tras crear el
+        # config_stack.
 
         config_page = QWidget()
         config_page.setMinimumWidth(0)
@@ -2624,6 +2714,25 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         config_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         config_scroll.setWidget(config_page)
         self.config_scroll = config_scroll
+
+        # split_vm_host_config_v1: insertar el contenido de Passthrough
+        # y Carpetas compartidas en sus secciones del sidebar de
+        # Configuracion VM. Las secciones se crearon vacias en
+        # _build_hardware_group; aqui se rellenan.
+        try:
+            _pt_sec = self._config_page_layouts.get("Passthrough")
+            if _pt_sec is not None and passthrough_page is not None:
+                _pt_sec.addWidget(passthrough_page)
+                _pt_sec.addStretch(1)
+        except Exception:
+            pass
+        try:
+            _sh_sec = self._config_page_layouts.get("Compartición")
+            if _sh_sec is not None and shared_page is not None:
+                _sh_sec.addWidget(shared_page)
+                _sh_sec.addStretch(1)
+        except Exception:
+            pass
 
         self.main_tabs = QTabWidget()
         # El panel central debe poder encogerse cuando el usuario
@@ -2639,14 +2748,42 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             pass
         self.main_tabs.setDocumentMode(True)
         self.main_tabs.addTab(details_page, "Resumen")
-        self.main_tabs.addTab(config_scroll, "Configuración")
-        # Passthrough pertenece al bloque de hardware y va inmediatamente después de Configuración.
-        self.main_tabs.addTab(pt_scroll, "Passthrough")
-        self._passthrough_tab_index = 2
-        self.main_tabs.addTab(shared_scroll, "Carpetas compartidas")
-        self._shared_tab_index = 3
+        self.main_tabs.addTab(config_scroll, "Configuración VM")
+
+        # split_vm_host_config_v1: nueva pestana "Configuracion Host".
+        # Agrupa todo lo que toca al sistema anfitrion (no se guarda con
+        # la VM): deps de virtualizacion, VFIO/IOMMU, permisos USB,
+        # deps de carpetas compartidas.
+        _host_page = QWidget()
+        _host_layout = QVBoxLayout(_host_page)
+        _host_layout.setContentsMargins(22, 18, 22, 18)
+        _host_layout.setSpacing(14)
+        _host_layout.addWidget(self._config_section_title(
+            "Configuración Host",
+            "Ajustes y diagnostico del sistema anfitrion. Nada de esta "
+            "seccion se guarda con la VM: aplica a todo el equipo."
+        ))
+        for _attr in ("_host_deps_group", "_vfio_group",
+                      "_usb_perm_group", "_sf_dep_group"):
+            _w = getattr(self, _attr, None)
+            if _w is not None:
+                _host_layout.addWidget(_w)
+        _host_layout.addStretch(1)
+        _host_scroll = QScrollArea()
+        _host_scroll.setWidgetResizable(True)
+        _host_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        _host_scroll.setWidget(_host_page)
+        self.main_tabs.addTab(_host_scroll, "Configuración Host")
+
+        # split_vm_host_config_v1: Passthrough y Carpetas compartidas
+        # ya no son pestanas propias. Se mantienen los atributos por
+        # compatibilidad con mixins que los leen (_goto_passthrough_tab,
+        # hook lazy de performance_mixin): apuntan a la pestana
+        # "Configuracion VM" (indice 1), que es donde viven ahora.
+        self._passthrough_tab_index = 1
+        self._shared_tab_index = 1
         self.main_tabs.addTab(snap_scroll, "Snapshots")
-        self._snapshots_tab_index = 4
+        self._snapshots_tab_index = 3
 
         # --- Pestana Backups (marcador backup_schedule_v1) ---
         backups_page = QWidget()
@@ -2681,6 +2818,23 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         backups_scroll.setWidget(backups_page)
         self.main_tabs.addTab(backups_scroll, "\U0001f4be Backups")
         self._backups_tab_index = self.main_tabs.count() - 1
+
+        # --- Pestana Biblioteca de Medios (marcador media_library_v1) ---
+        media_page = QWidget()
+        media_page_layout = QVBoxLayout(media_page)
+        try:
+            self._build_media_library_ui(media_page_layout)
+        except Exception as _media_err:
+            try:
+                print(f"[AVISO] No se pudo construir la Biblioteca de Medios: {_media_err}")
+            except Exception:
+                pass
+        media_scroll = QScrollArea()
+        media_scroll.setWidgetResizable(True)
+        media_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        media_scroll.setWidget(media_page)
+        self.main_tabs.addTab(media_scroll, "\U0001f4da Medios")
+        self._media_tab_index = self.main_tabs.count() - 1
 
         # Pestaña "Consola": VNC embebido para ver la VM dentro de la app.
         # Solo se muestra si el widget VNC está disponible.
@@ -3482,6 +3636,21 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             _warn, _legacy = vm_config.legacy_base_vm_dir_warning()
             if _warn:
                 self.log_message(f"[AVISO] {_warn}")
+                # base_vm_dir_anchor_v1: además del log, avisar con un
+                # diálogo. El síntoma original ("las VMs desaparecen de
+                # la lista") se ve en la ventana, no en la consola, así
+                # que solo en el log pasaba desapercibido.
+                try:
+                    QMessageBox.information(
+                        self, "VMs en una ubicación antigua",
+                        _warn + "\n\nLa aplicación seguirá funcionando, "
+                        "pero la lista mostrará las VMs de la ubicación "
+                        "nueva. Puedes mover las VMs manualmente o "
+                        "arrancar con VM_BASE_DIR apuntando a la "
+                        "ubicación antigua.",
+                    )
+                except Exception:
+                    pass
         except Exception:
             pass
         self.btn_start = QPushButton("Iniciar Máquina Virtual")
@@ -3677,7 +3846,15 @@ if __name__ == "__main__":
         window.show()
         app._main_window_ref = window  # evita que el garbage collector la recoja
 
-    if not os.path.isdir(os.path.join(os.getcwd(), "OSX-KVM")):
+    # osx_kvm_anchor_v1: OSX-KVM vive junto al proyecto, no en el CWD.
+    # Comprobamos ambas ubicaciones (proyecto y CWD) para no romper una
+    # instalación antigua que lo tenga junto al directorio de trabajo.
+    _app_dir = os.path.dirname(os.path.abspath(__file__))
+    _osx_kvm_candidates = [
+        os.path.join(_app_dir, "OSX-KVM"),
+        os.path.join(os.getcwd(), "OSX-KVM"),
+    ]
+    if not any(os.path.isdir(p) for p in _osx_kvm_candidates):
         wait_msg = QMessageBox()
         wait_msg.setWindowTitle("Preparando OSX-KVM")
         wait_msg.setText("No se encontró la carpeta 'OSX-KVM'.\nDescargando desde GitHub, por favor espera...")

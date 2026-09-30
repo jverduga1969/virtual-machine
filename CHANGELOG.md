@@ -73,6 +73,71 @@ Registro de cambios aplicados al proyecto **Virtual.Machine** por etapas de mejo
 - `.gitignore`: los archivos de contexto (TRASPASO, SESION, SESSION_LOG,
   CONVENCIONES) dejan de subirse al repositorio público.
 
+## Etapa 8 — Organización (Bloque B completo)
+
+- **#8** Grupos y etiquetas de color por VM (`vm_label_v1`):
+  `extra["group"]` + `extra["color"]`, prefijo `[Grupo] ` en la lista
+  lateral, fondo con alfa 150, filtro por grupo en el panel izquierdo.
+- **#9** Plantillas de VM sin discos (`vm_templates_v1`):
+  archivos `.ini` sueltos en `VirtualMachines/_templates/`. Menú
+  desplegable en el botón "➕ Nueva VM".
+- **#10** Comparar config actual vs defaults del perfil del SO
+  (`compare_defaults_v1`): tabla 3 columnas, filas que difieren en
+  amarillo, aplicar al seleccionado o a todos.
+
+## Etapa 9 — Snapshots y backup (Bloque C completo)
+
+- **#11** Modo compatibilidad de snapshots (`snapshot_compat_v1`):
+  deshabilita VirGL/Venus y passthrough PCI/USB en la VM para
+  garantizar savevm. Flag `extra["snapshot_compat"]`.
+- **#12** Snapshots automáticos programados (`snapshot_schedule_v1`):
+  scheduler central con tick de 60 s. Snapshots solo-disco con
+  prefijo `auto_YYYYMMDD_HHMMSS` y retención configurable.
+- **#13** Backups programados (`backup_schedule_v1`): pestaña
+  "💾 Backups" con destino, frecuencia, retención y backup manual.
+- **#14** Clon enlazado (`linked_clone_v1`): backing file QCOW2 con
+  ruta relativa (portabilidad de `VirtualMachines/`). MACs e IDs
+  regenerados al clonar. Botón "🧬 Desenlazar"
+  (`linked_clone_unlink_v1`). Snapshots forzados a solo-disco
+  (`linked_clone_snapshot_v1`).
+
+## Etapa 10 — Biblioteca de Medios (Bloque G completo) + reorganización UI
+
+- **#34** Helper `media_library.py` sin PyQt.
+- **#35** Pestaña "📚 Medios".
+- **#36** `MediaPickerDialog` integrado en Config VM → Almacenamiento
+  y en el menú 💿 Medios (con filtro por tipo de dispositivo).
+- **#37** Crear medios desde la biblioteca (`qemu-img create`).
+- **#38** Detección de huérfanos + columna Estado.
+- **#39** Metadatos (notas, tags, color).
+- **Escaneo de VMs** (`media_library_vm_scan_v1`): cataloga discos,
+  ISOs y disquetes de `VirtualMachines/`, con `used_by` y `roles`.
+- **Reorganización UI** (`split_vm_host_config_v1`): nueva pestaña
+  "Configuración Host" para lo que toca al sistema anfitrión;
+  Passthrough y Carpetas compartidas pasan a secciones del sidebar
+  de Configuración VM.
+- **Fix de teclado VNC** (`vnc_keysym_fix_v1`): traducción de códigos
+  Qt a keysyms X11. TAB, Ctrl, Alt, F-keys y flechas funcionan dentro
+  del guest.
+
+## Etapa 11 — macOS: extras, Recovery opcional y UI de gráficos
+
+- **Recovery opcional** (`macos_recovery_optional_v1`): `BaseSystem.img`
+  ya no es obligatorio. Solo se exige si hay unidad `source="recovery"`.
+- **Discos e ISOs extra** (`macos_extras_v1`): segundo controlador
+  AHCI (`sataext`) para no chocar con los tres discos fijos de OSX-KVM.
+- **Filtro de rutas reservadas** (`macos_extras_filter_v1`): evita
+  abrir dos veces `BaseSystem.img` / `mac_hdd_ng.qcow2` / `OpenCore.qcow2`.
+- **CPU model y VRAM respetados** (`macos_cpu_model_v1`,
+  `macos_graphics_guard_v1`).
+- **MAC única por VM** (`macos_mac_uniqueness_v1`).
+- **UI de gráficos coherente** (`macos_graphics_ui_v2`): el combo
+  Gráficos centraliza las reglas de bloqueo (snapshot_compat OR VNC
+  OR macOS) en `_apply_snapshot_compat_ui`.
+- **Ajustes avanzados ocultos** (`advanced_options_hidden_v1`):
+  ACPI, APIC, IOMMU y PCIe Root Port dejan de mostrarse.
+- **Limpieza**: `macos_storage_cleanup_v1`, `macos_dead_code_v1`.
+
 ## Correcciones puntuales
 
 - Cambio entre VMs con consola embebida: el widget se recrea al cambiar de VM.

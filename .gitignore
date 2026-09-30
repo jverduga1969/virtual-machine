@@ -103,3 +103,19 @@ TRASPASO.md
 SESION.md
 SESSION_LOG.md
 CONVENCIONES.md
+
+# ---- Añadidos 2026-09-30 ----
+# MediaLibrary es datos de runtime del usuario (indice + archivos
+# adjuntos). No forma parte del codigo del proyecto.
+/MediaLibrary/
+
+# scripts/ es siempre local: scripts one-shot de cada sesion de fix.
+/scripts/
+
+# Scripts one-shot con "_mixin" en el nombre que NO son modulos reales
+# del proyecto. La excepcion !*_mixin.py del bloque anterior los
+# capturaba por error y se colaban al repo.
+/fix_*_mixin.py
+/add_*_mixin.py
+/apply_*_mixin.py
+/probe_*_mixin.py

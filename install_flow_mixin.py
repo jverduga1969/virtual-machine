@@ -69,35 +69,64 @@ class InstallFlowMixin:
         return filename
 
     def _prepare_macos_recovery_for_start(self, vm_dir):
-        """Asegura que BaseSystem.img esté listo antes de arrancar macOS.
+        """Prepara el medio de instalacion de macOS solo si hace falta.
 
-        Si no hay ningún medio configurado en Almacenamiento (ni Recovery
-        ni un archivo existente), crea automáticamente la unidad Principal
-        con source="recovery". Sin esto, una VM macOS nueva fallaría con
-        "No existe BaseSystem.img".
+        Marcador: macos_recovery_optional_v1
 
-        Si ya existe, actualiza las unidades CD/DVD con su ruta y devuelve
-        la lista de dispositivos.
+        Para macOS, lo unico obligatorio es que OpenCore sea el primer
+        disco de arranque (lo garantiza workers.py). BaseSystem.img NO
+        es obligatorio: solo se necesita cuando el usuario va a instalar
+        macOS usando System Recovery.
 
-        Si no existe, muestra un diálogo modal de progreso y BLOQUEA el
-        flujo hasta que la descarga termine. Al terminar, actualiza
-        vm_config.ini y devuelve los dispositivos. El arranque continúa
-        automáticamente: el usuario ya no tiene que volver a pulsar Iniciar.
-
-        Devuelve la lista de dispositivos si todo va bien, o None si el
-        usuario canceló la descarga (para abortar el arranque sin diálogo
-        de error).
+        Reglas:
+          - Si hay un CD/DVD con un archivo real que NO es Recovery, se
+            respeta la configuracion y no se toca nada.
+          - Si mac_hdd_ng.qcow2 ya tiene un sistema instalado (>2 GB
+            ocupados), tampoco se fuerza Recovery.
+          - En cualquier otro caso se asegura una unidad "Principal"
+            con source="recovery" y se descarga BaseSystem.img si falta.
         """
         devices = self._storage_devices_all(vm_dir)
-        recovery_devices = [d for d in devices if d.get("device") == "cdrom" and d.get("source") == "recovery"]
-        # Auto-crear la unidad Principal con Recovery si no hay ningún medio.
-        _has_medium = any(
+
+        # 1) CD/DVD del usuario con archivo real.
+        _has_user_medium = any(
             d.get("device") == "cdrom"
-            and (d.get("source") == "recovery"
-                 or (d.get("path") and os.path.isfile(d.get("path", ""))))
+            and str(d.get("source") or "") != "recovery"
+            and d.get("path") and os.path.isfile(d.get("path", ""))
             for d in devices
         )
-        if not _has_medium:
+        if _has_user_medium:
+            self.log_message(
+                "==> macOS: medio de instalacion propio detectado; "
+                "no se prepara Recovery."
+            )
+            return devices
+
+        # 2) Sistema ya instalado en mac_hdd_ng.qcow2 (>2 GB ocupados).
+        _mac_hdd = os.path.join(vm_dir, "mac_hdd_ng.qcow2")
+        if os.path.isfile(_mac_hdd) and os.path.getsize(_mac_hdd) > 0:
+            try:
+                import subprocess as _sp, json as _json
+                _r = _sp.run(
+                    ["qemu-img", "info", "--output=json", _mac_hdd],
+                    capture_output=True, text=True, timeout=10, check=True,
+                )
+                _actual = int(_json.loads(_r.stdout).get("actual-size", 0) or 0)
+                if _actual > 2 * 1024 ** 3:
+                    self.log_message(
+                        "==> macOS: sistema ya instalado en mac_hdd_ng.qcow2; "
+                        "no se prepara Recovery."
+                    )
+                    return devices
+            except Exception:
+                pass
+
+        # 3) Flujo por defecto: preparar Recovery.
+        recovery_devices = [
+            d for d in devices
+            if d.get("device") == "cdrom" and d.get("source") == "recovery"
+        ]
+        if not recovery_devices:
             import uuid as _uuid
             _entry = {
                 "id": "dev_" + _uuid.uuid4().hex[:12],
@@ -115,15 +144,15 @@ class InstallFlowMixin:
                 self.current_vm_dir = vm_dir
                 self._write_storage_devices(devices)
             except Exception as _e:
-                self.log_message(f"[AVISO] macOS: no se pudo guardar el medio Recovery: {_e}")
+                self.log_message(
+                    f"[AVISO] macOS: no se pudo guardar el medio Recovery: {_e}"
+                )
             finally:
                 self.current_vm_dir = _saved
             self.log_message(
-                "==> macOS: no había medio de instalación configurado; "
-                "se usará System Recovery (descarga al iniciar)."
+                "==> macOS: no habia medio de instalacion configurado; "
+                "se usara System Recovery (descarga al iniciar)."
             )
-        if not recovery_devices:
-            return devices
 
         existing_img = os.path.join(vm_dir, "BaseSystem.img")
         legacy_img = os.path.join(vm_dir, "OSX-KVM", "BaseSystem.img")
@@ -138,12 +167,10 @@ class InstallFlowMixin:
             self._write_storage_devices(devices)
             return devices
 
-        # No existe: descargar bloqueando la UI.
         self.current_vm_dir = vm_dir
-        self.log_message("==> System Recovery no encontrado. Iniciando descarga…")
+        self.log_message("==> System Recovery no encontrado. Iniciando descarga...")
         img = self._macos_recovery_download_blocking(vm_dir)
         if not img or not os.path.isfile(img) or os.path.getsize(img) == 0:
-            # Cancelado por el usuario: abortar sin dialogo de error.
             self.log_message("[AVISO] Descarga de System Recovery cancelada.")
             return None
 
@@ -593,11 +620,22 @@ class InstallFlowMixin:
         profile_version=self.combo_macos_ver.currentText() if os_type=="macos" else (self.combo_win_ver.currentText() if os_type=="windows" else self.combo_lin_distro.currentText())
         extra_params["os_profile"]=get_os_profile(os_type,profile_version,profile_version if os_type=="linux" else "")
         if os_type == "macos":
-            if not os.path.isdir("OSX-KVM"):
-                QMessageBox.critical(self, "Error", "No se encuentra la carpeta 'OSX-KVM'.")
-                return
+            # osx_kvm_anchor_v1: OSX-KVM vive junto al proyecto, no en
+            # el CWD. Igual que BASE_VM_DIR, anclamos al directorio del
+            # módulo para que la app funcione desde cualquier ubicación
+            # (o desde un .desktop con Path= distinto).
+            _app_dir = os.path.dirname(os.path.abspath(__file__))
+            _osx_kvm = os.path.join(_app_dir, "OSX-KVM")
+            if not os.path.isdir(_osx_kvm):
+                # Fallback: instalación antigua que lo dejó en el CWD.
+                _legacy = os.path.abspath("OSX-KVM")
+                if os.path.isdir(_legacy):
+                    _osx_kvm = _legacy
+                else:
+                    QMessageBox.critical(self, "Error", "No se encuentra la carpeta 'OSX-KVM'.")
+                    return
             extra_params["os_choice"] = self.os_options[self.combo_macos_ver.currentIndex()][1]
-            extra_params["osx_kvm_source"] = os.path.abspath("OSX-KVM")
+            extra_params["osx_kvm_source"] = _osx_kvm
             # La fuente de instalación se lee desde la unidad CD/DVD
             # "Principal". Si tiene source="recovery", se descarga el
             # Recovery al iniciar; si tiene un path de archivo, se usa
