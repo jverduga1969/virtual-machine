@@ -138,6 +138,19 @@ Registro de cambios aplicados al proyecto **Virtual.Machine** por etapas de mejo
   ACPI, APIC, IOMMU y PCIe Root Port dejan de mostrarse.
 - **Limpieza**: `macos_storage_cleanup_v1`, `macos_dead_code_v1`.
 
+## Etapa 12 — Selector de tema
+
+- **`theme_selector_v1`**: selector de tema en Configuración Host →
+  Apariencia. Sistema / Claro / Oscuro.
+- **Mixin nuevo**: `appearance_mixin.py`. Persistencia en
+  `QSettings("appearance/theme")`.
+- **Estrategia**: forzar el estilo `Fusion` cuando el tema es Claro u
+  Oscuro (Fusion respeta `QPalette`; Kvantum y Breeze no). Restaurar el
+  estilo original del escritorio al volver a "Sistema".
+- **Aplicación antes de crear la `QApplication`** en `__main__`, para
+  que la ventana nazca ya pintada con el tema correcto.
+- **Diálogo de reinicio opcional** al cambiar el tema en caliente.
+
 ## Correcciones puntuales
 
 - Cambio entre VMs con consola embebida: el widget se recrea al cambiar de VM.

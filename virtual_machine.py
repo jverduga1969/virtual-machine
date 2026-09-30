@@ -101,6 +101,7 @@ from scheduler_mixin import SchedulerMixin
 from snapshot_schedule_mixin import SnapshotScheduleMixin
 from backup_schedule_mixin import BackupScheduleMixin
 from media_library_mixin import MediaLibraryMixin
+from appearance_mixin import AppearanceMixin
 from async_ui_mixin import AsyncUiMixin
 from snapshots_graph import SnapshotsGraphView
 from console_ui_mixin import ConsoleUiMixin
@@ -253,7 +254,7 @@ class _LinVersionsBridge(QObject):
     done = pyqtSignal(int, str, object, object)  # token, distro, versiones, error
 
 
-class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, ConsoleUiMixin, QMainWindow):
+class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, AppearanceMixin, ConsoleUiMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Virtual.Machine 38.1 • Administrador QEMU/KVM")
@@ -359,6 +360,14 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.disk_ext_setting = "qcow2"
         os.makedirs(vm_config.BASE_VM_DIR, exist_ok=True)
         self.init_hardware_info()
+        # theme_selector_v1: aplicar la preferencia de tema ANTES de
+        # crear ningun widget, para que la ventana nazca ya con los
+        # colores correctos (si se aplica despues, los widgets ya
+        # creados pueden quedarse con la paleta anterior).
+        try:
+            self._apply_theme_preference(self._load_theme_preference())
+        except Exception:
+            pass
         # Los histogramas de rendimiento se inicializan aquí para evitar
         # AttributeError si algún _build_* los usa antes de tiempo.
         self._perf_cpu_hist = []
@@ -2763,6 +2772,17 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             "Ajustes y diagnostico del sistema anfitrion. Nada de esta "
             "seccion se guarda con la VM: aplica a todo el equipo."
         ))
+        # theme_selector_v1: seccion "Apariencia" al principio de
+        # Configuracion Host, porque el tema es una preferencia
+        # global del usuario, no de una VM concreta.
+        try:
+            self._build_appearance_ui(_host_layout)
+        except Exception as _theme_ui_err:
+            try:
+                print("[AVISO] No se pudo construir la UI de Apariencia: "
+                      + str(_theme_ui_err))
+            except Exception:
+                pass
         for _attr in ("_host_deps_group", "_vfio_group",
                       "_usb_perm_group", "_sf_dep_group"):
             _w = getattr(self, _attr, None)
