@@ -151,6 +151,16 @@ Registro de cambios aplicados al proyecto **Virtual.Machine** por etapas de mejo
   que la ventana nazca ya pintada con el tema correcto.
 - **Diálogo de reinicio opcional** al cambiar el tema en caliente.
 
+## Etapa 13 — Modo presentación
+
+- **`presentation_mode_v1`**: modo presentación con F11. Oculta el
+  panel izquierdo, entra en pantalla completa y salta a la Consola
+  Gráfica. Botón "🎬 Presentación" en la barra de la consola.
+- **`presentation_mode_autohide_v1/v2`**: auto-ocultado de las barras
+  superiores. Se muestran cuando el cursor se acerca al borde superior
+  y se ocultan al alejarse. Comparación por rectángulos, no por
+  `childAt()`, para no ocultarse en los huecos entre botones.
+
 ## Correcciones puntuales
 
 - Cambio entre VMs con consola embebida: el widget se recrea al cambiar de VM.

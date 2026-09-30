@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QRadioButton, QButtonGroup, QFileDialog, QCheckBox, QListWidget, QListWidgetItem, QInputDialog, QTabWidget, QSplitter, QDialog, QFormLayout, QGridLayout, QFrame, QSlider, QTreeWidget, QTreeWidgetItem, QScrollArea, QSizePolicy, QProgressBar, QProgressDialog, QSpinBox, QToolButton, QMenu
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer, QSettings, QSize, QObject
+from PyQt6.QtCore import Qt as _Qt_ShortcutContext
 from PyQt6.QtGui import QFont, QPainter, QPen, QBrush, QPixmap, QAction, QIcon
 
 # Combinaciones ofrecidas para salir de la pantalla completa de la consola VNC.
@@ -2913,7 +2914,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             )
             console_status_row.addWidget(self.chk_external_fullscreen)
 
-            console_layout.addLayout(console_status_row)
+            # presentation_mode_autohide_v1: envolver la fila de estado
+            # en un QWidget para poder ocultarla y mostrarla en bloque
+            # en modo presentación.
+            self.console_status_widget = QWidget()
+            self.console_status_widget.setLayout(console_status_row)
+            console_layout.addWidget(self.console_status_widget)
 
             # --- Fila 2: visor embebido + zoom ---
             console_toolbar = QHBoxLayout()
@@ -3006,6 +3012,20 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             # Botón de pantalla completa del VISOR EMBEBIDO (ventana propia
             # con el VNC dentro). NO es lo mismo que el checkbox
             # "Externos en pantalla completa" de la fila de arriba.
+            # presentation_mode_v1: botón para entrar/salir del modo
+            # presentación. Mismo atajo (F11).
+            self.btn_presentation = QPushButton("🎬 Presentación")
+            self.btn_presentation.setToolTip(
+                "Modo presentación: oculta los paneles laterales, entra\n"
+                "en pantalla completa y salta a la Consola Gráfica.\n"
+                "Requiere que la VM esté encendida.\n\n"
+                "Atajo: F11. Para salir: F11 o Escape."
+            )
+            self.btn_presentation.clicked.connect(
+                self._toggle_presentation_mode
+            )
+            console_toolbar.addWidget(self.btn_presentation)
+
             self.btn_vnc_fullscreen = QPushButton("⛶ Pantalla completa del visor")
             self.btn_vnc_fullscreen.setEnabled(False)  # se activa cuando hay VM
             self.btn_vnc_fullscreen.clicked.connect(self._toggle_vnc_fullscreen)
@@ -3032,7 +3052,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             )
             console_toolbar.addWidget(self.combo_fullscreen_exit)
 
-            console_layout.addLayout(console_toolbar)
+            # presentation_mode_autohide_v1: envolver la fila de botones
+            # en un QWidget para poder ocultarla y mostrarla en bloque
+            # en modo presentación.
+            self.console_toolbar_widget = QWidget()
+            self.console_toolbar_widget.setLayout(console_toolbar)
+            console_layout.addWidget(self.console_toolbar_widget)
 
             # Placeholder para el widget VNC (se crea al conectar)
             self.vnc_widget = None
@@ -3727,6 +3752,22 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             # Ctrl+Alt+C → alternar entre Consola Gráfica y la anterior.
             self._shortcut_console_toggle = _QSC(_QKS("Ctrl+Alt+C"), self)
             self._shortcut_console_toggle.activated.connect(self._toggle_console_tab)
+            # presentation_mode_v1: F11 alterna el modo presentación
+            # (oculta paneles + pantalla completa + Consola Gráfica).
+            self._shortcut_presentation = _QSC(_QKS("F11"), self)
+            self._shortcut_presentation.activated.connect(
+                self._toggle_presentation_mode
+            )
+            # presentation_mode_v1: Escape sale del modo presentación
+            # SOLO si está activo. Se instala siempre porque el slot
+            # comprueba el flag; así no hay que registrar/desregistrar.
+            self._shortcut_presentation_exit = _QSC(_QKS("Escape"), self)
+            self._shortcut_presentation_exit.setContext(
+                _Qt_ShortcutContext.WindowShortcut
+            )
+            self._shortcut_presentation_exit.activated.connect(
+                self._on_presentation_escape
+            )
         except Exception as _sc_err:
             try:
                 print(f"[AVISO] No se pudieron registrar los atajos: {_sc_err}")
@@ -3734,6 +3775,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
                 pass
             self._shortcut_media = None
             self._shortcut_vnc_reconnect = None
+            self._shortcut_presentation = None
+            self._shortcut_presentation_exit = None
         self._live_integration_timer = QTimer(self)
         self._live_integration_timer.timeout.connect(self._refresh_live_integration_status)
         self._live_integration_timer.start(6000)
@@ -3844,6 +3887,20 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
 
 
+
+    def _on_presentation_escape(self):
+        """Escape sale del modo presentación SOLO si está activo.
+
+        Marcador: presentation_mode_v1
+
+        Si no está activo, no hace nada (deja que Escape siga su
+        curso normal, por ejemplo cerrar un diálogo).
+        """
+        if getattr(self, "_presentation_mode_active", False):
+            try:
+                self._exit_presentation_mode()
+            except Exception:
+                pass
 
     def closeEvent(self, event):
         # Garantiza que el teclado X11 quede libre aunque el cierre se
