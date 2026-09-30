@@ -6206,6 +6206,74 @@ class VmLifecycleMixin:
             except Exception:
                 pass
 
+        # linux_installer_cleanup_v1: si la VM es Linux y su distro no
+        # tiene descarga automatica, cualquier unidad CD/DVD con
+        # source="installer" pendiente se convierte en vacia. Esto
+        # limpia VMs que se configuraron antes del fix (o que vinieron
+        # de un import) y evita que QEMU reciba "Auto-deteccion no
+        # soportada para: <distro>" al arrancar.
+        try:
+            _os_type_l = (data.get("os_type") or "").lower()
+            if _os_type_l == "linux":
+                _extra_l = data.get("extra") or {}
+                _distro_l = (_extra_l.get("distro") or "").strip()
+                _needs_cleanup = False
+                if _distro_l:
+                    try:
+                        import iso_versions as _iv_l
+                        _needs_cleanup = not _iv_l.supports_auto_download(_distro_l)
+                    except Exception:
+                        _needs_cleanup = False
+                else:
+                    _needs_cleanup = True  # sin distro conocida: limpiar por si acaso
+                if _needs_cleanup:
+                    _devs_l = _extra_l.get("storage_devices") or []
+                    _kept_l = []
+                    _removed_l = []
+                    for _d_l in _devs_l:
+                        if not isinstance(_d_l, dict):
+                            _kept_l.append(_d_l)
+                            continue
+                        if (_d_l.get("device") == "cdrom"
+                                and _d_l.get("source") == "installer"
+                                and not (_d_l.get("path") or "")):
+                            _d_l.pop("source", None)
+                            _removed_l.append(_d_l.get("name") or "CD/DVD")
+                        _kept_l.append(_d_l)
+                    if _removed_l:
+                        _cfg_path_l = os.path.join(vm_dir, "vm_config.ini")
+                        if os.path.isfile(_cfg_path_l):
+                            import configparser as _cfg_l
+                            _c_l = _cfg_l.ConfigParser(interpolation=None)
+                            _c_l.read(_cfg_path_l, encoding="utf-8")
+                            if not _c_l.has_section("extra"):
+                                _c_l.add_section("extra")
+                            try:
+                                _ex_l = json.loads(_c_l["extra"].get("data", "{}"))
+                            except Exception:
+                                _ex_l = {}
+                            _ex_l["storage_devices"] = _kept_l
+                            _c_l.set("extra", "data", json.dumps(_ex_l, ensure_ascii=False))
+                            with open(_cfg_path_l, "w", encoding="utf-8") as _fh_l:
+                                _c_l.write(_fh_l)
+                            if hasattr(self, "_invalidate_vm_config_cache"):
+                                self._invalidate_vm_config_cache(vm_dir)
+                            self.log_message(
+                                "==> Linux: convertidas a vacias "
+                                + str(len(_removed_l))
+                                + " unidad(es) CD/DVD con descarga "
+                                "automatica no soportada: "
+                                + ", ".join(_removed_l)
+                            )
+        except Exception as _clean_l_err:
+            try:
+                self.log_message(
+                    "[AVISO] Linux: no se pudo limpiar el source=\"installer\": "
+                    + str(_clean_l_err)
+                )
+            except Exception:
+                pass
+
         self.current_vm_dir = vm_dir
         # El usuario abrió la VM: se considera atendida la alerta de
         # muerte inesperada del watchdog.

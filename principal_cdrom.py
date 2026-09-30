@@ -89,11 +89,26 @@ def iso_key(os_type, profile, choice):
     return "none" if choice == CHOICE_NONE else f"{os_type}|{profile}|{choice}"
 
 
-def apply_choice(devices, os_type, choice, profile="", own_iso="", new_vm=False):
+def apply_choice(devices, os_type, choice, profile="", own_iso=None, new_vm=False):
+    # linux_installer_guard_v2_principal: own_iso=None significa
+    # "no especificado". own_iso="" significa "vaciar el path
+    # explicitamente". Un path valido significa "usar esta ISO".
     """Configura la unidad Principal según la elección. Devuelve True si algo cambió.
 
     Solo actúa si la elección cambió respecto a lo que la unidad ya representa
     (iso_key), salvo que se pase una ISO propia nueva."""
+    # linux_installer_guard_v1: si la distro no tiene descarga
+    # automatica, forzar CHOICE_NONE aunque el llamador pida
+    # "descargar". Evita grabar source="installer" en VMs Linux
+    # cuya distro la app no sabe resolver (MX Linux, Solus, etc.).
+    if (os_type == "linux" and choice != CHOICE_NONE):
+        try:
+            import iso_versions as _iv
+            if profile and not _iv.supports_auto_download(profile):
+                choice = CHOICE_NONE
+        except Exception:
+            pass
+
     p, _ = ensure_principal(devices, os_type, new_vm=new_vm)
     before = json.dumps(p, sort_keys=True)
     key = iso_key(os_type, profile, choice)
@@ -109,17 +124,27 @@ def apply_choice(devices, os_type, choice, profile="", own_iso="", new_vm=False)
                 p["path"] = own
                 p["own_iso"] = own
     elif choice == CHOICE_NONE:
-        if cur_src:                       # venía de una descarga: esa ISO no es "la del usuario"
+        # Quitar source de descarga si venia de ahi.
+        if cur_src:
             p.pop("source", None)
             cur_path = ""
-        own = _abs_if_file(own_iso)
-        if not own and prev in (None, CHOICE_NONE):
-            own = _abs_if_file(cur_path)  # una ISO local que ya estaba puesta
-        if not own:
-            own = _abs_if_file(p.get("own_iso", ""))
-        p["path"] = own
-        if own:
-            p["own_iso"] = own
+
+        # Decidir el nuevo path. Reglas:
+        #   own_iso = path valido  -> usar ese path.
+        #   own_iso = ""           -> vaciar (el usuario lo dejo asi).
+        #   own_iso = None         -> no especificado: mantener el
+        #                             path actual SOLO si es valido.
+        #                             NO resucitar de own_iso guardado.
+        if own_iso is not None:
+            new_own = _abs_if_file(own_iso) if own_iso else ""
+        else:
+            new_own = _abs_if_file(cur_path)
+
+        p["path"] = new_own
+        if new_own:
+            p["own_iso"] = new_own
+        else:
+            p.pop("own_iso", None)
         p["iso_key"] = key
     else:
         if prev is None and cur_src in _DOWNLOAD_SOURCES:

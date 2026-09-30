@@ -103,6 +103,7 @@ from snapshot_schedule_mixin import SnapshotScheduleMixin
 from backup_schedule_mixin import BackupScheduleMixin
 from media_library_mixin import MediaLibraryMixin
 from appearance_mixin import AppearanceMixin
+from shortcuts_mixin import ShortcutsMixin
 from async_ui_mixin import AsyncUiMixin
 from snapshots_graph import SnapshotsGraphView
 from console_ui_mixin import ConsoleUiMixin
@@ -255,7 +256,7 @@ class _LinVersionsBridge(QObject):
     done = pyqtSignal(int, str, object, object)  # token, distro, versiones, error
 
 
-class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, AppearanceMixin, ConsoleUiMixin, QMainWindow):
+class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, AppearanceMixin, ShortcutsMixin, ConsoleUiMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Virtual.Machine 38.1 • Administrador QEMU/KVM")
@@ -1214,10 +1215,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         if self.current_vm_dir or self._ensure_storage_target_vm():
             self._apply_lin_principal_choice()
 
-    def _apply_lin_principal_choice(self, own_iso=""):
+    def _apply_lin_principal_choice(self, own_iso=None):
         """Crea/actualiza la unidad 'Principal' según lo elegido en Versión ISO.
 
-        Requiere self.current_vm_dir (una VM ya guardada, aunque sea provisional)."""
+        Requiere self.current_vm_dir (una VM ya guardada, aunque sea provisional).
+
+        linux_installer_guard_v2_vm: own_iso=None (default) significa
+        "no especificado" — el estado actual de la unidad se mantiene.
+        own_iso="" significa "vaciar la ISO propia". Un path valido
+        significa "usar esta ISO".
+        """
         if not self.current_vm_dir:
             return
         devices = self._storage_devices_all(self.current_vm_dir)
@@ -2784,6 +2791,17 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
                       + str(_theme_ui_err))
             except Exception:
                 pass
+        # configurable_shortcuts_v1: boton "Configurar atajos..."
+        # dentro de Configuracion Host. Es una preferencia global
+        # del usuario, igual que el tema.
+        try:
+            self._build_shortcuts_ui(_host_layout)
+        except Exception as _sc_ui_err:
+            try:
+                print("[AVISO] No se pudo construir la UI de atajos: "
+                      + str(_sc_ui_err))
+            except Exception:
+                pass
         for _attr in ("_host_deps_group", "_vfio_group",
                       "_usb_perm_group", "_sf_dep_group"):
             _w = getattr(self, _attr, None)
@@ -3740,43 +3758,17 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             except Exception:
                 pass
 
-        # Atajos de teclado globales.
+        # configurable_shortcuts_v1: los atajos se registran desde
+        # el mixin ShortcutsMixin, que los lee de QSettings. Si el
+        # usuario los ha cambiado, se respetan; si no, van los
+        # valores por defecto (Ctrl+M, Ctrl+R, Ctrl+Alt+C, F11).
         try:
-            from PyQt6.QtGui import QShortcut as _QSC, QKeySequence as _QKS
-            # Ctrl+M → menú de Medios (CD/DVD, USB).
-            self._shortcut_media = _QSC(_QKS("Ctrl+M"), self)
-            self._shortcut_media.activated.connect(self._show_media_menu_at_cursor)
-            # Ctrl+R → reconectar el widget VNC.
-            self._shortcut_vnc_reconnect = _QSC(_QKS("Ctrl+R"), self)
-            self._shortcut_vnc_reconnect.activated.connect(self._manual_refresh_vnc)
-            # Ctrl+Alt+C → alternar entre Consola Gráfica y la anterior.
-            self._shortcut_console_toggle = _QSC(_QKS("Ctrl+Alt+C"), self)
-            self._shortcut_console_toggle.activated.connect(self._toggle_console_tab)
-            # presentation_mode_v1: F11 alterna el modo presentación
-            # (oculta paneles + pantalla completa + Consola Gráfica).
-            self._shortcut_presentation = _QSC(_QKS("F11"), self)
-            self._shortcut_presentation.activated.connect(
-                self._toggle_presentation_mode
-            )
-            # presentation_mode_v1: Escape sale del modo presentación
-            # SOLO si está activo. Se instala siempre porque el slot
-            # comprueba el flag; así no hay que registrar/desregistrar.
-            self._shortcut_presentation_exit = _QSC(_QKS("Escape"), self)
-            self._shortcut_presentation_exit.setContext(
-                _Qt_ShortcutContext.WindowShortcut
-            )
-            self._shortcut_presentation_exit.activated.connect(
-                self._on_presentation_escape
-            )
+            self._apply_all_shortcuts()
         except Exception as _sc_err:
             try:
                 print(f"[AVISO] No se pudieron registrar los atajos: {_sc_err}")
             except Exception:
                 pass
-            self._shortcut_media = None
-            self._shortcut_vnc_reconnect = None
-            self._shortcut_presentation = None
-            self._shortcut_presentation_exit = None
         self._live_integration_timer = QTimer(self)
         self._live_integration_timer.timeout.connect(self._refresh_live_integration_status)
         self._live_integration_timer.start(6000)

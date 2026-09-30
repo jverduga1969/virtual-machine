@@ -161,6 +161,20 @@ Registro de cambios aplicados al proyecto **Virtual.Machine** por etapas de mejo
   y se ocultan al alejarse. Comparación por rectángulos, no por
   `childAt()`, para no ocultarse en los huecos entre botones.
 
+## Etapa 14 — Iconos por distro, atajos configurables y bug MX Linux
+
+- **`distro_icons_v1`**: 10 iconos nuevos (Manjaro, MX Linux, Pop!_OS,
+  Zorin OS, elementary OS, AlmaLinux, Rocky Linux, Solus, Alpine,
+  Void) + ampliación de `_DISTRO_ALIASES`.
+- **`configurable_shortcuts_v1`**: mixin `shortcuts_mixin.py` con
+  diálogo para reasignar los 4 atajos globales de la app. Persistencia
+  en QSettings. Validación de conflictos. Escape no configurable.
+- **`linux_installer_guard_v1/v2`**: la opción "Descargar instalador
+  de Linux" del CD/DVD ya no aparece para distros sin auto-descarga
+  (MX Linux, Solus, etc.). Al dejar el CD vacío, no reaparece la ISO
+  anterior. Purga automática al abrir VMs antiguas con `source="installer"`
+  para distros no soportadas.
+
 ## Correcciones puntuales
 
 - Cambio entre VMs con consola embebida: el widget se recrea al cambiar de VM.

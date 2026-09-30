@@ -90,6 +90,62 @@ _SVG_GENERIC = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
 </svg>"""
 
 
+_SVG_MANJARO = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#35BF5C"/>
+<path fill="#fff" d="M7 8 L9 16 L12 10 L15 16 L17 8 L15 8 L14 12 L12 8 L10 12 L9 8 Z"/>
+</svg>"""
+
+_SVG_MX = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#0F5298"/>
+<path fill="#fff" d="M7 17 L7 8 L9.5 12 L12 8 L14.5 12 L17 8 L17 17 L15 17 L15 12.5 L12 17 L9 12.5 L9 17 Z"/>
+</svg>"""
+
+_SVG_POPOS = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#48B9C7"/>
+<circle cx="12" cy="10.5" r="3" fill="none" stroke="#fff" stroke-width="1.4"/>
+<path fill="#fff" d="M9.5 13 L12 17 L14.5 13 Z"/>
+</svg>"""
+
+_SVG_ZORIN = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#15A6C5"/>
+<path fill="#fff" d="M8 8 L16 8 L16 10 L11.5 14 L16 14 L16 16 L8 16 L8 14 L12.5 10 L8 10 Z"/>
+</svg>"""
+
+_SVG_ELEMENTARY = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#485A6E"/>
+<circle cx="12" cy="12" r="5" fill="none" stroke="#fff" stroke-width="1.6"/>
+<circle cx="12" cy="12" r="1.6" fill="#fff"/>
+</svg>"""
+
+_SVG_ALMA = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#E9262F"/>
+<path fill="#fff" d="M9 16 L12 8 L15 16 L13.2 16 L12 13.3 L10.8 16 Z"/>
+<circle cx="12" cy="11" r="1" fill="#fff"/>
+</svg>"""
+
+_SVG_ROCKY = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#10B981"/>
+<path fill="#fff" d="M7 15 Q12 6 17 15 Q12 13 7 15 Z"/>
+<circle cx="12" cy="16" r="0.9" fill="#fff"/>
+</svg>"""
+
+_SVG_SOLUS = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#5B7FB3"/>
+<path fill="#fff" d="M12 5 L14 11 L19 9 L15 13 L20 16 L14 15 L12 20 L10 15 L4 16 L9 13 L5 9 L10 11 Z"/>
+</svg>"""
+
+_SVG_ALPINE = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#0D597F"/>
+<path fill="#fff" d="M4 17 L8 9 L11 14 L13 11 L17 17 Z"/>
+<path fill="#fff" d="M17 17 L19 13 L21 17 Z" opacity="0.7"/>
+</svg>"""
+
+_SVG_VOID = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10" fill="#478061"/>
+<path fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"
+      d="M8 8 Q12 14 16 8 M8 12 Q12 18 16 12"/>
+</svg>"""
+
 _SVG_BY_KEY = {
     "macos":   _SVG_MACOS,
     "windows": _SVG_WINDOWS,
@@ -100,24 +156,70 @@ _SVG_BY_KEY = {
     "mint":    _SVG_MINT,
     "opensuse": _SVG_OPENSUSE,
     "kali":    _SVG_KALI,
+    "manjaro": _SVG_MANJARO,
+    "mx":      _SVG_MX,
+    "popos":   _SVG_POPOS,
+    "zorin":   _SVG_ZORIN,
+    "elementary": _SVG_ELEMENTARY,
+    "alma":    _SVG_ALMA,
+    "rocky":   _SVG_ROCKY,
+    "solus":   _SVG_SOLUS,
+    "alpine":  _SVG_ALPINE,
+    "void":    _SVG_VOID,
     "linux":   _SVG_LINUX,
     "generic": _SVG_GENERIC,
 }
 
 
 _DISTRO_ALIASES = (
+    # Orden importante: el primero que matchee gana. Los mas especificos
+    # van arriba para que "linux mint" no caiga antes en "linux" o en
+    # cualquier otra coincidencia generica.
+    #
+    # Marcador: distro_icons_v1
+    # -------------------------
+
+    # Familia Mint (LMDE incluido).
     ("linux mint", "mint"),
     ("mint",       "mint"),
-    ("ubuntu",     "ubuntu"),
-    ("debian",     "debian"),
-    ("fedora",     "fedora"),
-    ("arch",       "arch"),
-    ("manjaro",    "arch"),
+    ("lmde",       "mint"),
+
+    # Familia Ubuntu (derivadas con su propio icono).
+    ("pop!_os",    "popos"),
+    ("pop!_",      "popos"),
+    ("pop os",     "popos"),
+    ("pop os",     "popos"),
+    ("popos",      "popos"),
+    ("zorin",      "zorin"),
+    ("elementary", "elementary"),
+
+    # Familia Debian (derivadas con su propio icono).
+    ("mx linux",   "mx"),
+    ("mx-",        "mx"),
+    ("antiX",      "mx"),
+    ("antix",      "mx"),
+
+    # Familia Red Hat (RHEL-clones).
+    ("almalinux",  "alma"),
+    ("alma",       "alma"),
+    ("rocky",      "rocky"),
+
+    # Familia Arch.
+    ("manjaro",    "manjaro"),
     ("endeavour",  "arch"),
     ("cachyos",    "arch"),
+    ("arch",       "arch"),
+
+    # Independientes.
+    ("fedora",     "fedora"),
     ("opensuse",   "opensuse"),
     ("suse",       "opensuse"),
     ("kali",       "kali"),
+    ("solus",      "solus"),
+    ("alpine",     "alpine"),
+    ("void",       "void"),
+    ("ubuntu",     "ubuntu"),
+    ("debian",     "debian"),
 )
 
 

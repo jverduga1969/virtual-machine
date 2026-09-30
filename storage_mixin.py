@@ -1206,6 +1206,10 @@ class StorageMixin:
         existente, hay que quitar explícitamente source=installer; de lo contrario
         el arranque volvería a considerar la unidad como un instalador pendiente
         y descargaría otra ISO aunque ya tenga una ruta válida.
+
+        linux_installer_guard_v2: si la unidad queda sin source y sin
+        path, se borra la ISO propia recordada (own_iso) para que no
+        reaparezca al reabrir el dialogo.
         """
         devices=self._storage_devices_all(self.current_vm_dir)
         for d in devices:
@@ -1216,6 +1220,8 @@ class StorageMixin:
                         d["source"] = source
                     else:
                         d.pop("source", None)
+                if not d.get("source") and not d.get("path"):
+                    d.pop("own_iso", None)
                 break
         self._write_storage_devices(devices)
 
@@ -1306,7 +1312,19 @@ class StorageMixin:
         cd=cds[names.index(name)]; ident=cd.get('id'); state=self._runtime_state(os.path.basename(self.current_vm_dir))
         device_id=f"cd{cds.index(cd)}"
         if state=="stopped":
-            dialog=DiskCreationDialog(self,"cdrom",os_type=self.combo_main_os.currentData() if hasattr(self,'combo_main_os') else 'linux',initial_path=cd.get('path',''), initial_name=cd.get('name','CD/DVD'))
+            # linux_installer_guard_v2: pasar distro para que el
+            # dialogo pueda decidir si la opcion "installer" es
+            # aplicable a esta distro.
+            _distro_for_dlg = ""
+            try:
+                if self.combo_main_os.currentData() == "linux":
+                    _distro_for_dlg = self.combo_lin_distro.currentText()
+            except Exception:
+                _distro_for_dlg = ""
+            dialog=DiskCreationDialog(self,"cdrom",
+                os_type=self.combo_main_os.currentData() if hasattr(self,'combo_main_os') else 'linux',
+                distro=_distro_for_dlg,
+                initial_path=cd.get('path',''), initial_name=cd.get('name','CD/DVD'))
             if dialog.exec()!=QDialog.DialogCode.Accepted:return
             v=dialog.values(); mode=v.get('cd_mode','empty')
             try:
@@ -1407,8 +1425,17 @@ class StorageMixin:
             cd = next((d for d in self._storage_devices_all(self.current_vm_dir) if d.get("id")==ident), None)
             if not cd:
                 QMessageBox.information(self,'Modificar dispositivo','No se encontró la unidad CD/DVD seleccionada.'); return
+            # linux_installer_guard_v2: pasar distro para que el
+            # dialogo pueda decidir si la opcion "installer" aplica.
+            _distro_for_dlg2 = ""
+            try:
+                if self.combo_main_os.currentData() == "linux":
+                    _distro_for_dlg2 = self.combo_lin_distro.currentText()
+            except Exception:
+                _distro_for_dlg2 = ""
             dialog = DiskCreationDialog(self, 'cdrom',
                                         os_type=self.combo_main_os.currentData() if hasattr(self, 'combo_main_os') else 'linux',
+                                        distro=_distro_for_dlg2,
                                         initial_path=cd.get('path',''), initial_name=cd.get('name','CD/DVD'))
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return

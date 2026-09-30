@@ -231,11 +231,48 @@ class DiskCreationDialog(QDialog):
         else:
             # Windows/Linux recuperan la opción de las versiones anteriores:
             # descargar automáticamente el instalador y dejarlo conectado al CD/DVD.
+            #
+            # linux_installer_guard_v1: la opcion "installer" solo tiene
+            # sentido si la app sabe resolver la URL de la distro. Si no
+            # (MX Linux, Solus, etc.), se anade DESHABILITADA con un texto
+            # explicativo, para que el usuario vea que existe pero entienda
+            # por que no puede usarla.
+            # linux_installer_guard_v2_dialogs: la opción "installer"
+            # SOLO se añade si la app sabe resolver la URL de la
+            # distro. Si no (MX Linux, Solus, etc.), no se añade — es
+            # más limpio que mostrarla gris: el usuario no ve una
+            # opción que nunca podrá usar.
             if self.os_type == "windows":
                 installer_label = "Descargar instalador de Windows automáticamente"
+                self.cd_mode.addItem(installer_label, "installer")
             else:
-                installer_label = "Descargar instalador de Linux automáticamente"
-            self.cd_mode.addItem(installer_label, "installer")
+                _installer_label = "Descargar instalador de Linux automáticamente"
+                _installer_ok = False
+                try:
+                    import iso_versions as _iv
+                    _distro_name = (self.distro or "").strip()
+                    if _distro_name:
+                        _installer_ok = bool(
+                            _iv.supports_auto_download(_distro_name)
+                        )
+                    else:
+                        # Sin distro conocida, permitir la opción
+                        # (el flujo Linux de la ventana principal
+                        # siempre pasa un distro concreto).
+                        _installer_ok = True
+                except Exception:
+                    _installer_ok = True
+                if _installer_ok:
+                    self.cd_mode.addItem(_installer_label, "installer")
+                else:
+                    # Registrar el motivo en el widget para que
+                    # _update_cd_mode pueda mostrarlo si el usuario
+                    # abre el diálogo con initial_path de una ISO
+                    # ya descargada (raro, pero por si acaso).
+                    self._installer_unsupported_reason = (
+                        f"{_distro_name} no tiene descarga "
+                        "automática desde los espejos oficiales."
+                    )
         self.cd_mode.currentIndexChanged.connect(self._update_cd_mode)
         form.addRow("Fuente del medio:", self.cd_mode)
 

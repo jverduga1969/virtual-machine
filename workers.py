@@ -1712,6 +1712,39 @@ class InstallWorker(QThread):
         if not devices:
             return ""
 
+        # linux_installer_guard_v1: si la distro Linux no tiene
+        # descarga automatica, limpiar el source="installer" de
+        # esas unidades para que no vuelvan a aparecer en el
+        # proximo arranque. Se emite un aviso claro y se sigue.
+        if os_type == "linux":
+            try:
+                import iso_versions as _iv
+                _distro_name = (distro or "").strip()
+                if _distro_name and not _iv.supports_auto_download(_distro_name):
+                    self.log_signal.emit(
+                        f"[AVISO] La distro '{_distro_name}' no tiene "
+                        "descarga automatica desde los espejos "
+                        "oficiales. Se convertira la unidad CD/DVD "
+                        "en vacia y la VM arrancara sin ISO. Anade su "
+                        "ISO manualmente con la opcion "
+                        "'Usar ISO/IMG/DMG existente'."
+                    )
+                    _all_devs = self._storage_devices_from_config()
+                    _changed = False
+                    for _d in _all_devs:
+                        if (_d.get("device") == "cdrom"
+                                and _d.get("source") == "installer"):
+                            _d.pop("source", None)
+                            _d["path"] = ""
+                            _changed = True
+                    if _changed:
+                        self._write_storage_devices(_all_devs)
+                    return ""
+            except Exception as _guard_err:
+                self.log_signal.emit(
+                    "[AVISO] linux_installer_guard: " + str(_guard_err)
+                )
+
         if os_type == "windows":
             url = get_latest_windows_iso_url(win_ver or "Windows 11")
             filename = os.path.join(
