@@ -31,7 +31,34 @@ from dialogs import DiskCreationDialog
 from workers import _qemu_safe_identifier
 
 
+# ovf_ova_io_v1_macos_reserved
 class StorageMixin:
+    # ovf_ova_io_v1_macos_reserved: archivos internos del flujo macOS.
+    # NUNCA deben aparecer en storage_devices ni en _storage_entries_with_types.
+    #   - mac_hdd_ng.qcow2  -> disco del sistema (lo usa InstallWorker)
+    #   - BaseSystem.img    -> medio de instalacion del Recovery
+    #   - OpenCore.qcow2    -> imagen compartida de OSX-KVM
+    _MACOS_RESERVED_FILENAMES = {
+        "mac_hdd_ng.qcow2",
+        "basesystem.img",
+        "opencore.qcow2",
+    }
+
+    def _is_macos_reserved_file(self, name):
+        """True si el nombre corresponde a un archivo reservado de macOS."""
+        return os.path.basename(str(name or "")).lower() in self._MACOS_RESERVED_FILENAMES
+
+    def _vm_is_macos(self, vm_dir=None):
+        """True si la VM actual (o vm_dir) es macOS."""
+        vm_dir = vm_dir or self.current_vm_dir
+        if not vm_dir:
+            return False
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+            return str(data.get("os_type") or "").lower() == "macos"
+        except Exception:
+            return False
+
     def manage_disks(self):
         if not self._vm_is_selected():
             QMessageBox.information(self, "Discos", "Selecciona una máquina virtual.")
@@ -71,7 +98,11 @@ class StorageMixin:
         primary = os.path.join(vm_dir, f"vm_disk.{primary_ext}")
         if os.path.isfile(primary):
             candidates.append(primary)
+        # ovf_ova_io_v1_macos_reserved: en macOS saltar los reservados.
+        _skip_macos_dlg = self._vm_is_macos(vm_dir)
         for name in sorted(os.listdir(vm_dir)):
+            if _skip_macos_dlg and self._is_macos_reserved_file(name):
+                continue
             if name.startswith(("disk_", "sata_", "nvme_", "hd_", "floppy_")) and os.path.isfile(os.path.join(vm_dir, name)):
                 candidates.append(os.path.join(vm_dir, name))
         for path in candidates:
@@ -691,10 +722,17 @@ class StorageMixin:
         devices = pruned
 
         registered_paths={os.path.abspath(d.get("path","")) for d in devices if d.get("path")}
+        # ovf_ova_io_v1_macos_reserved: en macOS, no auto-descubrir los
+        # archivos internos (mac_hdd_ng.qcow2, BaseSystem.img, OpenCore.qcow2).
+        # Los gestiona exclusivamente el flujo macOS (workers.py), y
+        # meterlos en storage_devices duplica entradas y rompe el arranque.
+        _skip_autodetect = self._vm_is_macos(vm_dir)
         try:
             for name in sorted(os.listdir(vm_dir)):
                 path=os.path.join(vm_dir, name)
                 if not os.path.isfile(path) or os.path.abspath(path) in registered_paths:
+                    continue
+                if _skip_autodetect and self._is_macos_reserved_file(name):
                     continue
                 low=name.lower()
                 if not low.endswith((".qcow2", ".qcow", ".img", ".raw", ".vdi", ".vmdk", ".vhd", ".vhdx")):
@@ -855,9 +893,13 @@ class StorageMixin:
             name = d.get("name") or os.path.basename(path)
             result.append((name, typ, path)); seen.add(os.path.abspath(path))
         # Compatibilidad con discos creados por versiones anteriores.
+        # ovf_ova_io_v1_macos_reserved: en macOS, saltar archivos internos.
+        _skip_macos = self._vm_is_macos(vm_dir)
         for name in sorted(os.listdir(vm_dir)):
             low = name.lower(); path = os.path.join(vm_dir, name)
             if not os.path.isfile(path) or os.path.abspath(path) in seen:
+                continue
+            if _skip_macos and self._is_macos_reserved_file(name):
                 continue
             if low.startswith(("disk_", "sata_", "nvme_", "hd_", "floppy_", "vm_disk.")):
                 if low.startswith("nvme_"): typ = "nvme"

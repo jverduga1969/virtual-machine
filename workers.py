@@ -2051,6 +2051,14 @@ class InstallWorker(QThread):
                 f"-netdev user,id=net0,dns=10.0.2.3 "
                 f"-device {_mac_nic},netdev=net0,id=net0,mac={_mac_mac}"
             )
+            # macos_pcap_debug_v1: con MACOS_PCAP_DEBUG=1 se guarda el trafico de la VM
+            # en /tmp/vm-net.pcap (diagnostico de red; desactivado por defecto).
+            import os as _os_pcap
+            if _os_pcap.environ.get("MACOS_PCAP_DEBUG") == "1":
+                network_args += (
+                    " -object filter-dump,id=fdump0,netdev=net0,"
+                    "file=/tmp/vm-net.pcap"
+                )
             # NO activar +invtsc: QEMU lo expone como un dispositivo CPU no migrable
             # y bloquea los snapshots completos (savevm/snapshot-save) con:
             # "State blocked by non-migratable CPU device (invtsc flag)".

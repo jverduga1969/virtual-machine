@@ -104,6 +104,7 @@ from backup_schedule_mixin import BackupScheduleMixin
 from media_library_mixin import MediaLibraryMixin
 from appearance_mixin import AppearanceMixin
 from shortcuts_mixin import ShortcutsMixin
+from api_mixin import ApiMixin  # rest_api_v1
 from async_ui_mixin import AsyncUiMixin
 from snapshots_graph import SnapshotsGraphView
 from console_ui_mixin import ConsoleUiMixin
@@ -256,7 +257,7 @@ class _LinVersionsBridge(QObject):
     done = pyqtSignal(int, str, object, object)  # token, distro, versiones, error
 
 
-class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, AppearanceMixin, ShortcutsMixin, ConsoleUiMixin, QMainWindow):
+class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, AppearanceMixin, ShortcutsMixin, ApiMixin, ConsoleUiMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Virtual.Machine 38.1 • Administrador QEMU/KVM")
@@ -2219,11 +2220,11 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
              "moverse o copiarse por separado.\n\n"
              "Solo aparece cuando la VM seleccionada es un clon\n"
              "enlazado y está apagada."),
-            ("manager_btn_import", "⇪ Importar",
+            ("manager_btn_import", "⇩ Importar",
              self.import_vm,
              "Importar una VM desde una carpeta (con vm_config.ini) o desde\n"
              "un archivo .tar.gz / .zip exportado previamente."),
-            ("manager_btn_export", "⇩ Exportar",
+            ("manager_btn_export", "⇪ Exportar",
              self.export_vm,
              "Exportar esta VM como carpeta, .tar.gz o .zip portable.\n"
              "Se omiten los archivos de runtime (pids, sockets, logs)."),
@@ -2800,6 +2801,15 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             try:
                 print("[AVISO] No se pudo construir la UI de atajos: "
                       + str(_sc_ui_err))
+            except Exception:
+                pass
+        # rest_api_v1: sección "API REST local" en Configuración Host.
+        try:
+            self._build_api_ui(_host_layout)
+        except Exception as _api_ui_err:
+            try:
+                print("[AVISO] No se pudo construir la UI de la API REST: "
+                      + str(_api_ui_err))
             except Exception:
                 pass
         for _attr in ("_host_deps_group", "_vfio_group",
@@ -3800,6 +3810,17 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         except Exception:
             pass
 
+        # rest_api_v1: arranca la API REST local si estaba habilitada.
+        # El bridge (QObject con BlockingQueuedConnection) y el token se
+        # preparan aquí, antes de que aparezca el primer endpoint.
+        try:
+            self._init_api()
+        except Exception as _api_init_err:
+            try:
+                print(f"[AVISO] No se pudo inicializar la API REST: {_api_init_err}")
+            except Exception:
+                pass
+
         # Auto-inicio: espera 2 s para que la UI esté pintada y todos
         # los timers registrados, luego arranca en cola las VMs con
         # extra["autostart_on_launch"] = true.
@@ -3900,6 +3921,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         try:
             if hasattr(self, "_release_vnc_keyboard_on_close"):
                 self._release_vnc_keyboard_on_close()
+        except Exception:
+            pass
+        # rest_api_v1: apagar el servidor HTTP y liberar el puerto.
+        try:
+            if hasattr(self, "_shutdown_api"):
+                self._shutdown_api()
         except Exception:
             pass
         super().closeEvent(event)

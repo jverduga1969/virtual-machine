@@ -8,17 +8,19 @@ iniciar/pausar/apagar, resumen de la VM, y el wizard de "Nueva VM"
 import os
 import re
 import json
+import uuid
 import shutil
 import subprocess
 import time
 import configparser
 from PyQt6.QtWidgets import (
     QMessageBox, QFileDialog, QInputDialog, QLineEdit,
-    QSizePolicy, QWidget,
+    QSizePolicy, QWidget, QDialog, QCheckBox,  # QDialog/QCheckBox: ovf_ova_io_v1
 )
 
 import vm_config
 import vm_paths  # portable_paths_v1
+import ovf_io  # ovf_ova_io_v1
 from vm_config import load_vm_config, get_os_profile, list_existing_vms
 from host_deps import detect_host_graphics, qemu_graphics_capabilities
 from workers import _BackgroundCallThread
@@ -45,6 +47,305 @@ from console_backend import (
 import principal_cdrom
 
 _VM_USER_ROLE = 256
+
+
+class _ExportOvfDialog(QDialog):
+    """Dialogo de exportacion OVF/OVA (marcador ovf_auto_compress_v1)."""
+
+    def __init__(self, parent, vm_name, is_macos):
+        super().__init__(parent)
+        self.setWindowTitle("Exportar como OVF/OVA - " + str(vm_name))
+        self.setModal(True)
+        self.resize(580, 460)
+
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import (
+            QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup,
+            QCheckBox, QPushButton, QGroupBox,
+        )
+
+        self._result = None
+        self._is_macos = bool(is_macos)
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            "Exporta <b>" + str(vm_name) + "</b> como OVA (un solo archivo) "
+            "o como OVF (carpeta con descriptor + discos sueltos)."
+        )
+        info.setTextFormat(_Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        fmt_group = QGroupBox("Formato del disco")
+        fmt_lay = QVBoxLayout(fmt_group)
+
+        self.radio_qcow2 = QRadioButton(
+            "QCOW2 (recomendado) - instantaneo y comprimido"
+        )
+        self.radio_qcow2.setChecked(True)
+        self.radio_qcow2.setToolTip(
+            "El disco se aplana (descartando snapshots internos) y se "
+            "comprime con zlib. Ideal para reimportar en esta misma app."
+        )
+        fmt_lay.addWidget(self.radio_qcow2)
+
+        self.radio_vmdk = QRadioButton(
+            "VMDK stream-optimized - maxima compatibilidad con VirtualBox/VMware"
+        )
+        self.radio_vmdk.setToolTip(
+            "Requiere conversion previa con qemu-img. Tarda mas y necesita "
+            "espacio temporal. VMDK stream-optimized ya descarta snapshots."
+        )
+        fmt_lay.addWidget(self.radio_vmdk)
+
+        self._fmt_group = QButtonGroup(self)
+        self._fmt_group.addButton(self.radio_qcow2)
+        self._fmt_group.addButton(self.radio_vmdk)
+
+        layout.addWidget(fmt_group)
+
+        self.lbl_compression_info = QLabel("")
+        self.lbl_compression_info.setTextFormat(_Qt.TextFormat.RichText)
+        self.lbl_compression_info.setWordWrap(True)
+        self.lbl_compression_info.setStyleSheet(
+            "color: #0d3c7a; background: #e3f2fd; "
+            "border: 1px solid #90caf9; border-radius: 6px; "
+            "padding: 8px; font-size: 11px;"
+        )
+        layout.addWidget(self.lbl_compression_info)
+
+        opt_group = QGroupBox("Opciones adicionales")
+        opt_lay = QVBoxLayout(opt_group)
+
+        if self._is_macos:
+            self.chk_iso = QCheckBox(
+                "Incluir medio de instalacion (BaseSystem.img)"
+            )
+        else:
+            self.chk_iso = QCheckBox("Incluir archivos ISO en el OVA")
+        self.chk_iso.setChecked(False)
+        opt_lay.addWidget(self.chk_iso)
+        layout.addWidget(opt_group)
+
+        self.radio_qcow2.toggled.connect(self._on_fmt_changed)
+        self.radio_vmdk.toggled.connect(self._on_fmt_changed)
+        self._on_fmt_changed()
+
+        layout.addStretch(1)
+
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        cancel = QPushButton("Cancelar")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        ok = QPushButton("Exportar")
+        ok.setDefault(True)
+        ok.clicked.connect(self._accept)
+        btns.addWidget(ok)
+        layout.addLayout(btns)
+
+    def _on_fmt_changed(self, *_):
+        if self.radio_vmdk.isChecked():
+            self.lbl_compression_info.setText(
+                "El disco se convertira a <b>VMDK stream-optimized</b>. "
+                "Este formato ya descarta los snapshots internos."
+            )
+        else:
+            self.lbl_compression_info.setText(
+                "Los discos QCOW2 se <b>aplanan y comprimen</b> "
+                "automaticamente al exportar: se descartan los snapshots "
+                "internos y se aplica compresion zlib. Reduce el OVA "
+                "entre un 40% y un 60%."
+            )
+
+    def _accept(self):
+        self._result = {
+            "to_vmdk": bool(self.radio_vmdk.isChecked()),
+            "include_iso": bool(self.chk_iso.isChecked()),
+        }
+        self.accept()
+
+    def values(self):
+        return self._result
+
+
+class _OvfImportPreviewDialog(QDialog):
+    """Dialogo de previsualizacion al importar OVF/OVA (ovf_ova_io_v1).
+
+    Muestra lo que se ha detectado en el descriptor (os_type, RAM, CPUs,
+    discos) y permite corregir os_type/distro antes de importar. Incluye
+    un checkbox para importar solo la configuracion (sin discos).
+    """
+
+    def __init__(self, parent, ovf_data, suggested_name):
+        super().__init__(parent)
+        self.setWindowTitle("Importar OVF/OVA")
+        self.setModal(True)
+        self.resize(640, 540)
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import (
+            QFormLayout, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+            QComboBox, QCheckBox, QPushButton, QFrame,
+        )
+
+        self._ovf_data = ovf_data or {}
+        self._result = None
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            "Se ha le\u00eddo el descriptor OVF. Revisa los datos "
+            "detectados y corrige lo que haga falta antes de importar."
+            "<br><br><i>El sistema operativo detectado puede ser "
+            "ambiguo: aj\u00fastalo si el original no coincide.</i>"
+        )
+        info.setTextFormat(_Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        detected = QFrame()
+        detected.setStyleSheet(
+            "QFrame { background: palette(alternate-base); "
+            "border: 1px solid palette(mid); border-radius: 6px; "
+            "padding: 8px; }"
+        )
+        det_lay = QVBoxLayout(detected)
+        detected_os = self._ovf_data.get("os_type") or "(desconocido)"
+        detected_ver = (self._ovf_data.get("distro")
+                        or self._ovf_data.get("win_ver")
+                        or self._ovf_data.get("macos_ver") or "")
+        detected_cpus = self._ovf_data.get("cpus") or 0
+        detected_mem = self._ovf_data.get("memory_mb") or 0
+        disks = self._ovf_data.get("disks") or []
+        disks_txt = ", ".join(
+            f"{d.get('file') or '(sin nombre)'} "
+            f"({d.get('capacity_gb') or 0} GiB)"
+            for d in disks
+        ) or "(sin discos)"
+        det_lbl = QLabel(
+            f"<b>Detectado en el OVF:</b><br>"
+            f"SO: {detected_os} {detected_ver}<br>"
+            f"CPUs: {detected_cpus} &nbsp; RAM: {detected_mem} MB<br>"
+            f"Discos: {len(disks)} \u2014 {disks_txt}"
+        )
+        det_lbl.setTextFormat(_Qt.TextFormat.RichText)
+        det_lbl.setWordWrap(True)
+        det_lay.addWidget(det_lbl)
+        layout.addWidget(detected)
+
+        form = QFormLayout()
+        self.input_name = QLineEdit(suggested_name)
+        form.addRow("Nombre de la VM:", self.input_name)
+
+        self.combo_os = QComboBox()
+        self.combo_os.addItem("GNU / Linux", "linux")
+        self.combo_os.addItem("Microsoft Windows", "windows")
+        self.combo_os.addItem("macOS", "macos")
+        self.combo_os.addItem("Android (Android-x86 / Bliss OS)", "android")
+        idx = self.combo_os.findData(self._ovf_data.get("os_type") or "linux")
+        if idx >= 0:
+            self.combo_os.setCurrentIndex(idx)
+        self.combo_os.currentIndexChanged.connect(self._on_os_changed)
+        form.addRow("Plataforma:", self.combo_os)
+
+        self.label_version = QLabel("Distribuci\u00f3n / versi\u00f3n:")
+        self.combo_version = QComboBox()
+        self.combo_version.setEditable(True)
+        form.addRow(self.label_version, self.combo_version)
+
+        self.chk_config_only = QCheckBox(
+            "Importar solo la configuraci\u00f3n (sin copiar los discos)"
+        )
+        self.chk_config_only.setToolTip(
+            "Si est\u00e1 marcado, se importan solo los datos del descriptor "
+            "(CPU, RAM, red, sistema operativo) y NO se convierten ni "
+            "copian los discos. \u00datil para reutilizar una configuraci\u00f3n "
+            "sin duplicar gigabytes de disco."
+        )
+        form.addRow("", self.chk_config_only)
+
+        layout.addLayout(form)
+        layout.addStretch(1)
+
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        cancel = QPushButton("Cancelar")
+        cancel.clicked.connect(self.reject)
+        ok = QPushButton("Importar")
+        ok.setDefault(True)
+        ok.clicked.connect(self._accept)
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
+        layout.addLayout(btns)
+
+        # Poblar el combo de version para el SO detectado inicialmente.
+        self._on_os_changed()
+
+    def _on_os_changed(self, *_):
+        os_type = self.combo_os.currentData() or "linux"
+        self.combo_version.clear()
+        if os_type == "linux":
+            self.label_version.setText("Distribuci\u00f3n:")
+            for d in ("Linux Mint", "Ubuntu", "Debian", "Manjaro Linux",
+                      "Fedora", "Pop!_OS", "Zorin OS", "elementary OS",
+                      "openSUSE", "Arch Linux", "EndeavourOS", "Kali Linux",
+                      "AlmaLinux", "Rocky Linux", "CachyOS", "Solus",
+                      "antiX", "MX Linux", "Alpine Linux", "Void Linux"):
+                self.combo_version.addItem(d, d)
+            want = self._ovf_data.get("distro") or ""
+            if want:
+                i = self.combo_version.findData(want)
+                if i < 0:
+                    self.combo_version.addItem(want, want)
+                    i = self.combo_version.findData(want)
+                if i >= 0:
+                    self.combo_version.setCurrentIndex(i)
+        elif os_type == "windows":
+            self.label_version.setText("Versi\u00f3n de Windows:")
+            for v in ("Windows 11", "Windows 10", "Windows 7",
+                      "Windows Vista", "Windows XP", "Windows 2000"):
+                self.combo_version.addItem(v, v)
+            want = self._ovf_data.get("win_ver") or "Windows 10"
+            i = self.combo_version.findData(want)
+            if i >= 0:
+                self.combo_version.setCurrentIndex(i)
+        elif os_type == "macos":
+            self.label_version.setText("Versi\u00f3n de macOS:")
+            for v in ("High Sierra (10.13)", "Mojave (10.14)",
+                      "Catalina (10.15)", "Big Sur (11.7)",
+                      "Monterey (12.6)", "Ventura (13)", "Sonoma (14)",
+                      "Sequoia (15)", "Tahoe"):
+                self.combo_version.addItem(v, v)
+            want = self._ovf_data.get("macos_ver") or ""
+            if want:
+                i = self.combo_version.findData(want)
+                if i >= 0:
+                    self.combo_version.setCurrentIndex(i)
+        else:  # android
+            self.label_version.setText("Distribuci\u00f3n Android:")
+            for v in ("Android-x86", "Bliss OS"):
+                self.combo_version.addItem(v, v)
+
+    def _accept(self):
+        name = (self.input_name.text() or "").strip()
+        if not name:
+            from PyQt6.QtWidgets import QMessageBox as _QMB
+            _QMB.warning(self, "Nombre inv\u00e1lido",
+                         "Debes escribir un nombre para la VM importada.")
+            return
+        name = re.sub(r'[\\/:*?"<>|]', "_", name).strip() or "VM-importada"
+        os_type = self.combo_os.currentData() or "linux"
+        version = (self.combo_version.currentText() or "").strip()
+        self._result = {
+            "name": name,
+            "os_type": os_type,
+            "distro_or_version": version,
+            "config_only": bool(self.chk_config_only.isChecked()),
+        }
+        self.accept()
+
+    def values(self):
+        return self._result
 
 
 class VmLifecycleMixin:
@@ -1106,6 +1407,8 @@ class VmLifecycleMixin:
             ("Copia de carpeta (más rápido, editable)", "folder"),
             ("Archivo .tar.gz (comprimido, portable)", "tar.gz"),
             ("Archivo .zip (compatible con Windows)", "zip"),
+            ("Archivo .ova (Open Virtual Appliance, portable a VirtualBox/VMware)", "ova"),
+            ("Descriptor .ovf + discos sueltos (carpeta)", "ovf"),
         ]
         labels = [f[0] for f in formats]
         item, ok_choice = QInputDialog.getItem(
@@ -1116,6 +1419,12 @@ class VmLifecycleMixin:
         if not ok_choice:
             return
         fmt = dict(zip(labels, [f[1] for f in formats]))[item]
+
+        # ovf_ova_io_v1: los formatos OVF/OVA usan un flujo especifico
+        # (descriptor XML + conversion opcional a VMDK). Se despachan
+        # a su propio metodo antes de seguir con la rama normal.
+        if fmt in ("ova", "ovf"):
+            return self._export_vm_as_ova(fmt, vm_name)
 
         # Calcular tamaño aproximado (para el warning en el diálogo).
         try:
@@ -1331,9 +1640,11 @@ class VmLifecycleMixin:
         box.setWindowTitle("Importar VM")
         box.setText(
             "¿Cómo quieres importar la máquina virtual?\n\n"
-            "  • Desde carpeta: selecciona una carpeta que contenga vm_config.ini.\n"
-            "  • Desde archivo: selecciona un .tar.gz, .tar o .zip exportado\n"
-            "    previamente desde otra instalación de Virtual.Machine."
+            "  • Desde carpeta: selecciona una carpeta que contenga "
+            "vm_config.ini.\n"
+            "  • Desde archivo: selecciona un .ova o .ovf (formato estándar "
+            "OVF, portable a VirtualBox/VMware), o un .tar.gz / .tar / .zip "
+            "exportado previamente desde otra instalación de Virtual.Machine."
         )
         btn_folder = box.addButton("📁 Desde carpeta…", QMessageBox.ButtonRole.AcceptRole)
         btn_archive = box.addButton("🗜️ Desde archivo…", QMessageBox.ButtonRole.ActionRole)
@@ -1352,7 +1663,9 @@ class VmLifecycleMixin:
             source, _ = QFileDialog.getOpenFileName(
                 self, "Selecciona el archivo a importar",
                 os.path.expanduser("~"),
-                "Archivos de VM (*.tar.gz *.tgz *.tar *.zip);;Todos los archivos (*)",
+                "OVF/OVA (*.ova *.ovf);;"
+                "Archivos de VM empaquetados (*.tar.gz *.tgz *.tar *.zip);;"
+                "Todos los archivos (*)",
             )
             if not source:
                 return
@@ -1364,12 +1677,18 @@ class VmLifecycleMixin:
         if is_archive:
             low = source.lower()
             if not (low.endswith(".tar.gz") or low.endswith(".tgz")
-                    or low.endswith(".tar") or low.endswith(".zip")):
+                    or low.endswith(".tar") or low.endswith(".zip")
+                    or low.endswith(".ova") or low.endswith(".ovf")):
                 QMessageBox.warning(
                     self, "Importar VM",
-                    "Formato de archivo no reconocido. Usa .tar.gz, .tgz, .tar o .zip.",
+                    "Formato de archivo no reconocido. Usa .tar.gz, .tgz, "
+                    ".tar, .zip, .ova o .ovf.",
                 )
                 return
+            # ovf_ova_io_v1: despachar a la rama OVF/OVA. Tiene su propio
+            # flujo con dialogo de previsualizacion y conversion de discos.
+            if low.endswith(".ova") or low.endswith(".ovf"):
+                return self._import_vm_from_ova(source)
         else:
             cfg = os.path.join(source, "vm_config.ini")
             if not os.path.isfile(cfg):
@@ -7005,4 +7324,1173 @@ class VmLifecycleMixin:
             self.label_graphics_compat.setVisible(True)
         else:
             self.label_graphics_compat.setVisible(False)
+
+    # ==================================================================
+    # Exportar OVF / OVA (marcador ovf_ova_io_v1)
+    # ==================================================================
+    # Referencia: DMTF DSP0243 (Open Virtualization Format 2.0).
+    #
+    # El OVA es un tar sin comprimir con:
+    #   - descriptor.ovf           (XML, siempre)
+    #   - manifest.mf              (SHA-1 de cada archivo, siempre)
+    #   - disco.vmdk / disco.qcow2 (uno por disco)
+    #   - .virtmachine.json        (metadata propia, solo si la generamos)
+    #
+    # Los hipervisores de terceros ignoran los archivos que no conocen,
+    # asi que .virtmachine.json no rompe la compatibilidad.
+
+    @staticmethod
+    def _is_enospc_error(err):
+        """True si el error viene de 'No space left on device'."""
+        s = str(err or "").lower()
+        return ("errno 28" in s
+                or "no space left" in s
+                or "enospc" in s
+                or "disk full" in s
+                or "espacio insuficiente" in s)
+
+    def _enospc_friendly_msg(self, err, where=""):
+        """Mensaje específico cuando falla por falta de espacio."""
+        return (
+            "La operación se quedó sin espacio en disco.\n"
+            f"{('Lugar: ' + where) if where else ''}\n\n"
+            f"Detalle técnico:\n{err}\n\n"
+            "Cómo resolverlo:\n"
+            "  • Comprueba el espacio libre con: df -h\n"
+            "  • Libera espacio en el disco donde está el destino.\n"
+            "  • Los archivos parciales generados se limpian solos; "
+            "vuelve a intentarlo cuando tengas espacio suficiente."
+        )
+
+    def _check_space_or_warn(self, dest_path, needed_bytes, op_label):
+        """Comprueba espacio libre antes de operaciones largas.
+
+        Marcador vm_space_guard_v1. Devuelve True si el usuario acepta
+        continuar (o si hay espacio de sobra). False si no hay espacio
+        suficiente o el usuario cancela tras el aviso de "va justo".
+        """
+        try:
+            ok, free, msg = ovf_io.check_ovf_space(dest_path, needed_bytes)
+        except Exception:
+            return True
+        if ok is False:
+            QMessageBox.warning(
+                self, f"{op_label}: espacio insuficiente", msg
+            )
+            return False
+        if ok is None:
+            resp = QMessageBox.warning(
+                self, f"{op_label}: espacio justo",
+                msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            return resp == QMessageBox.StandardButton.Yes
+        return True
+
+    def _ovf_size_estimate_for_export(self, vm_dir, is_macos, to_vmdk):
+        """Estima los bytes necesarios para exportar una VM.
+
+        Marcador ovf_auto_compress_v1. Suma el tamaño REAL de los discos
+        a exportar y aplica un factor según la modalidad elegida:
+
+          • VMDK  → 2.5× (conversión a stream-optimized, archivo temporal
+                    grande que se añade al paquete).
+          • QCOW2 → 1.8× (se aplana y comprime a un temporal; el pico de
+                    espacio es original + convertido + margen).
+          • Otros → 1.2× (copia directa).
+        """
+        total = 0
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+        except Exception:
+            data = {}
+        candidates = []
+        if is_macos:
+            p = os.path.join(vm_dir, "mac_hdd_ng.qcow2")
+            if os.path.isfile(p):
+                candidates.append(p)
+        else:
+            for d in ((data.get("extra") or {}).get("storage_devices") or []):
+                if not isinstance(d, dict): continue
+                if str(d.get("device") or "") not in ("sata", "nvme", "floppy"):
+                    continue
+                p = str(d.get("path") or "")
+                if not p: continue
+                p_abs = vm_paths.to_absolute(vm_dir, p)
+                if p_abs and os.path.isfile(p_abs):
+                    candidates.append(p_abs)
+        for p in candidates:
+            try:
+                total += os.path.getsize(p)
+            except OSError:
+                pass
+        if total <= 0:
+            return 0
+        if to_vmdk:
+            return int(total * 2.5)
+        # QCOW2 con compresión automática: original + temporal comprimido.
+        return int(total * 1.8)
+
+    def _export_vm_as_ova(self, fmt, vm_name):
+        """Punto de entrada del export OVF/OVA.
+
+        Pregunta al usuario si convertir a VMDK (compatibilidad maxima
+        con VirtualBox/VMware) y donde guardar. Despues lanza el worker.
+        """
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import QFileDialog
+
+        # ovf_auto_compress_v1: detectar macOS para elegir textos del
+        # diálogo y abrir el diálogo de exportación.
+        _vm_os_type = ""
+        try:
+            _cfg_local = self._load_vm_config_cached(self.current_vm_dir)
+            _vm_os_type = str(_cfg_local.get("os_type") or "").lower()
+        except Exception:
+            _vm_os_type = ""
+        _is_macos = (_vm_os_type == "macos")
+
+        _exp_dlg = _ExportOvfDialog(self, vm_name, _is_macos)
+        if _exp_dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        _exp_vals = _exp_dlg.values() or {}
+        to_vmdk = bool(_exp_vals.get("to_vmdk"))
+        include_iso = bool(_exp_vals.get("include_iso"))
+
+        # 2) Destino
+        if fmt == "ova":
+            suggested = os.path.join(os.path.expanduser("~"),
+                                     f"{vm_name}.ova")
+            dest_path, _ = QFileDialog.getSaveFileName(
+                self, "Guardar OVA", suggested,
+                "Open Virtual Appliance (*.ova);;Todos los archivos (*)",
+            )
+            if not dest_path:
+                return
+            if not dest_path.lower().endswith(".ova"):
+                dest_path += ".ova"
+        else:
+            parent = QFileDialog.getExistingDirectory(
+                self, "Elige la carpeta donde crear el OVF + discos",
+                os.path.expanduser("~"),
+            )
+            if not parent:
+                return
+            dest_path = os.path.join(parent, f"{vm_name}.ovf")
+
+        if os.path.exists(dest_path):
+            resp = QMessageBox.question(
+                self, "Ya existe",
+                f"El destino ya existe:\n{dest_path}\n\n\u00bfSobrescribir?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if resp != QMessageBox.StandardButton.Yes:
+                return
+
+        vm_dir = self.current_vm_dir
+
+        # vm_space_guard_v1: comprobar espacio antes de lanzar el worker.
+        try:
+            _needed = self._ovf_size_estimate_for_export(
+                vm_dir, _is_macos, to_vmdk
+            )
+            if not self._check_space_or_warn(
+                dest_path, _needed, "Exportar OVF/OVA"
+            ):
+                return
+        except Exception as _sp_err:
+            try:
+                self.log_message(
+                    f"[AVISO] No se pudo comprobar el espacio libre: {_sp_err}"
+                )
+            except Exception:
+                pass
+
+        def _work(log_emit, is_cancelled, progress_emit):
+            return self._export_vm_as_ova_impl(
+                vm_dir, vm_name, fmt, dest_path, to_vmdk, include_iso,
+                _is_macos,
+                log_emit, is_cancelled, progress_emit,
+            )
+
+        self.run_async(
+            _work,
+            f"Exportando '{vm_name}' como {fmt.upper()}",
+            on_success=lambda result: self._on_export_success(result, vm_name),
+            on_error=lambda e: self._show_selectable_error(
+                f"Exportar {fmt.upper()}",
+                self._enospc_friendly_msg(e, "carpeta destino")
+                if self._is_enospc_error(e)
+                else f"No se pudo completar la exportaci\u00f3n.\n\n{e}",
+            ),
+            cancelable=True,
+            show_log=True,
+            subtitle=("Convirtiendo disco a VMDK..." if to_vmdk
+                      else "Empaquetando OVF/OVA..."),
+        )
+
+    def _export_vm_as_ova_impl(self, vm_dir, vm_name, fmt, dest_path,
+                                to_vmdk, include_iso, is_macos,
+                                log_emit, is_cancelled, progress_emit):
+        """Cuerpo del export OVF/OVA. Corre en hilo de fondo."""
+        import tempfile as _tmp
+        import shutil as _sh
+
+        log_emit(f"==> Exportando '{vm_name}' como {fmt.upper()} -> {dest_path}")
+
+        # 1) Cargar config
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+        except Exception:
+            data = {}
+        if not data:
+            from vm_config import load_vm_config as _lvc
+            data = _lvc(vm_dir)
+
+        # 2) Discos a exportar
+        storage_devices = (data.get("extra") or {}).get("storage_devices") or []
+        if not isinstance(storage_devices, list):
+            storage_devices = []
+        disks_to_export = []
+
+        # ovf_ova_io_v1_macos_export: rama específica para macOS.
+        # El flujo macOS no usa storage_devices (macos_storage_cleanup_v1
+        # los purga). Buscamos los archivos fijos del flujo OSX-KVM:
+        #   • mac_hdd_ng.qcow2      -> SIEMPRE
+        #   • BaseSystem.img        -> opcional (include_iso)
+        #   • OpenCore.qcow2        -> NUNCA (imagen compartida)
+        if is_macos:
+            _mac_hdd = os.path.join(vm_dir, "mac_hdd_ng.qcow2")
+            if not os.path.isfile(_mac_hdd):
+                raise RuntimeError(
+                    "VM macOS: no se encuentra mac_hdd_ng.qcow2 en la "
+                    f"carpeta de la VM ({_mac_hdd}). Sin este archivo la VM "
+                    "no tiene sistema operativo que exportar."
+                )
+            disks_to_export.append({
+                "name": "mac_hdd_ng",
+                "path": _mac_hdd,
+                "device": "sata",
+                "macos_role": "hdd",
+            })
+            log_emit("==> macOS: mac_hdd_ng.qcow2 incluido (sistema instalado).")
+            if include_iso:
+                _base_sys = os.path.join(vm_dir, "BaseSystem.img")
+                if os.path.isfile(_base_sys) and os.path.getsize(_base_sys) > 0:
+                    disks_to_export.append({
+                        "name": "BaseSystem",
+                        "path": _base_sys,
+                        "device": "sata",
+                        "macos_role": "basesystem",
+                    })
+                    log_emit("==> macOS: BaseSystem.img incluido (medio de "
+                             "instalación).")
+                else:
+                    log_emit("[AVISO] macOS: BaseSystem.img no encontrado o "
+                             "vacío; se omite del OVA.")
+            else:
+                log_emit("==> macOS: BaseSystem.img NO se incluye "
+                         "(se puede re-descargar en el destino).")
+            log_emit("==> macOS: OpenCore.qcow2 NO se incluye "
+                     "(imagen compartida de OSX-KVM).")
+
+        if not is_macos:
+            for d in storage_devices:
+                if not isinstance(d, dict): continue
+                typ = str(d.get("device") or "")
+                if typ not in ("sata", "nvme", "floppy"): continue
+                p = str(d.get("path") or "")
+                if not p: continue
+                p_abs = vm_paths.to_absolute(vm_dir, p)
+                if not p_abs or not os.path.isfile(p_abs): continue
+                disks_to_export.append({
+                    "name": d.get("name") or os.path.basename(p_abs),
+                    "path": p_abs,
+                    "device": typ,
+                })
+
+        if not disks_to_export:
+            raise RuntimeError(
+                "La VM no tiene discos adjuntos que exportar. "
+                "A\u00f1ade al menos un disco en Configuraci\u00f3n \u2192 "
+                "Almacenamiento."
+            )
+
+        log_emit(f"==> Discos a exportar: {len(disks_to_export)}")
+
+        # ovf_ova_io_v1_cdrom_export: recopilar unidades CD/DVD reales.
+        # Las unidades con source="installer" se omiten (no hay archivo
+        # físico). Si include_iso=False, se emiten vacías.
+        cdroms_to_export = []
+        for cd in storage_devices:
+            if not isinstance(cd, dict): continue
+            if str(cd.get("device") or "") != "cdrom": continue
+            if str(cd.get("source") or "") == "installer": continue
+            p = str(cd.get("path") or "")
+            if p:
+                p_abs = vm_paths.to_absolute(vm_dir, p)
+                if p_abs and os.path.isfile(p_abs):
+                    cdroms_to_export.append({
+                        "src_abs": p_abs,
+                        "arcname": os.path.basename(p_abs),
+                        "name": cd.get("name") or os.path.basename(p_abs),
+                    })
+                    continue
+            # Unidad vacía
+            cdroms_to_export.append({
+                "src_abs": "",
+                "arcname": "",
+                "name": cd.get("name") or "CD/DVD",
+            })
+        log_emit(f"==> Unidades CD/DVD a exportar: {len(cdroms_to_export)} "
+                 f"(ISOs incluidas: {'sí' if include_iso else 'no'})")
+
+        # 3) Directorio temporal
+        #
+        # ovf_ova_io_v1_rev2: para OVA + QCOW2 no hace falta temp (los
+        # discos se empaquetan directamente). Solo se crea si hay que
+        # convertir a VMDK (qemu-img necesita escribir a disco antes de
+        # meterlo en el tar) o para el modo OVF en carpeta.
+        if fmt == "ovf":
+            work_dir = os.path.dirname(dest_path) or os.getcwd()
+            _cleanup_workdir = False
+        elif to_vmdk:
+            parent = os.path.dirname(os.path.abspath(dest_path)) or os.getcwd()
+            work_dir = _tmp.mkdtemp(prefix=".ovf_export_", dir=parent)
+            _cleanup_workdir = True
+        else:
+            work_dir = None
+            _cleanup_workdir = False
+
+        ovf_disks = []
+        # ovf_ova_io_v1_diskname: registro de nombres ya usados dentro
+        # del OVA/OVF. Si dos discos del original se llaman igual, el
+        # segundo pasa a "<nombre>_2.ext".
+        _used_names = set()
+
+        # ovf_progress_phases_v1: mapear el progreso de las DOS fases
+        # del export (conversión de discos y empaquetado final) a un
+        # único rango global 0..100. Sin esto, cada fase emitía 0..100
+        # por su cuenta y la barra "retrocedía" al pasar de una a otra
+        # (barrido visual 100% → 75%).
+        #
+        #   • Conversión de discos: 0..80  (cada disco ocupa 80/N).
+        #   • Empaquetado OVA:      80..100.
+        _N_DISKS = max(1, len(disks_to_export))
+        _CONVERT_SHARE = 80.0
+        _PACK_SHARE = 20.0
+        _SLICE = _CONVERT_SHARE / _N_DISKS
+        _disk_counter = {"i": 0}
+
+        def _emit_convert(pct, msg):
+            """Reescala 0..100 local de un disco al rango global."""
+            if not progress_emit:
+                return
+            if pct < 0:
+                progress_emit(-1, msg)
+                return
+            base = _disk_counter["i"] * _SLICE
+            progress_emit(int(base + pct * _SLICE / 100.0), msg)
+
+        def _emit_pack(pct, msg):
+            """Reescala 0..100 del empaquetado al rango 80..100 global."""
+            if not progress_emit:
+                return
+            if pct < 0:
+                progress_emit(-1, msg)
+                return
+            progress_emit(int(_CONVERT_SHARE + pct * _PACK_SHARE / 100.0), msg)
+
+        try:
+            # 4) Preparar cada disco
+            #
+            # ovf_ova_io_v1_rev2: si el formato es OVA y no hay que
+            # convertir, empaquetamos el archivo ORIGINAL directamente.
+            # Antes se copiaba a un temporal antes de tar, lo que
+            # triplicaba la necesidad de espacio (original + temp + .ova).
+            for i, d in enumerate(disks_to_export):
+                if is_cancelled():
+                    raise RuntimeError("Exportaci\u00f3n cancelada por el usuario.")
+                # ovf_progress_phases_v1: fijar el índice del disco
+                # actual para que _emit_convert sepa en qué franja del
+                # rango global 0..80 está.
+                _disk_counter["i"] = i
+                src = d["path"]
+                # ovf_ova_io_v1_diskname: preservar el nombre original
+                # del disco, saneado para evitar caracteres problematicos
+                # en visores externos (espacios, acentos, simbolos raros).
+                _orig_base = os.path.basename(src)
+                _stem, _ext_orig = os.path.splitext(_orig_base)
+                _ext_orig = _ext_orig.lower().lstrip(".")
+                if to_vmdk:
+                    ext = "vmdk"
+                else:
+                    ext = _ext_orig if _ext_orig in (
+                        "qcow2","raw","vmdk","vdi","vhd","vhdx"
+                    ) else "qcow2"
+                # Sanear: solo [A-Za-z0-9._-], sin espacios.
+                _stem = re.sub(r"[^A-Za-z0-9._-]+", "_", _stem or "").strip("._")
+                if not _stem:
+                    _stem = f"disk{i}"
+                dst_name = f"{_stem}.{ext}"
+                # Deduplicar si ya hay un disco con ese nombre.
+                if dst_name in _used_names:
+                    k = 2
+                    while f"{_stem}_{k}.{ext}" in _used_names:
+                        k += 1
+                    dst_name = f"{_stem}_{k}.{ext}"
+                _used_names.add(dst_name)
+
+                # ovf_auto_compress_v1: política automática por formato:
+                #   • VMDK              → conversión a stream-optimized
+                #                         (descarta snapshots por diseño).
+                #   • QCOW2             → qemu-img convert -c -O qcow2.
+                #                         Aplana snapshots + comprime zlib.
+                #   • Otros (RAW, VDI…) → copia directa.
+                _is_qcow2 = dst_name.lower().endswith(".qcow2")
+
+                if to_vmdk or _is_qcow2:
+                    if work_dir is None:
+                        parent = (os.path.dirname(os.path.abspath(dest_path))
+                                  or os.getcwd())
+                        work_dir = _tmp.mkdtemp(prefix=".ovf_export_",
+                                                dir=parent)
+                        _cleanup_workdir = True
+                    dst = os.path.join(work_dir, dst_name)
+
+                    if to_vmdk:
+                        log_emit(f"==> Disco {i+1}/{len(disks_to_export)}: "
+                                 f"{d['name']} — convirtiendo a VMDK "
+                                 f"stream-optimized")
+                        ovf_io.convert_to_vmdk_stream_optimized(
+                            src, dst,
+                            log_emit=log_emit,
+                            progress_emit=_emit_convert,
+                            is_cancelled=is_cancelled,
+                        )
+                    else:
+                        log_emit(f"==> Disco {i+1}/{len(disks_to_export)}: "
+                                 f"{d['name']} — descartando snapshots y "
+                                 f"comprimiendo (qemu-img convert -c -O qcow2)")
+                        # ovf_progress_phases_v1: qemu-img convert -c
+                        # con capture_output no permite parsear la barra
+                        # de progreso (se queda en el buffer). Emitimos
+                        # manualmente 0 al empezar y 100 al terminar para
+                        # que la franja del disco se rellene.
+                        _emit_convert(0, f"Comprimiendo {dst_name}...")
+                        _r = subprocess.run(
+                            ["qemu-img", "convert", "-c", "-p",
+                             "-O", "qcow2", src, dst],
+                            capture_output=True, text=True,
+                        )
+                        if _r.returncode != 0:
+                            err = (_r.stderr or _r.stdout or "").strip()
+                            raise RuntimeError(
+                                f"qemu-img convert -c falló para "
+                                f"'{os.path.basename(src)}': {err}"
+                            )
+                        if (not os.path.isfile(dst)
+                                or os.path.getsize(dst) == 0):
+                            raise RuntimeError(
+                                f"El aplanado+compresión de "
+                                f"'{os.path.basename(src)}' no produjo un "
+                                f"archivo válido."
+                            )
+                        _emit_convert(100, f"Comprimido: {dst_name}")
+                    src_for_tar = dst
+                else:
+                    dst = os.path.join(work_dir, dst_name)
+                    log_emit(f"==> Preparando disco {i+1}/{len(disks_to_export)}: {d['name']} (copia directa)")
+                    _emit_convert(0, f"Copiando {dst_name}...")
+                    _sh.copy2(src, dst)
+                    _emit_convert(100, f"Copiado: {dst_name}")
+                    src_for_tar = dst
+
+                # ovf_ova_io_v1_disksize: el descriptor OVF espera el
+                # tamanio VIRTUAL del disco (lo que ve el guest), no el
+                # tamanio fisico del archivo QCOW2. Un QCOW2 vacio de 8 GB
+                # ocupa ~200 KB pero su virtual-size es 8 GiB.
+                capacity_gb = 1
+                try:
+                    _r = subprocess.run(
+                        ["qemu-img", "info", "--output=json", src_for_tar],
+                        capture_output=True, text=True, timeout=10, check=True,
+                    )
+                    _vsize = int(json.loads(_r.stdout or "{}").get("virtual-size") or 0)
+                    if _vsize > 0:
+                        capacity_gb = max(1, int(round(_vsize / (1024**3))))
+                except Exception:
+                    try:
+                        _sz = os.path.getsize(src_for_tar)
+                        capacity_gb = max(1, int(round(_sz / (1024**3))))
+                    except OSError:
+                        capacity_gb = 1
+                if ext == "vmdk":
+                    ovf_fmt = ("http://www.vmware.com/interfaces/specifications/"
+                               "vmdk.html#streamOptimized")
+                elif ext == "qcow2":
+                    ovf_fmt = "http://schemas.dmtf.org/ovf/envelope/1/qcow2"
+                else:
+                    ovf_fmt = ""
+                ovf_disks.append({
+                    "disk_id": f"vmdisk{i}",
+                    "file": dst_name,
+                    "capacity_gb": capacity_gb,
+                    "format": ovf_fmt,
+                    "_abs": src_for_tar,
+                    "_arcname": dst_name,
+                })
+
+            # 5) Redes y otros datos
+            networks = []
+            for nd in (data.get("network_devices") or []):
+                if not isinstance(nd, dict): continue
+                model = "E1000"
+                m = str(nd.get("model") or "").lower()
+                if "virtio" in m: model = "Virtio"
+                elif "rtl8139" in m: model = "PCNet32"
+                elif "vmxnet3" in m: model = "VMXNET3"
+                networks.append({"name": nd.get("name") or "nat", "model": model})
+            if not networks:
+                networks = [{"name": "nat", "model": "E1000"}]
+
+            try:
+                cpus = int(data.get("cores") or 2)
+            except Exception:
+                cpus = 2
+            ram_text = str(data.get("ram") or "4G").upper().replace("GB", "G").replace(" ", "")
+            m = re.match(r"(\d+)", ram_text)
+            ram_gb = int(m.group(1)) if m else 4
+            memory_mb = ram_gb * 1024
+
+            os_type = (data.get("os_type") or "linux").lower()
+            extra = data.get("extra") or {}
+            distro_or_version = ""
+            if os_type == "linux":
+                distro_or_version = extra.get("distro") or ""
+            elif os_type == "windows":
+                distro_or_version = extra.get("win_ver") or "Windows 10"
+            elif os_type == "macos":
+                distro_or_version = extra.get("os_choice") or ""
+
+            # 6) Construir OVF
+            log_emit("==> Construyendo descriptor OVF...")
+            _cdroms_arg = []
+            for _i, _cd in enumerate(cdroms_to_export):
+                _entry = {"file_id": f"cdrom{_i}_file",
+                          "file_arcname": ""}
+                if include_iso and _cd.get("src_abs"):
+                    _entry["file_arcname"] = _cd["arcname"]
+                _cdroms_arg.append(_entry)
+            _annotation = ""
+            if is_macos:
+                _annotation = (
+                    "VM macOS exportada por Virtual.Machine. La cadena de "
+                    "arranque OpenCore+OSX-KVM no es compatible con "
+                    "VirtualBox ni VMware. Este OVA está pensado para "
+                    "reimportarse en Virtual.Machine u otro host Linux con "
+                    "la misma app."
+                )
+            # ovf_ova_vbox_uefi_v1_B: pasar el firmware real a
+            # build_ovf_xml() para que el descriptor incluya
+            # vbox:BIOSSettings/vbox:Firmware=efi cuando corresponda.
+            # VirtualBox no puede inferirlo de otra forma: sin este
+            # bloque, la VM importada queda en BIOS legacy aunque el
+            # disco sea GPT+EFI, y el usuario tiene que activar EFI
+            # a mano. macOS siempre va UEFI.
+            _firmware_export = str(data.get("firmware") or "bios").lower()
+            if is_macos:
+                _firmware_export = "uefi"
+            ovf_text = ovf_io.build_ovf_xml(
+                vm_name=vm_name,
+                os_type=os_type,
+                distro_or_version=distro_or_version,
+                cpus=cpus,
+                memory_mb=memory_mb,
+                disks=ovf_disks,
+                networks=networks,
+                cdroms=_cdroms_arg,
+                annotation=_annotation,
+                firmware=_firmware_export,
+            )
+
+            # 7) Metadata propia
+            meta = ovf_io.build_virtmachine_meta(data)
+
+            # 8) Escribir destino
+            if fmt == "ova":
+                # ovf_ova_io_v1_rev2: pasar tuplas (path, arcname)
+                disk_items = [(d["_abs"], d["_arcname"]) for d in ovf_disks]
+                # ovf_ova_io_v1_cdrom_export: anadir ISOs si el usuario
+                # marco la casilla. Se empaquetan directamente sin copia.
+                if include_iso:
+                    for _cd in cdroms_to_export:
+                        if _cd.get("src_abs"):
+                            disk_items.append(
+                                (_cd["src_abs"], _cd["arcname"])
+                            )
+                ovf_io.pack_ova(
+                    ovf_text, disk_items, dest_path,
+                    extra_meta=meta,
+                    log_emit=log_emit,
+                    progress_emit=_emit_pack,
+                    is_cancelled=is_cancelled,
+                )
+                if _cleanup_workdir and work_dir and os.path.isdir(work_dir):
+                    try:
+                        _sh.rmtree(work_dir, ignore_errors=True)
+                    except Exception:
+                        pass
+            else:
+                ovf_out = dest_path
+                if not ovf_out.lower().endswith(".ovf"):
+                    ovf_out = ovf_out + ".ovf"
+                with open(ovf_out, "w", encoding="utf-8") as f:
+                    f.write(ovf_text)
+                meta_out = os.path.join(os.path.dirname(ovf_out),
+                                        ovf_io.VIRTMACHINE_META)
+                try:
+                    import json as _json
+                    with open(meta_out, "w", encoding="utf-8") as f:
+                        _json.dump(meta, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    log_emit(f"[AVISO] No se pudo escribir la metadata: {e}")
+                manifest_files = [ovf_out] + [d["_abs"] for d in ovf_disks]
+                manifest_path = os.path.join(os.path.dirname(ovf_out),
+                                             ovf_io.MANIFEST_NAME)
+                try:
+                    ovf_io.write_manifest(manifest_files, manifest_path)
+                except Exception as e:
+                    log_emit(f"[AVISO] No se pudo escribir el manifest: {e}")
+                dest_path = ovf_out
+
+            if progress_emit:
+                progress_emit(100, "Exportaci\u00f3n completada.")
+            log_emit(f"==> Exportaci\u00f3n OVF/OVA terminada: {dest_path}")
+            return dest_path
+        finally:
+            if _cleanup_workdir and os.path.isdir(work_dir):
+                try:
+                    _sh.rmtree(work_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+
+    # ==================================================================
+    # Importar OVF / OVA (marcador ovf_ova_io_v1)
+    # ==================================================================
+
+    def _import_vm_from_ova(self, source):
+        """Importacion desde un .ova o .ovf (marcador ovf_ova_io_v1).
+
+        Lee SOLO el descriptor para el dialogo de previsualizacion; la
+        extraccion de los discos va despues, en el worker.
+        """
+        low = source.lower()
+        is_ova = low.endswith(".ova")
+
+        # 1) Leer descriptor
+        try:
+            if is_ova:
+                ovf_text = ovf_io.read_ovf_descriptor_only(source)
+                if not ovf_text:
+                    QMessageBox.warning(
+                        self, "Importar OVA",
+                        "El archivo .ova no contiene ning\u00fan descriptor .ovf."
+                    )
+                    return
+            else:
+                with open(source, "r", encoding="utf-8", errors="replace") as f:
+                    ovf_text = f.read()
+                if not ovf_text.strip():
+                    QMessageBox.warning(
+                        self, "Importar OVF",
+                        "El archivo .ovf est\u00e1 vac\u00edo."
+                    )
+                    return
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Importar OVF/OVA",
+                f"No se pudo leer el descriptor.\n\n{e}"
+            )
+            return
+
+        try:
+            ovf_data = ovf_io.parse_ovf_xml(ovf_text)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Importar OVF/OVA",
+                f"El descriptor OVF no se pudo interpretar.\n\n{e}"
+            )
+            return
+
+        # 2) Dialogo de previsualizacion
+        suggested_name = (ovf_data.get("name") or
+                          os.path.splitext(os.path.basename(source))[0] or
+                          "VM-importada")
+        suggested_name = re.sub(r'[\\/:*?"<>|]', "_", suggested_name).strip() or "VM-importada"
+        existing = set(list_existing_vms())
+        base = suggested_name
+        i = 2
+        while (suggested_name in existing
+               or os.path.exists(os.path.join(vm_config.BASE_VM_DIR, suggested_name))):
+            suggested_name = f"{base}-{i}"
+            i += 1
+
+        dlg = _OvfImportPreviewDialog(self, ovf_data, suggested_name)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        result = dlg.values()
+        if not result:
+            return
+
+        target_name = result["name"]
+        user_os = result["os_type"]
+        user_distro_or_ver = result["distro_or_version"]
+        import_config_only = result.get("config_only", False)
+
+        target_dir = os.path.join(vm_config.BASE_VM_DIR, target_name)
+        if os.path.exists(target_dir):
+            resp = QMessageBox.question(
+                self, "Ya existe",
+                f"Ya existe una VM llamada '{target_name}'.\n\n"
+                "\u00bfReemplazarla? (se eliminar\u00e1 la existente)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if resp != QMessageBox.StandardButton.Yes:
+                return
+
+        # vm_space_guard_v1: comprobar espacio antes de lanzar el worker.
+        try:
+            _ova_size = 0
+            if is_ova:
+                try:
+                    _ova_size = os.path.getsize(source)
+                except OSError:
+                    _ova_size = 0
+            else:
+                _dir = os.path.dirname(os.path.abspath(source))
+                for _f in os.listdir(_dir):
+                    try:
+                        _ova_size += os.path.getsize(os.path.join(_dir, _f))
+                    except OSError:
+                        pass
+            _needed = int(_ova_size * 2.2) if _ova_size else 0
+            if not self._check_space_or_warn(
+                target_dir, _needed, "Importar OVF/OVA"
+            ):
+                return
+        except Exception as _sp_err:
+            try:
+                self.log_message(
+                    f"[AVISO] No se pudo comprobar el espacio libre: {_sp_err}"
+                )
+            except Exception:
+                pass
+
+        def _work(log_emit, is_cancelled, progress_emit):
+            return self._import_vm_from_ova_impl(
+                source, is_ova, target_name, target_dir,
+                user_os, user_distro_or_ver, import_config_only, ovf_data,
+                log_emit, is_cancelled, progress_emit,
+            )
+
+        self.run_async(
+            _work,
+            f"Importando '{target_name}' desde {os.path.basename(source)}",
+            on_success=lambda result: self._on_import_success(result),
+            on_error=lambda e: self._show_selectable_error(
+                "Importar OVF/OVA",
+                self._enospc_friendly_msg(e, "carpeta de la VM")
+                if self._is_enospc_error(e)
+                else f"No se pudo completar la importaci\u00f3n.\n\n{e}",
+            ),
+            cancelable=True,
+            show_log=True,
+            subtitle="Extrayendo y preparando el OVF/OVA...",
+        )
+
+    def _import_vm_from_ova_impl(self, source, is_ova, target_name, target_dir,
+                                   user_os, user_distro_or_ver,
+                                   import_config_only, ovf_data,
+                                   log_emit, is_cancelled, progress_emit):
+        """Cuerpo del import OVF/OVA. Corre en hilo de fondo."""
+        import tempfile as _tmp
+        import shutil as _sh
+
+        log_emit(f"==> Importando '{target_name}' desde {source}")
+
+        extract_dir = None
+        cleanup_extract = False
+        try:
+            if is_ova:
+                os.makedirs(vm_config.BASE_VM_DIR, exist_ok=True)
+                parent = os.path.dirname(os.path.abspath(vm_config.BASE_VM_DIR))
+                extract_dir = _tmp.mkdtemp(prefix=".ova_extract_", dir=parent)
+                cleanup_extract = True
+                progress_emit(0, "Extrayendo OVA...")
+                log_emit(f"==> Extrayendo OVA en {extract_dir}...")
+                ovf_found, meta_found = ovf_io.unpack_ova(source, extract_dir)
+                if not ovf_found:
+                    raise RuntimeError("El OVA no contiene un descriptor .ovf v\u00e1lido.")
+                ovf_dir = os.path.dirname(ovf_found)
+                log_emit(f"==> Descriptor encontrado: {os.path.basename(ovf_found)}")
+                meta = ovf_io.load_virtmachine_meta(meta_found)
+            else:
+                ovf_dir = os.path.dirname(os.path.abspath(source))
+                meta = ovf_io.load_virtmachine_meta(
+                    os.path.join(ovf_dir, ovf_io.VIRTMACHINE_META))
+
+            progress_emit(20, "Preparando configuraci\u00f3n...")
+
+            if os.path.exists(target_dir):
+                log_emit(f"==> Eliminando VM existente '{target_name}'...")
+                _sh.rmtree(target_dir)
+            os.makedirs(target_dir, exist_ok=True)
+
+            # Convertir/copiar cada disco a QCOW2
+            storage_devices = []
+            # ovf_ova_io_v1_import_diskname: registro de nombres ya
+            # usados dentro de la VM destino.
+            _used_disk_names = set()
+            disks = ovf_data.get("disks") or []
+            log_emit(f"==> Discos a importar: {len(disks)}")
+
+            # ovf_ova_io_v1_macos_import: rama específica macOS.
+            # El OVA contiene mac_hdd_ng.qcow2 (siempre) y opcionalmente
+            # BaseSystem.img. NO van a storage_devices: el flujo macOS
+            # los lee por nombre fijo desde vm_dir.
+            _is_macos_import = (
+                str(user_os or "").lower() == "macos"
+                or str(ovf_data.get("os_type") or "").lower() == "macos"
+            )
+
+            if _is_macos_import:
+                log_emit("==> macOS: importando archivos específicos "
+                         "del flujo OSX-KVM.")
+                # mac_hdd_ng.qcow2 (siempre)
+                _mac_hdd_src = ""
+                for _cand in os.listdir(ovf_dir):
+                    if _cand.lower() == "mac_hdd_ng.qcow2":
+                        _mac_hdd_src = os.path.join(ovf_dir, _cand); break
+                if not _mac_hdd_src:
+                    for _cand in os.listdir(ovf_dir):
+                        _lc = _cand.lower()
+                        if _lc.endswith(".qcow2") and "opencore" not in _lc:
+                            _mac_hdd_src = os.path.join(ovf_dir, _cand)
+                            log_emit(f"[AVISO] macOS: mac_hdd_ng.qcow2 no "
+                                     f"encontrado; usando '{_cand}'.")
+                            break
+                if not _mac_hdd_src:
+                    raise RuntimeError(
+                        "OVA macOS: no se encontró mac_hdd_ng.qcow2 en "
+                        "el paquete. Sin ese archivo no hay sistema que "
+                        "importar."
+                    )
+                _mac_hdd_dst = os.path.join(target_dir, "mac_hdd_ng.qcow2")
+                progress_emit(40, "Copiando mac_hdd_ng.qcow2...")
+                log_emit("==> Copiando " + os.path.basename(_mac_hdd_src)
+                         + " -> mac_hdd_ng.qcow2...")
+                _sh.copy2(_mac_hdd_src, _mac_hdd_dst)
+
+                # BaseSystem.img (opcional)
+                _bs_src = ""
+                for _cand in os.listdir(ovf_dir):
+                    if _cand.lower() == "basesystem.img":
+                        _bs_src = os.path.join(ovf_dir, _cand); break
+                if _bs_src:
+                    _bs_dst = os.path.join(target_dir, "BaseSystem.img")
+                    progress_emit(70, "Copiando BaseSystem.img...")
+                    log_emit("==> Copiando BaseSystem.img...")
+                    _sh.copy2(_bs_src, _bs_dst)
+                else:
+                    log_emit("[AVISO] macOS: BaseSystem.img no está en "
+                             "el OVA; se descargará automáticamente "
+                             "al iniciar la VM si se necesita.")
+
+                # OSX-KVM en el host (auto-descarga si falta).
+                try:
+                    _app_dir_i = os.path.dirname(os.path.abspath(__file__))
+                    _osx_kvm_i = os.path.join(_app_dir_i, "OSX-KVM")
+                    if not os.path.isdir(_osx_kvm_i):
+                        progress_emit(85, "Descargando OSX-KVM...")
+                        log_emit("==> OSX-KVM no encontrado; descargando "
+                                 "automáticamente...")
+                        from host_deps import ensure_osx_kvm_present
+                        ensure_osx_kvm_present(log_emit)
+                        log_emit("==> OSX-KVM listo.")
+                    else:
+                        log_emit("==> OSX-KVM ya presente en el host.")
+                except Exception as _kx_err:
+                    log_emit(f"[AVISO] No se pudo preparar OSX-KVM: "
+                             f"{_kx_err}.")
+
+                # Escribir vm_config.ini específico de macOS y salir.
+                cpus = int(ovf_data.get("cpus") or 0) or 2
+                ram_gb = max(1, int(ovf_data.get("memory_mb") or 0) // 1024) or 4
+                ram = f"{ram_gb}G"
+                extra = {}
+                if meta and isinstance(meta.get("vm_config"), dict):
+                    _vmcfg_m = meta["vm_config"]
+                    extra = dict(_vmcfg_m.get("extra") or {})
+                    # ovf_import_firmware_fix: los campos de hardware
+                    # están en el NIVEL SUPERIOR del meta, no dentro de
+                    # 'extra'. Los copiamos a extra para que el .ini los
+                    # recoja correctamente (firmware, chipset, etc.).
+                    for _k in ("firmware", "chipset", "secure_boot", "tpm",
+                               "graphics_mode", "graphics_vram",
+                               "audio_device", "network_mode",
+                               "boot_order"):
+                        if _k in _vmcfg_m and _vmcfg_m[_k] is not None:
+                            extra.setdefault(_k, _vmcfg_m[_k])
+                _mac_ver = user_distro_or_ver or extra.get("os_choice") or ""
+                extra["os_choice"] = _mac_ver
+                extra["storage_devices"] = []
+                extra["cdrom_path"] = ""
+                extra["imported_from_ovf"] = True
+                try:
+                    _app_dir_cfg = os.path.dirname(os.path.abspath(__file__))
+                    extra["osx_kvm_source"] = os.path.join(
+                        _app_dir_cfg, "OSX-KVM"
+                    )
+                except Exception:
+                    pass
+                cfg_path = os.path.join(target_dir, "vm_config.ini")
+                cfg = configparser.ConfigParser(interpolation=None)
+                cfg["general"] = {"name": target_name, "os_type": "macos"}
+                cfg["hardware"] = {
+                    "ram": ram,
+                    "cores": str(cpus),
+                    "disk_size": "128G",
+                    "disk_type": "dynamic",
+                    "disk_format": "qcow2",
+                    "disk_ext": "qcow2",
+                    "firmware": "uefi",
+                    "chipset": "q35",
+                    "secure_boot": "False",
+                    "tpm": "False",
+                    "boot_device": "disk",
+                    "boot_order": json.dumps(["disk", "cdrom", "network"]),
+                    "network_model": "e1000",
+                    "audio_device": extra.get("audio_device") or "intel-hda",
+                    "network_mode": "nat",
+                    "network_interface": "",
+                    "network_count": "1",
+                    "graphics_mode": "auto",
+                    "graphics_vram": "128M",
+                    "network_devices": json.dumps([{
+                        "name": "Red 1",
+                        "model": "e1000",
+                        "mode": "nat",
+                        "interface": "",
+                        "mac": self._new_qemu_mac(),
+                    }]),
+                    "passthrough_devices": json.dumps([]),
+                }
+                cfg["extra"] = {"data": json.dumps(extra, ensure_ascii=False)}
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    cfg.write(f)
+                if hasattr(self, "_invalidate_vm_config_cache"):
+                    self._invalidate_vm_config_cache(target_dir)
+                progress_emit(100, "Importación completada.")
+                log_emit(f"==> Importación macOS terminada: {target_dir}")
+                log_emit("==> Al arrancar, la app usará OpenCore del "
+                         "OSX-KVM del host y descargará el Recovery "
+                         "automáticamente si hace falta.")
+                return target_dir
+
+            for i, d in enumerate(disks):
+                if is_cancelled():
+                    raise RuntimeError("Importaci\u00f3n cancelada por el usuario.")
+                src_name = d.get("file") or ""
+                if not src_name:
+                    log_emit(f"[AVISO] Disco {i+1} sin archivo asociado; se omite.")
+                    continue
+                src_path = os.path.join(ovf_dir, src_name)
+                if not os.path.isfile(src_path):
+                    for cand in os.listdir(ovf_dir):
+                        if cand.lower() == src_name.lower():
+                            src_path = os.path.join(ovf_dir, cand)
+                            break
+                if not os.path.isfile(src_path):
+                    log_emit(f"[AVISO] Archivo del disco no encontrado: {src_name}")
+                    continue
+
+                if import_config_only:
+                    log_emit(f"==> Modo 'solo configuraci\u00f3n': se omite el disco {src_name}")
+                    continue
+
+                # ovf_ova_io_v1_import_diskname: preservar el nombre del
+                # disco dentro del OVA (saneado, con deduplicación).
+                _orig_stem, _orig_ext = os.path.splitext(src_name)
+                _orig_stem = re.sub(
+                    r"[^A-Za-z0-9._-]+", "_", _orig_stem or ""
+                ).strip("._")
+                if not _orig_stem:
+                    _orig_stem = "disk0" if i == 0 else f"disk{i}"
+                dst_name = _orig_stem + ".qcow2"
+                if dst_name in _used_disk_names:
+                    _k = 2
+                    while f"{_orig_stem}_{_k}.qcow2" in _used_disk_names:
+                        _k += 1
+                    dst_name = f"{_orig_stem}_{_k}.qcow2"
+                _used_disk_names.add(dst_name)
+                dst_path = os.path.join(target_dir, dst_name)
+                log_emit(f"==> Convirtiendo {src_name} -> {dst_name}...")
+
+                try:
+                    r = subprocess.run(
+                        ["qemu-img", "info", "--output=json", src_path],
+                        capture_output=True, text=True, timeout=15, check=True,
+                    )
+                    info = json.loads(r.stdout or "{}")
+                    fmt_src = (info.get("format") or "").lower()
+                except Exception:
+                    fmt_src = ""
+                if fmt_src == "qcow2":
+                    _sh.copy2(src_path, dst_path)
+                    if progress_emit:
+                        progress_emit(-1, f"Copiando {dst_name}...")
+                else:
+                    ovf_io.convert_to_qcow2(
+                        src_path, dst_path,
+                        log_emit=log_emit,
+                        progress_emit=progress_emit,
+                        is_cancelled=is_cancelled,
+                    )
+                virtual_txt = "128G"
+                try:
+                    r = subprocess.run(
+                        ["qemu-img", "info", "--output=json", dst_path],
+                        capture_output=True, text=True, timeout=10, check=True,
+                    )
+                    info = json.loads(r.stdout or "{}")
+                    vsize = int(info.get("virtual-size") or 0)
+                    if vsize:
+                        virtual_txt = f"{max(1, int(round(vsize / (1024**3))))}G"
+                except Exception:
+                    pass
+                storage_devices.append({
+                    "id": f"dev_{uuid.uuid4().hex[:12]}",
+                    "name": _orig_stem or f"Disco {i+1}",
+                    "device": "sata",
+                    "type": "dynamic",
+                    "format": "qcow2",
+                    "size": virtual_txt,
+                    "path": vm_paths.to_portable(target_dir, dst_path),
+                    "existing": True,
+                })
+
+            progress_emit(80, "Escribiendo vm_config.ini...")
+
+            # Construir vm_config.ini
+            extra = {}
+            if meta and isinstance(meta.get("vm_config"), dict):
+                _vmcfg_g = meta["vm_config"]
+                extra = dict(_vmcfg_g.get("extra") or {})
+                # ovf_import_firmware_fix: los campos de hardware están
+                # en el NIVEL SUPERIOR del meta. Sin este copiado, la VM
+                # importada perdía 'firmware=uefi' y quedaba en BIOS,
+                # por lo que no arrancaba (UEFI disk sin firmware UEFI).
+                for _k in ("firmware", "chipset", "secure_boot", "tpm",
+                           "graphics_mode", "graphics_vram",
+                           "audio_device", "network_mode",
+                           "boot_order"):
+                    if _k in _vmcfg_g and _vmcfg_g[_k] is not None:
+                        extra.setdefault(_k, _vmcfg_g[_k])
+            # ovf_ova_vbox_uefi_v1_B: si el OVA no trae .virtmachine.json
+            # (caso típico: viene de VirtualBox/VMware), pero el
+            # descriptor declara firmware=efi en vbox:BIOSSettings,
+            # respetarlo. Sin esto, cualquier OVA UEFI ajeno se importaba
+            # como BIOS legacy.
+            if not extra.get("firmware"):
+                _fw_desc = str(ovf_data.get("firmware") or "").lower()
+                if _fw_desc in ("uefi", "efi"):
+                    extra["firmware"] = "uefi"
+            os_type = user_os or "linux"
+            if os_type == "linux":
+                extra["distro"] = user_distro_or_ver or extra.get("distro") or ""
+            elif os_type == "windows":
+                extra["win_ver"] = user_distro_or_ver or extra.get("win_ver") or "Windows 10"
+            elif os_type == "macos":
+                extra["os_choice"] = user_distro_or_ver or extra.get("os_choice") or ""
+            extra["storage_devices"] = storage_devices
+            extra["cdrom_path"] = ""
+            extra["imported_from_ovf"] = True
+
+            cpus = int(ovf_data.get("cpus") or 0) or 2
+            ram_gb = max(1, int(ovf_data.get("memory_mb") or 0) // 1024) or 4
+            ram = f"{ram_gb}G"
+            disk_size = "128G"
+            if storage_devices:
+                disk_size = storage_devices[0].get("size") or "128G"
+
+            cfg_path = os.path.join(target_dir, "vm_config.ini")
+            cfg = configparser.ConfigParser(interpolation=None)
+            cfg["general"] = {"name": target_name, "os_type": os_type}
+            cfg["hardware"] = {
+                "ram": ram,
+                "cores": str(cpus),
+                "disk_size": disk_size,
+                "disk_type": "dynamic",
+                "disk_format": "qcow2",
+                "disk_ext": "qcow2",
+                "firmware": extra.get("firmware") or "bios",
+                "chipset": extra.get("chipset") or "q35",
+                "secure_boot": str(bool(extra.get("secure_boot"))),
+                "tpm": str(bool(extra.get("tpm"))),
+                "boot_device": "disk",
+                "boot_order": json.dumps(["disk", "cdrom", "network"]),
+                "network_model": "virtio-net-pci",
+                "audio_device": extra.get("audio_device") or "intel-hda",
+                "network_mode": extra.get("network_mode") or "nat",
+                "network_interface": "",
+                "network_count": "1",
+                "graphics_mode": extra.get("graphics_mode") or "auto",
+                "graphics_vram": extra.get("graphics_vram") or "256M",
+                "network_devices": json.dumps([{
+                    "name": "Red 1",
+                    "model": "virtio-net-pci",
+                    "mode": extra.get("network_mode") or "nat",
+                    "interface": "",
+                    "mac": self._new_qemu_mac(),
+                }]),
+                "passthrough_devices": json.dumps([]),
+            }
+            cfg["extra"] = {"data": json.dumps(extra, ensure_ascii=False)}
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                cfg.write(f)
+            if hasattr(self, "_invalidate_vm_config_cache"):
+                self._invalidate_vm_config_cache(target_dir)
+
+            progress_emit(100, "Importaci\u00f3n completada.")
+            log_emit(f"==> Importaci\u00f3n terminada: {target_dir}")
+            return target_dir
+        finally:
+            if cleanup_extract and extract_dir and os.path.isdir(extract_dir):
+                try:
+                    _sh.rmtree(extract_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+# ovf_ova_io_v1_uuidfix
+# ovf_progress_phases_v1
+# ovf_ova_vbox_uefi_v1_B
+# ovf_ova_io_v1_dialogtext
+# ovf_ova_io_v1_disksize
+# ovf_ova_io_v1_diskname
+# ovf_ova_io_v1_import_diskname
+# ovf_ova_io_v1_filefilter
+# ovf_ova_io_v1_cdrom_export
+# ovf_ova_io_v1_macos_export
+# ovf_ova_io_v1_macos_import
+# ovf_snapshots_opt_v1
+# ovf_snapshots_opt_v1_helper
+# ovf_snapshots_opt_v1_impl
+# ovf_snapshots_opt_v1_impl
+# vm_space_guard_v1
+# vm_enospc_msg_v1
 # _persist_android_iso_unified_v2
