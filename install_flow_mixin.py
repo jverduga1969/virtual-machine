@@ -623,12 +623,10 @@ class InstallFlowMixin:
         profile_version=self.combo_macos_ver.currentText() if os_type=="macos" else (self.combo_win_ver.currentText() if os_type=="windows" else self.combo_lin_distro.currentText())
         extra_params["os_profile"]=get_os_profile(os_type,profile_version,profile_version if os_type=="linux" else "")
         if os_type == "macos":
-            # osx_kvm_anchor_v1: OSX-KVM vive junto al proyecto, no en
-            # el CWD. Igual que BASE_VM_DIR, anclamos al directorio del
-            # módulo para que la app funcione desde cualquier ubicación
-            # (o desde un .desktop con Path= distinto).
-            _app_dir = os.path.dirname(os.path.abspath(__file__))
-            _osx_kvm = os.path.join(_app_dir, "OSX-KVM")
+            # osx_kvm_anchor_v1 + xdg_osx_kvm_v1: OSX-KVM vive en la ruta
+            # que decide vm_config (XDG si esta instalado, o junto al
+            # proyecto si es modo desarrollo).
+            _osx_kvm = vm_config.OSX_KVM_DIR
             if not os.path.isdir(_osx_kvm):
                 # Fallback: instalación antigua que lo dejó en el CWD.
                 _legacy = os.path.abspath("OSX-KVM")

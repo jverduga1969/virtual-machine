@@ -25,15 +25,27 @@ import requests
 from packaging import version
 
 def ensure_osx_kvm_present(log_func=print):
-    """Si la carpeta 'OSX-KVM' no existe en el directorio actual, la descarga
-    desde https://github.com/kholia/OSX-KVM y la descomprime en su lugar."""
-    target_dir = os.path.join(os.getcwd(), "OSX-KVM")
+    """Si la carpeta 'OSX-KVM' no existe, la descarga desde
+    https://github.com/kholia/OSX-KVM y la descomprime en OSX_KVM_DIR.
+
+    Marcador: xdg_osx_kvm_v1. La ruta destino la decide vm_config
+    (respeta XDG cuando la app esta instalada en /usr/).
+    """
+    # Import diferido para no crear dependencia circular con vm_config.
+    try:
+        from vm_config import OSX_KVM_DIR as target_dir
+    except Exception:
+        target_dir = os.path.join(os.getcwd(), "OSX-KVM")
+
     if os.path.isdir(target_dir):
         return
 
+    parent_dir = os.path.dirname(target_dir) or os.getcwd()
+    os.makedirs(parent_dir, exist_ok=True)
+
     log_func("==> Carpeta 'OSX-KVM' no encontrada. Descargando desde GitHub (kholia/OSX-KVM)...")
     zip_url = "https://github.com/kholia/OSX-KVM/archive/refs/heads/master.zip"
-    zip_path = os.path.join(os.getcwd(), "_osxkvm_download.zip")
+    zip_path = os.path.join(parent_dir, "_osxkvm_download.zip")
     try:
         r = requests.get(zip_url, timeout=60, stream=True)
         r.raise_for_status()
@@ -44,9 +56,9 @@ def ensure_osx_kvm_present(log_func=print):
 
         log_func("==> Descarga completa. Descomprimiendo...")
         with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(os.getcwd())
+            z.extractall(parent_dir)
 
-        extracted_dir = os.path.join(os.getcwd(), "OSX-KVM-master")
+        extracted_dir = os.path.join(parent_dir, "OSX-KVM-master")
         if not os.path.isdir(extracted_dir):
             raise RuntimeError("No se encontró la carpeta 'OSX-KVM-master' tras descomprimir.")
         shutil.move(extracted_dir, target_dir)
@@ -163,7 +175,12 @@ def find_ovmf_files(secure_boot=False):
                 pass
 
     # OSX-KVM solo aporta OVMF normal; no se debe usar como Secure Boot.
-    local_osx = os.path.abspath("OSX-KVM")
+    # xdg_osx_kvm_v1: leer de la ruta XDG si esta definida.
+    try:
+        from vm_config import OSX_KVM_DIR as _osx_dir
+        local_osx = _osx_dir
+    except Exception:
+        local_osx = os.path.abspath("OSX-KVM")
     if os.path.isdir(local_osx) and not secure_boot:
         search_dirs.extend([
             os.path.join(local_osx, "OVMF_CODE_4M.fd"),

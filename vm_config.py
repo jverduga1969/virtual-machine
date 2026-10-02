@@ -62,6 +62,25 @@ def _resolve_base_vm_dir() -> str:
 BASE_VM_DIR = _resolve_base_vm_dir()
 
 
+def _resolve_osx_kvm_dir() -> str:
+    """Devuelve la carpeta donde vive OSX-KVM.
+
+    Marcador: xdg_osx_kvm_v1.
+
+    Misma logica que BASE_VM_DIR: si la app esta instalada en /usr/
+    o el directorio del modulo no es escribible, usa
+    $XDG_DATA_HOME/virtual-machine/OSX-KVM/ (~/.local/share/...).
+    Si no, usa <modulo>/OSX-KVM/ (modo desarrollo).
+    """
+    if _HERE.startswith("/usr/") or not os.access(_HERE, os.W_OK):
+        xdg = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+        return os.path.join(xdg, "virtual-machine", "OSX-KVM")
+    return os.path.join(_HERE, "OSX-KVM")
+
+
+OSX_KVM_DIR = _resolve_osx_kvm_dir()
+
+
 def legacy_base_vm_dir_warning():
     """Aviso si detectamos VMs en un VirtualMachines/ heredado del cwd.
 
