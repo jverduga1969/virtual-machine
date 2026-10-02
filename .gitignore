@@ -130,3 +130,11 @@ CONVENCIONES.md
 *.patch
 integrar_i18n*.sh
 integrar_*.sh
+
+# ---- Añadidos 2026-10-02 (packaging AUR) ----
+# Artefactos de makepkg: no son codigo, se regeneran en cada build.
+packaging/aur/pkg/
+packaging/aur/src/
+packaging/aur/*.pkg.tar.*
+packaging/aur/virtual-machine/
+packaging/appimage/dist/

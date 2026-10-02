@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Virtual Machine
+GenericName=QEMU/KVM Virtual Machine Manager
+Comment=Administrador grafico de VMs QEMU/KVM
+Comment[en]=Graphical QEMU/KVM virtual machine manager
+Comment[de]=Grafischer QEMU/KVM-Verwaltung fuer virtuelle Maschinen
+Comment[fr]=Gestionnaire graphique de machines virtuelles QEMU/KVM
+Comment[pt_BR]=Gerenciador grafico de maquinas virtuais QEMU/KVM
+Comment[it]=Gestore grafico di macchine virtuali QEMU/KVM
+Exec=virtual-machine
+Icon=virtual-machine
+Terminal=false
+Categories=System;Emulator;
+Keywords=virtual;machine;qemu;kvm;vm;emulator;
+StartupNotify=true
+StartupWMClass=VirtualMachineManagerApp

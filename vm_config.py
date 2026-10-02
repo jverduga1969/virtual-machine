@@ -29,7 +29,37 @@ from packaging import version
 # sus VMs en otro sitio.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _LEGACY_BASE_VM_DIR = os.path.join(os.getcwd(), "VirtualMachines")
-BASE_VM_DIR = os.environ.get("VM_BASE_DIR") or os.path.join(_HERE, "VirtualMachines")
+
+
+def _resolve_base_vm_dir() -> str:
+    """Devuelve la carpeta donde viven las VMs.
+
+    Marcador: xdg_base_dir_v1.
+
+    Orden de prioridad:
+      1. Variable de entorno VM_BASE_DIR (override manual).
+      2. Modo desarrollo: si el directorio del modulo es escribible y no
+         esta bajo /usr/, usa <modulo>/VirtualMachines/ (comportamiento
+         historico, util cuando se clona el repo).
+      3. Modo paquete (AUR/distro): si el modulo esta instalado en /usr/
+         o el directorio no es escribible, usa
+         $XDG_DATA_HOME/virtual-machine/VirtualMachines/ o su defecto
+         ~/.local/share/virtual-machine/VirtualMachines/.
+    """
+    env = os.environ.get("VM_BASE_DIR")
+    if env:
+        return env
+
+    # Modo paquete: instalado en /usr/ o directorio no escribible.
+    if _HERE.startswith("/usr/") or not os.access(_HERE, os.W_OK):
+        xdg = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+        return os.path.join(xdg, "virtual-machine", "VirtualMachines")
+
+    # Modo desarrollo (repo clonado).
+    return os.path.join(_HERE, "VirtualMachines")
+
+
+BASE_VM_DIR = _resolve_base_vm_dir()
 
 
 def legacy_base_vm_dir_warning():

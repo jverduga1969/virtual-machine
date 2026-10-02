@@ -1,0 +1,85 @@
+# Maintainer: Jimmy Verduga <jverduga1969@users.noreply.github.com>
+pkgname=virtual-machine
+pkgver=0.57.0
+pkgrel=1
+pkgdesc="Administrador grafico de VMs QEMU/KVM (estilo VirtualBox) en Python + PyQt6"
+arch=('any')
+url="https://github.com/jverduga1969/virtual-machine"
+license=('GPL-3.0-or-later')
+depends=(
+    'python'
+    'python-pyqt6'
+    'qemu-system-x86'
+    'qemu-img'
+    'qt6-svg'
+    'qt6-tools'
+    'hicolor-icon-theme'
+    'xdg-utils'
+)
+optdepends=(
+    'spice-gtk: soporte SPICE externo (spicy)'
+    'virt-viewer: soporte SPICE externo (remote-viewer)'
+    'tigervnc: visor VNC externo (vncviewer)'
+    'virtiofsd: carpetas compartidas VirtioFS'
+    'samba: carpetas compartidas SMB para Windows/macOS'
+    'ovmf: firmware UEFI para Secure Boot'
+    'swtpm: TPM 2.0 virtual'
+    'dmg2img: Recovery de macOS (BaseSystem.dmg a .img)'
+    'polkit: integracion con pkexec para permisos USB'
+)
+makedepends=('git')
+install=virtual-machine.install
+options=(!emptydirs)
+source=("$pkgname::git+https://github.com/jverduga1969/virtual-machine.git")
+sha256sums=('SKIP')
+
+build() {
+    cd "$pkgname"
+    if [ -f rebuild_i18n.sh ]; then
+        export LC_ALL=C.UTF-8
+        export LANG=C.UTF-8
+        for ts in i18n/vm_*.ts; do
+            [ -f "$ts" ] || continue
+            lrelease6 "$ts" 2>/dev/null || true
+        done
+    fi
+}
+
+package() {
+    cd "$pkgname"
+    local _libdir="$pkgdir/usr/lib/$pkgname"
+
+    install -dm755 "$_libdir"
+
+    for f in *.py; do
+        install -Dm644 "$f" "$_libdir/$f"
+    done
+
+    for d in vnc_widget i18n notes help; do
+        [ -d "$d" ] || continue
+        cp -r "$d" "$_libdir/"
+        find "$_libdir/$d" -type f -exec chmod 644 {} +
+    done
+
+    install -Dm755 run.sh "$_libdir/run.sh"
+
+    install -dm755 "$pkgdir/usr/bin"
+    cat > "$pkgdir/usr/bin/$pkgname" << 'WRAPEOF'
+#!/bin/sh
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+export LANG="${LANG:-C.UTF-8}"
+exec /usr/lib/virtual-machine/run.sh "$@"
+WRAPEOF
+    chmod 755 "$pkgdir/usr/bin/$pkgname"
+
+    install -Dm644 packaging/aur/virtual-machine.desktop \
+        "$pkgdir/usr/share/applications/virtual-machine.desktop"
+
+    if [ -f packaging/aur/virtual-machine.svg ]; then
+        install -Dm644 packaging/aur/virtual-machine.svg \
+            "$pkgdir/usr/share/icons/hicolor/scalable/apps/virtual-machine.svg"
+    fi
+
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE" 2>/dev/null || true
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md" 2>/dev/null || true
+}
