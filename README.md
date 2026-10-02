@@ -2,6 +2,9 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-informational.svg)](#plataforma-soportada)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![PyQt6](https://img.shields.io/badge/PyQt-6-green.svg)](https://www.riverbankcomputing.com/software/pyqt/)
+[![AUR](https://img.shields.io/badge/AUR-virtual--machine-1793D1.svg)](https://aur.archlinux.org/packages/virtual-machine)
 
 Asistente gráfico para crear y administrar máquinas virtuales con
 **QEMU/KVM** en Linux. Interfaz Qt6 con consola VNC/SPICE embebida,
@@ -79,7 +82,10 @@ operativo. Ver la sección *Portabilidad* al final.
 - **Linux** con kernel 5.10+ (probado en CachyOS, Arch, Ubuntu 22.04+,
   Debian 12+, Fedora 36+).
 - **QEMU 6.2+** (`qemu-system-x86_64`, `qemu-img`).
-- **KVM** habilitado (`/dev/kvm` accesible).
+- **KVM** habilitado: `/dev/kvm` accesible y tu usuario en el grupo
+  `kvm`. Si no lo esta: `sudo usermod -aG kvm $USER` (requiere cerrar
+  sesion). La app avisa con este comando si falta cuando intentes
+  arrancar una VM.
 - **Python 3.10+**.
 - **PyQt6**, `requests`, `packaging` (se instalan automáticamente vía
   `run.sh`).
@@ -99,8 +105,36 @@ Opcionales según uso:
 
 ## Instalación
 
+<!-- readme_aur_v1 -->
+
+### Arch Linux y derivados (AUR)
+
+El paquete esta publicado en el AUR. Con un helper (`yay`, `paru`):
+
 ```bash
-git clone https://github.com/TU-USUARIO/virtual-machine.git
+yay -S virtual-machine
+# o
+paru -S virtual-machine
+```
+
+Instalacion manual:
+
+```bash
+git clone https://aur.archlinux.org/virtual-machine.git
+cd virtual-machine
+makepkg -s
+sudo pacman -U virtual-machine-*.pkg.tar.zst
+```
+
+El paquete instala el binario en `/usr/bin/virtual-machine`, el codigo
+en `/usr/lib/virtual-machine/` y crea un lanzador en el menu de
+aplicaciones. **Las VMs y los recursos descargados (OSX-KVM) viven en
+`~/.local/share/virtual-machine/`**, no en `/usr/`.
+
+### Otras distribuciones Linux (desde codigo)
+
+```bash
+git clone https://github.com/jverduga1969/virtual-machine.git
 cd virtual-machine
 ./run.sh
 ```
@@ -121,6 +155,27 @@ python3 virtual_machine.py
 
 ---
 
+### Despues de instalar: preparar el grupo `kvm`
+
+Para aprovechar la aceleracion por hardware (KVM), tu usuario debe
+pertenecer al grupo `kvm`:
+
+```bash
+sudo usermod -aG kvm $USER
+```
+
+Cierra la sesion y vuelve a entrar para aplicar el cambio. La app
+detecta automaticamente si el usuario no esta en el grupo y muestra
+un aviso con este comando al intentar arrancar una VM.
+
+### Idiomas
+
+La interfaz esta disponible en **6 idiomas**: espanol (fuente), ingles,
+frances, portugues (Brasil), italiano y aleman. Cambialo desde el
+selector en la esquina superior derecha de las pestanas. Requiere
+reiniciar la aplicacion (igual que el cambio de tema).
+
+---
 ## Funcionalidades
 
 ### Gestión de VMs
