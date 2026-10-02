@@ -119,3 +119,14 @@ CONVENCIONES.md
 /add_*_mixin.py
 /apply_*_mixin.py
 /probe_*_mixin.py
+
+# ---- Añadidos 2026-10-02 (i18n_de_v1) ----
+# Swap del editor Kate
+.kate-swp
+*.kate-swp
+
+# Parches sueltos y scripts de integración i18n one-shot.
+# rebuild_i18n.sh SÍ se sube (es la herramienta del proyecto).
+*.patch
+integrar_i18n*.sh
+integrar_*.sh
