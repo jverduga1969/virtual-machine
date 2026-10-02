@@ -7752,6 +7752,22 @@ ese momento. El disco solo puede crecer.</source>
 bibliothèque. Nécessite qu'aucune VM ne l'utilise à
 ce moment. Le disque ne peut que grandir.</translation>
     </message>
+    <message>
+        <source>/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.
+
+{0}</source>
+        <translation>/dev/kvm n'est pas disponible. La VM démarrera avec l'émulation logicielle (TCG), 10 à 100× plus lente que KVM.
+
+{0}</translation>
+    </message>
+    <message>
+        <source>Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).
+
+{0}</source>
+        <translation>Votre utilisateur ne peut pas utiliser /dev/kvm (pas dans le groupe 'kvm'). La VM démarrera avec l'émulation logicielle (très lente).
+
+{0}</translation>
+    </message>
 </context><context>
     <name>_CreateMediumDialog</name>
     <message>

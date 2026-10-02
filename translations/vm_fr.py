@@ -743,4 +743,14 @@ TRANSLATIONS = {
     # ================================================================
     # i18n_tanda_fr_1_v1
     # ================================================================
+
+    # kvm_preflight_v1
+    '/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.\n\n{0}':
+        "/dev/kvm n'est pas disponible. La VM démarrera avec l'émulation logicielle (TCG), 10 à 100× plus lente que KVM.\n\n{0}",
+    "Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).\n\n{0}":
+        "Votre utilisateur ne peut pas utiliser /dev/kvm (pas dans le groupe 'kvm'). La VM démarrera avec l'émulation logicielle (très lente).\n\n{0}",
+
+    # kvm_preflight_v1_fix1
+    'Idioma de la interfaz.':
+        "Langue de l'interface.",
 }

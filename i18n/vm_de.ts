@@ -4,430 +4,429 @@
 <context>
     <name>DiskCreationDialog</name>
     <message>
-        <location filename="../dialogs.py" line="177"/>
+        <location filename="../dialogs.py" line="177" />
         <source>Configurar dispositivo de almacenamiento</source>
         <translation>Speichergerät konfigurieren</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="184"/>
+        <location filename="../dialogs.py" line="184" />
         <source>💽 Disco SATA</source>
         <translation>💽 SATA-Festplatte</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="184"/>
+        <location filename="../dialogs.py" line="184" />
         <source>⚡ Disco NVMe</source>
         <translation>⚡ NVMe-Festplatte</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="185"/>
+        <location filename="../dialogs.py" line="185" />
         <source>💾 Disquetera</source>
         <translation>💾 Diskettenlaufwerk</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="185"/>
+        <location filename="../dialogs.py" line="185" />
         <source>📀 Unidad CD / DVD</source>
         <translation>📀 CD-/DVD-Laufwerk</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="187"/>
+        <location filename="../dialogs.py" line="187" />
         <source>Dispositivo de almacenamiento</source>
         <translation>Speichergerät</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="207"/>
+        <location filename="../dialogs.py" line="207" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="208"/>
+        <location filename="../dialogs.py" line="208" />
         <source>Aceptar</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="219"/>
+        <location filename="../dialogs.py" line="219" />
         <source>Mantener vacío</source>
         <translation>Leer lassen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="220"/>
+        <location filename="../dialogs.py" line="220" />
         <source>Usar ISO/IMG/DMG existente</source>
         <translation>Vorhandenes ISO/IMG/DMG verwenden</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="222"/>
+        <location filename="../dialogs.py" line="222" />
         <source>System Recovery de macOS (descargar al iniciar)</source>
         <translation>macOS System Recovery (beim Start herunterladen)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="246"/>
+        <location filename="../dialogs.py" line="246" />
         <source>Descargar instalador de Windows automáticamente</source>
         <translation>Windows-Installer automatisch herunterladen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="249"/>
+        <location filename="../dialogs.py" line="249" />
         <source>Descargar instalador de Linux automáticamente</source>
         <translation>Linux-Installer automatisch herunterladen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="277"/>
+        <location filename="../dialogs.py" line="277" />
         <source>Fuente del medio:</source>
         <translation>Medienquelle:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="314"/>
-        <location filename="../dialogs.py" line="280"/>
+        <location filename="../dialogs.py" line="314" />
+        <location filename="../dialogs.py" line="280" />
         <source>Nombre:</source>
         <translation>Name:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="282"/>
+        <location filename="../dialogs.py" line="282" />
         <source>Selecciona una ISO / IMG / DMG…</source>
         <translation>ISO / IMG / DMG auswählen…</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="358"/>
-        <location filename="../dialogs.py" line="283"/>
+        <location filename="../dialogs.py" line="358" />
+        <location filename="../dialogs.py" line="283" />
         <source>📁 Buscar…</source>
         <translation>📁 Durchsuchen…</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="360"/>
-        <location filename="../dialogs.py" line="286"/>
+        <location filename="../dialogs.py" line="360" />
+        <location filename="../dialogs.py" line="286" />
         <source>📚 Biblioteca…</source>
         <translation>📚 Bibliothek…</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="287"/>
+        <location filename="../dialogs.py" line="287" />
         <source>Elegir un medio de la biblioteca central (MediaLibrary/).
 Se reutiliza entre todas las VMs.</source>
         <translation>Ein Medium aus der zentralen Bibliothek (MediaLibrary/) wählen.
 Wird von allen VMs gemeinsam genutzt.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="298"/>
+        <location filename="../dialogs.py" line="298" />
         <source>Medio:</source>
         <translation>Medium:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="319"/>
+        <location filename="../dialogs.py" line="319" />
         <source>Crear nuevo</source>
         <translation>Neu erstellen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="320"/>
+        <location filename="../dialogs.py" line="320" />
         <source>Usar archivo existente</source>
         <translation>Vorhandene Datei verwenden</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="328"/>
+        <location filename="../dialogs.py" line="328" />
         <source>Origen:</source>
         <translation>Quelle:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="343"/>
-        <location filename="../dialogs.py" line="336"/>
+        <location filename="../dialogs.py" line="343" />
+        <location filename="../dialogs.py" line="336" />
         <source>Tamaño:</source>
         <translation>Größe:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="351"/>
-        <location filename="../dialogs.py" line="339"/>
+        <location filename="../dialogs.py" line="351" />
+        <location filename="../dialogs.py" line="339" />
         <source>Formato:</source>
         <translation>Format:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="342"/>
+        <location filename="../dialogs.py" line="342" />
         <source>Ej.: 40G, 100G, 1T</source>
         <translation>z. B.: 40G, 100G, 1T</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="345"/>
+        <location filename="../dialogs.py" line="345" />
         <source>Expandible (dinámico)</source>
         <translation>Erweiterbar (dynamisch)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="346"/>
+        <location filename="../dialogs.py" line="346" />
         <source>Fijo (preasignado)</source>
         <translation>Fest (vorab zugewiesen)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="347"/>
+        <location filename="../dialogs.py" line="347" />
         <source>Tipo:</source>
         <translation>Typ:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="357"/>
+        <location filename="../dialogs.py" line="357" />
         <source>Ruta del archivo existente…</source>
         <translation>Pfad der vorhandenen Datei…</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="361"/>
+        <location filename="../dialogs.py" line="361" />
         <source>Elegir un archivo ya registrado en la Biblioteca de Medios.
 Se filtra por el tipo del dispositivo.</source>
         <translation>Eine bereits in der Medienbibliothek registrierte Datei wählen.
 Wird nach Gerätetyp gefiltert.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="372"/>
+        <location filename="../dialogs.py" line="372" />
         <source>Archivo:</source>
         <translation>Datei:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="376"/>
+        <location filename="../dialogs.py" line="376" />
         <source>Disquete RAW. Selecciona 720 KB, 1.44 MB o 2.88 MB.</source>
         <translation>RAW-Diskette. 720 KB, 1,44 MB oder 2,88 MB wählen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="378"/>
+        <location filename="../dialogs.py" line="378" />
         <source>Expandible: crece según se utiliza. Fijo: reserva el espacio en el host. También puedes adjuntar un disco existente.</source>
         <translation>Erweiterbar: wächst bei Nutzung. Fest: reserviert den Speicher auf dem Host. Du kannst auch eine vorhandene Festplatte anhängen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="401"/>
+        <location filename="../dialogs.py" line="401" />
         <source>La unidad se crea vacía. Podrás insertar un ISO después, incluso con la VM encendida.</source>
         <translation>Das Laufwerk wird leer erstellt. Ein ISO kann später eingelegt werden, auch bei laufender VM.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="402"/>
+        <location filename="../dialogs.py" line="402" />
         <source>Selecciona un ISO/IMG/DMG que ya exista en tu equipo.</source>
         <translation>Ein bereits vorhandenes ISO/IMG/DMG auf diesem Rechner auswählen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="403"/>
+        <location filename="../dialogs.py" line="403" />
         <source>Para macOS se descargará System Recovery automáticamente al iniciar la VM y se asociará a esta unidad óptica.</source>
         <translation>Für macOS wird System Recovery beim Start der VM automatisch heruntergeladen und diesem optischen Laufwerk zugeordnet.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="404"/>
+        <location filename="../dialogs.py" line="404" />
         <source>El instalador se descargará automáticamente al iniciar la VM, mostrando una barra de porcentaje, y quedará conectado a esta unidad CD/DVD.</source>
         <translation>Der Installer wird beim Start der VM automatisch heruntergeladen, mit Fortschrittsbalken, und mit diesem CD/DVD-Laufwerk verbunden.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="427"/>
+        <location filename="../dialogs.py" line="427" />
         <source>Imágenes de disquete (*.img *.raw);;Todos los archivos (*)</source>
         <translation>Diskettenabbilder (*.img *.raw);;Alle Dateien (*)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="430"/>
+        <location filename="../dialogs.py" line="430" />
         <source>Discos virtuales (*.qcow2 *.qcow *.raw *.img *.vdi *.vmdk *.vhd *.vhdx);;Todos los archivos (*)</source>
         <translation>Virtuelle Festplatten (*.qcow2 *.qcow *.raw *.img *.vdi *.vmdk *.vhd *.vhdx);;Alle Dateien (*)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="434"/>
+        <location filename="../dialogs.py" line="434" />
         <source>Seleccionar archivo existente</source>
         <translation>Vorhandene Datei auswählen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="441"/>
+        <location filename="../dialogs.py" line="441" />
         <source>Seleccionar medio óptico</source>
         <translation>Optisches Medium auswählen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="442"/>
+        <location filename="../dialogs.py" line="442" />
         <source>Imágenes (*.iso *.img *.dmg);;Todos los archivos (*)</source>
         <translation>Abbilder (*.iso *.img *.dmg);;Alle Dateien (*)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="491"/>
+        <location filename="../dialogs.py" line="491" />
         <source>Medio inválido</source>
         <translation>Ungültiges Medium</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="491"/>
+        <location filename="../dialogs.py" line="491" />
         <source>Selecciona un ISO/IMG/DMG válido.</source>
         <translation>Ein gültiges ISO/IMG/DMG auswählen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="501"/>
+        <location filename="../dialogs.py" line="501" />
         <source>Archivo inválido</source>
         <translation>Ungültige Datei</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="502"/>
+        <location filename="../dialogs.py" line="502" />
         <source>Selecciona un archivo existente válido.</source>
         <translation>Eine gültige vorhandene Datei auswählen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="510"/>
+        <location filename="../dialogs.py" line="510" />
         <source>Nombre requerido</source>
         <translation>Name erforderlich</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="510"/>
+        <location filename="../dialogs.py" line="510" />
         <source>Indica un nombre para el dispositivo.</source>
         <translation>Gib einen Namen für das Gerät an.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="513"/>
+        <location filename="../dialogs.py" line="513" />
         <source>Tamaño inválido</source>
         <translation>Ungültige Größe</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="513"/>
+        <location filename="../dialogs.py" line="513" />
         <source>Usa un tamaño como 40G, 512M o 1T.</source>
         <translation>Verwende eine Größe wie 40G, 512M oder 1T.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="521"/>
+        <location filename="../dialogs.py" line="521" />
         <source>CD/DVD</source>
         <translation>CD/DVD</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>MediaPickerDialog</name>
     <message>
-        <location filename="../dialogs.py" line="707"/>
+        <location filename="../dialogs.py" line="707" />
         <source>Elegir medio de la biblioteca</source>
         <translation>Medium aus der Bibliothek wählen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="719"/>
+        <location filename="../dialogs.py" line="719" />
         <source>Elige una ISO/IMG/DMG de la biblioteca central.&lt;br&gt;La biblioteca vive en &lt;code&gt;MediaLibrary/&lt;/code&gt;, al mismo nivel que &lt;code&gt;VirtualMachines/&lt;/code&gt;. Se reutiliza entre todas las VMs.</source>
         <translation>Ein ISO/IMG/DMG aus der zentralen Bibliothek wählen.&lt;br&gt;Die Bibliothek liegt in &lt;code&gt;MediaLibrary/&lt;/code&gt;, auf derselben Ebene wie &lt;code&gt;VirtualMachines/&lt;/code&gt;. Sie wird von allen VMs gemeinsam genutzt.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="731"/>
+        <location filename="../dialogs.py" line="731" />
         <source>Buscar...</source>
         <translation>Suchen...</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="734"/>
+        <location filename="../dialogs.py" line="734" />
         <source>SO:</source>
         <translation>Betriebssystem:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="751"/>
-        <location filename="../dialogs.py" line="736"/>
+        <location filename="../dialogs.py" line="751" />
+        <location filename="../dialogs.py" line="736" />
         <source>Todos</source>
         <translation>Alle</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="749"/>
+        <location filename="../dialogs.py" line="749" />
         <source>Tipo:</source>
         <translation>Typ:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="752"/>
+        <location filename="../dialogs.py" line="752" />
         <source>Disco duro</source>
         <translation>Festplatte</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="754"/>
+        <location filename="../dialogs.py" line="754" />
         <source>Disquete</source>
         <translation>Diskette</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="766"/>
+        <location filename="../dialogs.py" line="766" />
         <source>Nombre</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="766"/>
+        <location filename="../dialogs.py" line="766" />
         <source>Tipo</source>
         <translation>Typ</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="766"/>
+        <location filename="../dialogs.py" line="766" />
         <source>SO</source>
         <translation>OS</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="767"/>
+        <location filename="../dialogs.py" line="767" />
         <source>Version</source>
         <translation>Version</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="767"/>
+        <location filename="../dialogs.py" line="767" />
         <source>Arq.</source>
         <translation>Arch.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="767"/>
+        <location filename="../dialogs.py" line="767" />
         <source>Tamano</source>
         <translation>Größe</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="768"/>
+        <location filename="../dialogs.py" line="768" />
         <source>Usada por</source>
         <translation>Verwendet von</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="768"/>
+        <location filename="../dialogs.py" line="768" />
         <source>Ruta</source>
         <translation>Pfad</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="793"/>
+        <location filename="../dialogs.py" line="793" />
         <source>Anadir archivo a la biblioteca...</source>
         <translation>Datei zur Bibliothek hinzufügen...</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="794"/>
+        <location filename="../dialogs.py" line="794" />
         <source>Registrar una ISO nueva sin salir de este dialogo.</source>
         <translation>Ein neues ISO registrieren, ohne diesen Dialog zu verlassen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="802"/>
+        <location filename="../dialogs.py" line="802" />
         <source>Crear disco...</source>
         <translation>Festplatte erstellen...</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="803"/>
+        <location filename="../dialogs.py" line="803" />
         <source>Crear un disco virtual (QCOW2 / RAW) o un disquete (IMG)
-directamente en la biblioteca. Equivale a &apos;qemu-img create&apos;
+directamente en la biblioteca. Equivale a 'qemu-img create'
 sobre MediaLibrary/&lt;nombre&gt;.&lt;ext&gt;.</source>
         <translation>Eine virtuelle Festplatte (QCOW2 / RAW) oder eine Diskette (IMG)
-direkt in der Bibliothek erstellen. Entspricht &apos;qemu-img create&apos;
+direkt in der Bibliothek erstellen. Entspricht 'qemu-img create'
 auf MediaLibrary/&lt;Name&gt;.&lt;Erw&gt;.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="811"/>
+        <location filename="../dialogs.py" line="811" />
         <source>Abrir carpeta</source>
         <translation>Ordner öffnen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="812"/>
+        <location filename="../dialogs.py" line="812" />
         <source>Abre MediaLibrary/ en el explorador del sistema.</source>
         <translation>Öffnet MediaLibrary/ im Dateimanager des Systems.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="819"/>
+        <location filename="../dialogs.py" line="819" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="822"/>
+        <location filename="../dialogs.py" line="822" />
         <source>Elegir</source>
         <translation>Auswählen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="900"/>
+        <location filename="../dialogs.py" line="900" />
         <source>{0}   (huerfano)</source>
         <translation>{0}   (verwaist)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="908"/>
+        <location filename="../dialogs.py" line="908" />
         <source>{0}, {1} (+{2})</source>
         <translation>{0}, {1} (+{2})</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="930"/>
-        <location filename="../dialogs.py" line="914"/>
+        <location filename="../dialogs.py" line="930" />
+        <location filename="../dialogs.py" line="914" />
         <source>(sin archivo)</source>
         <translation>(keine Datei)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="932"/>
+        <location filename="../dialogs.py" line="932" />
         <source>No la usa ninguna VM.</source>
         <translation>Wird von keiner VM verwendet.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="978"/>
+        <location filename="../dialogs.py" line="978" />
         <source>Archivo no disponible</source>
         <translation>Datei nicht verfügbar</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="979"/>
+        <location filename="../dialogs.py" line="979" />
         <source>El archivo de esta entrada ya no existe en el disco.
 
 Ruta esperada:
@@ -438,22 +437,22 @@ Erwarteter Pfad:
 {0}</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="997"/>
+        <location filename="../dialogs.py" line="997" />
         <source>Biblioteca no disponible</source>
         <translation>Bibliothek nicht verfügbar</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="998"/>
+        <location filename="../dialogs.py" line="998" />
         <source>La biblioteca de medios no está disponible.</source>
         <translation>Die Medienbibliothek ist nicht verfügbar.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1019"/>
+        <location filename="../dialogs.py" line="1019" />
         <source>Ya existe</source>
         <translation>Existiert bereits</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1020"/>
+        <location filename="../dialogs.py" line="1020" />
         <source>Ya existe un archivo con ese nombre en la biblioteca:
 
 {0}
@@ -466,21 +465,21 @@ Elige otro nombre o bórralo desde la pestaña Medios.</source>
 Wähle einen anderen Namen oder lösche sie im Medien-Tab.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1067"/>
-        <location filename="../dialogs.py" line="1045"/>
-        <location filename="../dialogs.py" line="1038"/>
+        <location filename="../dialogs.py" line="1067" />
+        <location filename="../dialogs.py" line="1045" />
+        <location filename="../dialogs.py" line="1038" />
         <source>Crear medio</source>
         <translation>Medium erstellen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1039"/>
-        <source>No se encontró &apos;qemu-img&apos;. Instálalo (paquete qemu-utils
+        <location filename="../dialogs.py" line="1039" />
+        <source>No se encontró 'qemu-img'. Instálalo (paquete qemu-utils
 en Debian/Ubuntu, qemu-img en Arch) para crear discos.</source>
-        <translation>&apos;qemu-img&apos; wurde nicht gefunden. Installiere es (Paket qemu-utils
+        <translation>'qemu-img' wurde nicht gefunden. Installiere es (Paket qemu-utils
 unter Debian/Ubuntu, qemu-img unter Arch), um Festplatten zu erstellen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1046"/>
+        <location filename="../dialogs.py" line="1046" />
         <source>No se pudo crear el medio.
 
 {0}</source>
@@ -489,12 +488,12 @@ unter Debian/Ubuntu, qemu-img unter Arch), um Festplatten zu erstellen.</transla
 {0}</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1061"/>
+        <location filename="../dialogs.py" line="1061" />
         <source>Creado con qemu-img create. Tamaño: {0}.</source>
         <translation>Mit qemu-img create erstellt. Größe: {0}.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1068"/>
+        <location filename="../dialogs.py" line="1068" />
         <source>El archivo se creó correctamente pero no se pudo
 registrar en la biblioteca:
 
@@ -505,12 +504,12 @@ in der Bibliothek registriert werden:
 {0}</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1082"/>
+        <location filename="../dialogs.py" line="1082" />
         <source>Medio creado</source>
         <translation>Medium erstellt</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1083"/>
+        <location filename="../dialogs.py" line="1083" />
         <source>Se creó el medio correctamente.
 
 Archivo: {0}
@@ -523,95 +522,94 @@ Größe: {1}
 Format: {2}</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1091"/>
+        <location filename="../dialogs.py" line="1091" />
         <source>Anadir a la biblioteca</source>
         <translation>Zur Bibliothek hinzufügen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1092"/>
+        <location filename="../dialogs.py" line="1092" />
         <source>Imagenes de disco (*.iso *.img *.dmg *.raw *.qcow2 *.qcow);;Todos (*)</source>
         <translation>Festplattenabbilder (*.iso *.img *.dmg *.raw *.qcow2 *.qcow);;Alle (*)</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>NatPortForwardDialog</name>
     <message>
-        <location filename="../dialogs.py" line="1132"/>
+        <location filename="../dialogs.py" line="1132" />
         <source>Reglas de reenvío de puertos NAT</source>
         <translation>NAT-Portweiterleitungsregeln</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1140"/>
+        <location filename="../dialogs.py" line="1140" />
         <source>Redirige puertos del host al guest a través del NAT de QEMU (&lt;code&gt;-netdev user,hostfwd=...&lt;/code&gt;). Cada regla conecta &lt;b&gt;localhost:puerto_host&lt;/b&gt; del anfitrión con &lt;b&gt;puerto_guest&lt;/b&gt; dentro del sistema invitado.&lt;br&gt;&lt;br&gt;Ejemplo: host 2222 → guest 22 reenvía SSH; luego entra con &lt;code&gt;ssh -p 2222 usuario@localhost&lt;/code&gt;.</source>
         <translation>Leitet Host-Ports über das NAT von QEMU an den Gast weiter (&lt;code&gt;-netdev user,hostfwd=...&lt;/code&gt;). Jede Regel verbindet &lt;b&gt;localhost:Host-Port&lt;/b&gt; des Hosts mit &lt;b&gt;Gast-Port&lt;/b&gt; im Gastsystem.&lt;br&gt;&lt;br&gt;Beispiel: Host 2222 → Gast 22 leitet SSH weiter; dann verbindet man mit &lt;code&gt;ssh -p 2222 benutzer@localhost&lt;/code&gt;.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1154"/>
+        <location filename="../dialogs.py" line="1154" />
         <source>Puerto host:</source>
         <translation>Host-Port:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1158"/>
+        <location filename="../dialogs.py" line="1158" />
         <source>Puerto en el host (donde tú te conectas).</source>
         <translation>Port auf dem Host (von dem aus du dich verbindest).</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1161"/>
+        <location filename="../dialogs.py" line="1161" />
         <source>Puerto guest:</source>
         <translation>Gast-Port:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1165"/>
+        <location filename="../dialogs.py" line="1165" />
         <source>Puerto dentro de la VM (a donde se reenvía).</source>
         <translation>Port innerhalb der VM (an den weitergeleitet wird).</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1168"/>
+        <location filename="../dialogs.py" line="1168" />
         <source>Protocolo:</source>
         <translation>Protokoll:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1174"/>
+        <location filename="../dialogs.py" line="1174" />
         <source>➕ Añadir regla</source>
         <translation>➕ Regel hinzufügen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1182"/>
+        <location filename="../dialogs.py" line="1182" />
         <source>Puerto host</source>
         <translation>Host-Port</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1182"/>
+        <location filename="../dialogs.py" line="1182" />
         <source>Puerto guest</source>
         <translation>Gast-Port</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1183"/>
+        <location filename="../dialogs.py" line="1183" />
         <source>Protocolo</source>
         <translation>Protokoll</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1199"/>
+        <location filename="../dialogs.py" line="1199" />
         <source>🗑 Quitar seleccionada</source>
         <translation>🗑 Ausgewählte entfernen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1203"/>
+        <location filename="../dialogs.py" line="1203" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1206"/>
+        <location filename="../dialogs.py" line="1206" />
         <source>Aceptar</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1237"/>
+        <location filename="../dialogs.py" line="1237" />
         <source>Regla duplicada</source>
         <translation>Doppelte Regel</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1238"/>
+        <location filename="../dialogs.py" line="1238" />
         <source>Ya existe una regla para el puerto host {0} ({1}).
 
 Elige otro puerto host o cambia el protocolo.</source>
@@ -619,327 +617,323 @@ Elige otro puerto host o cambia el protocolo.</source>
 
 Wähle einen anderen Host-Port oder ändere das Protokoll.</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>NetworkDeviceDialog</name>
     <message>
-        <location filename="../dialogs.py" line="102"/>
+        <location filename="../dialogs.py" line="102" />
         <source>Adaptador de red virtual</source>
         <translation>Virtueller Netzwerkadapter</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="106"/>
+        <location filename="../dialogs.py" line="106" />
         <source>Red 1</source>
         <translation>Netzwerk 1</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="112"/>
+        <location filename="../dialogs.py" line="112" />
         <source>NAT / Internet</source>
         <translation>NAT / Internet</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="112"/>
+        <location filename="../dialogs.py" line="112" />
         <source>Bridge existente</source>
         <translation>Vorhandene Bridge</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="116"/>
+        <location filename="../dialogs.py" line="116" />
         <source>Opcional: 52:54:00:xx:xx:xx</source>
         <translation>Optional: 52:54:00:xx:xx:xx</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="122"/>
+        <location filename="../dialogs.py" line="122" />
         <source>Nombre:</source>
         <translation>Name:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="122"/>
+        <location filename="../dialogs.py" line="122" />
         <source>Modelo:</source>
         <translation>Modell:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="122"/>
+        <location filename="../dialogs.py" line="122" />
         <source>Backend:</source>
         <translation>Backend:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="122"/>
+        <location filename="../dialogs.py" line="122" />
         <source>Bridge / TAP:</source>
         <translation>Bridge / TAP:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="122"/>
+        <location filename="../dialogs.py" line="122" />
         <source>MAC:</source>
         <translation>MAC:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="148"/>
-        <location filename="../dialogs.py" line="123"/>
+        <location filename="../dialogs.py" line="148" />
+        <location filename="../dialogs.py" line="123" />
         <source>🔀 Reglas NAT…</source>
         <translation>🔀 NAT-Regeln…</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="124"/>
+        <location filename="../dialogs.py" line="124" />
         <source>Redirigir puertos del host al guest a través del NAT de QEMU
 (hostfwd). Solo aplica cuando el backend es NAT.</source>
         <translation>Host-Ports über das NAT von QEMU an den Gast weiterleiten
 (hostfwd). Gilt nur, wenn das Backend NAT ist.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="130"/>
+        <location filename="../dialogs.py" line="130" />
         <source>Aceptar</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="130"/>
+        <location filename="../dialogs.py" line="130" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="148"/>
+        <location filename="../dialogs.py" line="148" />
         <source>🔀 Reglas NAT… ({0})</source>
         <translation>🔀 NAT-Regeln… ({0})</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="158"/>
+        <location filename="../dialogs.py" line="158" />
         <source>Red</source>
         <translation>Netzwerk</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>SnapshotNode</name>
     <message>
-        <location filename="../snapshots_graph.py" line="87"/>
+        <location filename="../snapshots_graph.py" line="87" />
         <source>(sin miniatura)</source>
         <translation>(keine Miniatur)</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="113"/>
+        <location filename="../snapshots_graph.py" line="113" />
         <source>Restaurar este snapshot</source>
         <translation>Diesen Snapshot wiederherstellen</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="114"/>
+        <location filename="../snapshots_graph.py" line="114" />
         <source>Renombrar</source>
         <translation>Umbenennen</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="115"/>
+        <location filename="../snapshots_graph.py" line="115" />
         <source>Eliminar</source>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="138"/>
+        <location filename="../snapshots_graph.py" line="138" />
         <source>↩ Restaurar</source>
         <translation>↩ Wiederherstellen</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="139"/>
+        <location filename="../snapshots_graph.py" line="139" />
         <source>✏ Renombrar</source>
         <translation>Umbenennen</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="140"/>
+        <location filename="../snapshots_graph.py" line="140" />
         <source>🗑 Eliminar</source>
         <translation>🗑 Löschen</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="142"/>
+        <location filename="../snapshots_graph.py" line="142" />
         <source>➕ Crear snapshot hijo</source>
         <translation>Untergeordneten Snapshot erstellen</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="143"/>
+        <location filename="../snapshots_graph.py" line="143" />
         <source>🔗 Establecer padre…</source>
         <translation>Übergeordneten festlegen…</translation>
     </message>
     <message>
-        <location filename="../snapshots_graph.py" line="144"/>
+        <location filename="../snapshots_graph.py" line="144" />
         <source>⬆ Mover a la raíz</source>
         <translation>Zur Wurzel verschieben</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>TaskProgressDialog</name>
     <message>
-        <location filename="../task_progress.py" line="60"/>
+        <location filename="../task_progress.py" line="60" />
         <source>Iniciando…</source>
         <translation>Wird gestartet…</translation>
     </message>
     <message>
-        <location filename="../task_progress.py" line="87"/>
+        <location filename="../task_progress.py" line="87" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../task_progress.py" line="91"/>
+        <location filename="../task_progress.py" line="91" />
         <source>Cerrar</source>
         <translation>Schließen</translation>
     </message>
     <message>
-        <location filename="../task_progress.py" line="131"/>
+        <location filename="../task_progress.py" line="131" />
         <source>Completado.</source>
         <translation>Abgeschlossen.</translation>
     </message>
     <message>
-        <location filename="../task_progress.py" line="137"/>
+        <location filename="../task_progress.py" line="137" />
         <source>Error:</source>
         <translation>Fehler:</translation>
     </message>
     <message>
-        <location filename="../task_progress.py" line="137"/>
+        <location filename="../task_progress.py" line="137" />
         <source>La tarea falló.</source>
         <translation>Die Aufgabe ist fehlgeschlagen.</translation>
     </message>
     <message>
-        <location filename="../task_progress.py" line="143"/>
+        <location filename="../task_progress.py" line="143" />
         <source>Cancelando…</source>
         <translation>Wird abgebrochen…</translation>
     </message>
     <message>
-        <location filename="../task_progress.py" line="144"/>
+        <location filename="../task_progress.py" line="144" />
         <source>Cancelando, esperando al trabajador…</source>
         <translation>Wird abgebrochen, warte auf den Worker…</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>VirtualMachineManagerApp</name>
     <message>
-        <location filename="../console_backend.py" line="312"/>
+        <location filename="../console_backend.py" line="312" />
         <source>QEMU abre su propia ventana (GTK/SDL). No hace falta visor externo ni cliente; a cambio, la VM no aparece dentro de la app.</source>
         <translation>QEMU öffnet ein eigenes Fenster (GTK/SDL). Kein externer Viewer oder Client erforderlich; dafür erscheint die VM nicht in der Anwendung.</translation>
     </message>
     <message>
-        <location filename="../console_backend.py" line="319"/>
+        <location filename="../console_backend.py" line="319" />
         <source>Híbrida: VNC se muestra dentro de la app (funciona en Wayland y X11) y SPICE se abre en una ventana externa con spicy o remote-viewer. Lo mejor de ambos: embebido para tenerlo a mano, SPICE para rendimiento y clipboard avanzado.</source>
         <translation>Hybrid: VNC wird in der Anwendung angezeigt (funktioniert unter Wayland und X11), SPICE öffnet sich in einem externen Fenster mit spicy oder remote-viewer. Das Beste aus beiden: eingebettet für den schnellen Zugriff, SPICE für Leistung und erweiterte Zwischenablage.</translation>
     </message>
     <message>
-        <location filename="../console_backend.py" line="332"/>
+        <location filename="../console_backend.py" line="332" />
         <source>VNC embebido en la app. Sin dependencias adicionales.</source>
         <translation>VNC in der Anwendung eingebettet. Keine zusätzlichen Abhängigkeiten.</translation>
     </message>
     <message>
-        <location filename="../console_backend.py" line="337"/>
+        <location filename="../console_backend.py" line="337" />
         <source>VNC en ventana externa. Necesitas vncviewer (tigervnc), gvncviewer o remmina instalado.</source>
         <translation>VNC in externem Fenster. vncviewer (tigervnc), gvncviewer oder remmina muss installiert sein.</translation>
     </message>
     <message>
-        <location filename="../console_backend.py" line="345"/>
+        <location filename="../console_backend.py" line="345" />
         <source>SPICE embebido en la app (Gtk.SpiceDisplay vía XEmbed). Requiere sesión X11; en Wayland cae a visor externo.</source>
         <translation>SPICE in der Anwendung eingebettet (Gtk.SpiceDisplay über XEmbed). Erfordert X11-Sitzung; unter Wayland wird auf externen Viewer zurückgegriffen.</translation>
     </message>
     <message>
-        <location filename="../console_backend.py" line="351"/>
+        <location filename="../console_backend.py" line="351" />
         <source>SPICE embebido solicitado, pero spice-gtk no tiene binding Python. Se usará visor externo como respaldo. Instala python3-gi + gir1.2-spiceclientgtk-3.0 (Debian/Ubuntu) o python-gobject + spice-gtk (Arch).</source>
         <translation>Eingebettetes SPICE angefordert, aber spice-gtk hat kein Python-Binding. Als Ausweichlösung wird ein externer Viewer verwendet. Installiere python3-gi + gir1.2-spiceclientgtk-3.0 (Debian/Ubuntu) oder python-gobject + spice-gtk (Arch).</translation>
     </message>
     <message>
-        <location filename="../console_backend.py" line="362"/>
+        <location filename="../console_backend.py" line="362" />
         <source>SPICE en ventana externa. Necesitas spicy (spice-gtk) o remote-viewer (virt-viewer).</source>
         <translation>SPICE in externem Fenster. spicy (spice-gtk) oder remote-viewer (virt-viewer) muss installiert sein.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="381"/>
-        <location filename="../virtual_machine.py" line="283"/>
+        <location filename="../virtual_machine.py" line="381" />
+        <location filename="../virtual_machine.py" line="283" />
         <source>Administrador QEMU/KVM</source>
         <translation>QEMU/KVM-Verwaltung</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="650"/>
+        <location filename="../virtual_machine.py" line="650" />
         <source>&lt;b&gt;ℹ️ Notas sobre Android en QEMU/KVM&lt;/b&gt;</source>
         <translation>&lt;b&gt;ℹ️ Hinweise zu Android unter QEMU/KVM&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="863"/>
-        <location filename="../virtual_machine.py" line="741"/>
+        <location filename="../virtual_machine.py" line="863" />
+        <location filename="../virtual_machine.py" line="741" />
         <source>Sistema</source>
         <translation>System</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1292"/>
-        <location filename="../virtual_machine.py" line="743"/>
+        <location filename="../virtual_machine.py" line="1292" />
+        <location filename="../virtual_machine.py" line="743" />
         <source>Procesador</source>
         <translation>Prozessor</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1348"/>
-        <location filename="../virtual_machine.py" line="745"/>
+        <location filename="../virtual_machine.py" line="1348" />
+        <location filename="../virtual_machine.py" line="745" />
         <source>Memoria</source>
         <translation>Speicher</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1392"/>
-        <location filename="../virtual_machine.py" line="747"/>
+        <location filename="../virtual_machine.py" line="1392" />
+        <location filename="../virtual_machine.py" line="747" />
         <source>Pantalla</source>
         <translation>Anzeige</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1902"/>
-        <location filename="../virtual_machine.py" line="1793"/>
-        <location filename="../virtual_machine.py" line="749"/>
+        <location filename="../virtual_machine.py" line="1902" />
+        <location filename="../virtual_machine.py" line="1793" />
+        <location filename="../virtual_machine.py" line="749" />
         <source>Almacenamiento</source>
         <translation>Speicher</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1579"/>
-        <location filename="../virtual_machine.py" line="751"/>
+        <location filename="../virtual_machine.py" line="1579" />
+        <location filename="../virtual_machine.py" line="751" />
         <source>Red</source>
         <translation>Netzwerk</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1642"/>
-        <location filename="../virtual_machine.py" line="753"/>
+        <location filename="../virtual_machine.py" line="1642" />
+        <location filename="../virtual_machine.py" line="753" />
         <source>Dispositivos</source>
         <translation>Geräte</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="755"/>
+        <location filename="../virtual_machine.py" line="755" />
         <source>Passthrough</source>
         <translation>Passthrough</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="757"/>
+        <location filename="../virtual_machine.py" line="757" />
         <source>Compartición</source>
         <translation>Freigabe</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="864"/>
+        <location filename="../virtual_machine.py" line="864" />
         <source>Plataforma, firmware y opciones de bajo nivel del hardware virtual.</source>
         <translation>Plattform, Firmware und Low-Level-Optionen der virtuellen Hardware.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="874"/>
+        <location filename="../virtual_machine.py" line="874" />
         <source>&lt;b&gt;Firmware&lt;/b&gt;</source>
         <translation>&lt;b&gt;Firmware&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="876"/>
+        <location filename="../virtual_machine.py" line="876" />
         <source>BIOS (tradicional)</source>
         <translation>BIOS (klassisch)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="877"/>
+        <location filename="../virtual_machine.py" line="877" />
         <source>UEFI (OVMF)</source>
         <translation>UEFI (OVMF)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="884"/>
+        <location filename="../virtual_machine.py" line="884" />
         <source>&lt;b&gt;Chipset&lt;/b&gt;</source>
         <translation>&lt;b&gt;Chipsatz&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="886"/>
+        <location filename="../virtual_machine.py" line="886" />
         <source>i440FX (clásico)</source>
         <translation>i440FX (klassisch)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="887"/>
+        <location filename="../virtual_machine.py" line="887" />
         <source>Q35 (moderno, PCIe)</source>
         <translation>Q35 (modern, PCIe)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="888"/>
+        <location filename="../virtual_machine.py" line="888" />
         <source>i440FX: chipset clásico, PCI legado. Compatible con SO muy antiguos.
 Q35: chipset moderno con PCIe nativo, AHCI/SATA y mejor soporte para
 passthrough de dispositivos PCIe. Recomendado salvo compatibilidad específica.</source>
@@ -948,62 +942,62 @@ Q35: moderner Chipsatz mit nativem PCIe, AHCI/SATA und besserer Unterstützung f
 Passthrough von PCIe-Geräten. Empfohlen, sofern keine spezielle Kompatibilität nötig ist.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="897"/>
+        <location filename="../virtual_machine.py" line="897" />
         <source>&lt;b&gt;Seguridad&lt;/b&gt;</source>
         <translation>&lt;b&gt;Sicherheit&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="903"/>
+        <location filename="../virtual_machine.py" line="903" />
         <source>Secure Boot</source>
         <translation>Secure Boot</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="908"/>
+        <location filename="../virtual_machine.py" line="908" />
         <source>TPM 2.0</source>
         <translation>TPM 2.0</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="923"/>
+        <location filename="../virtual_machine.py" line="923" />
         <source>&lt;b&gt;Perfiles del sistema&lt;/b&gt;</source>
         <translation>&lt;b&gt;Systemprofile&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="925"/>
+        <location filename="../virtual_machine.py" line="925" />
         <source>Configuración optimizada para el sistema operativo seleccionado. Puede modificar los valores según sus necesidades.</source>
         <translation>Optimierte Konfiguration für das ausgewählte Betriebssystem. Du kannst die Werte nach Bedarf anpassen.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="934"/>
+        <location filename="../virtual_machine.py" line="934" />
         <source>&lt;b&gt;Opciones avanzadas&lt;/b&gt;</source>
         <translation>&lt;b&gt;Erweiterte Optionen&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="946"/>
+        <location filename="../virtual_machine.py" line="946" />
         <source>Habilitar ACPI</source>
         <translation>ACPI aktivieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="948"/>
+        <location filename="../virtual_machine.py" line="948" />
         <source>Habilitar APIC</source>
         <translation>APIC aktivieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="950"/>
+        <location filename="../virtual_machine.py" line="950" />
         <source>Habilitar IOMMU</source>
         <translation>IOMMU aktivieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="951"/>
+        <location filename="../virtual_machine.py" line="951" />
         <source>PCIe Root Port</source>
         <translation>PCIe Root Port</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="965"/>
+        <location filename="../virtual_machine.py" line="965" />
         <source>Arrancar esta VM al abrir la aplicación</source>
         <translation>Diese VM beim Start der Anwendung hochfahren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="967"/>
+        <location filename="../virtual_machine.py" line="967" />
         <source>Si está marcado, esta VM se arranca automáticamente al
 abrir la aplicación, tras un par de segundos.
 
@@ -1024,120 +1018,120 @@ Hinweis: Beim Auto-Start wechselt die Listenauswahl zu
 jeder startenden VM.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="986"/>
+        <location filename="../virtual_machine.py" line="986" />
         <source>Modo compatibilidad de snapshots (fuerza hardware snapshoteable)</source>
         <translation>Snapshot-Kompatibilitätsmodus (erzwingt snapshot-fähige Hardware)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1293"/>
+        <location filename="../virtual_machine.py" line="1293" />
         <source>Modelo de CPU y número de núcleos asignados a la máquina virtual.</source>
         <translation>CPU-Modell und Anzahl der der VM zugewiesenen Kerne.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1296"/>
+        <location filename="../virtual_machine.py" line="1296" />
         <source>&lt;b&gt;Tipo de procesador&lt;/b&gt;</source>
         <translation>&lt;b&gt;Prozessortyp&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1657"/>
-        <location filename="../virtual_machine.py" line="1398"/>
-        <location filename="../virtual_machine.py" line="1298"/>
+        <location filename="../virtual_machine.py" line="1657" />
+        <location filename="../virtual_machine.py" line="1398" />
+        <location filename="../virtual_machine.py" line="1298" />
         <source>Automático (recomendado)</source>
         <translation>Automatisch (empfohlen)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1299"/>
+        <location filename="../virtual_machine.py" line="1299" />
         <source>Host (máximo rendimiento)</source>
         <translation>Host (maximale Leistung)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1300"/>
+        <location filename="../virtual_machine.py" line="1300" />
         <source>QEMU x86-64 (compatibilidad)</source>
         <translation>QEMU x86-64 (Kompatibilität)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1303"/>
+        <location filename="../virtual_machine.py" line="1303" />
         <source>Automático usa el perfil del SO. Host ofrece el máximo rendimiento pero reduce la portabilidad de la VM.</source>
         <translation>Automatisch verwendet das Betriebssystem-Profil. Host bietet die maximale Leistung, verringert jedoch die Portabilität der VM.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1310"/>
+        <location filename="../virtual_machine.py" line="1310" />
         <source>&lt;b&gt;Núcleos&lt;/b&gt;</source>
         <translation>&lt;b&gt;Kerne&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1333"/>
-        <location filename="../virtual_machine.py" line="1325"/>
+        <location filename="../virtual_machine.py" line="1333" />
+        <location filename="../virtual_machine.py" line="1325" />
         <source>{0} núcleos</source>
         <translation>{0} Kerne</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1336"/>
+        <location filename="../virtual_machine.py" line="1336" />
         <source>El número de núcleos se ajusta al par más cercano al valor elegido, hasta la mitad de los hilos del host.</source>
         <translation>Die Anzahl der Kerne wird auf den nächsten geraden Wert bis zur Hälfte der Host-Threads gerundet.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1349"/>
+        <location filename="../virtual_machine.py" line="1349" />
         <source>Cantidad de memoria RAM asignada a la máquina virtual.</source>
         <translation>Der virtuellen Maschine zugewiesene RAM-Menge.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1352"/>
+        <location filename="../virtual_machine.py" line="1352" />
         <source>&lt;b&gt;RAM asignada&lt;/b&gt;</source>
         <translation>&lt;b&gt;Zugewiesener RAM&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1374"/>
+        <location filename="../virtual_machine.py" line="1374" />
         <source>RAM del host: {0} GB (libre: {1} GB)</source>
         <translation>Host-RAM: {0} GB (frei: {1} GB)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1379"/>
+        <location filename="../virtual_machine.py" line="1379" />
         <source>Asignar más de la mitad de la RAM del host puede provocar uso intensivo de swap. La sugerencia es dejar al menos 2 GB para el sistema anfitrión.</source>
         <translation>Mehr als die Hälfte des Host-RAM zuzuweisen, kann zu intensiver Swap-Nutzung führen. Empfohlen ist, mindestens 2 GB für das Wirtssystem freizuhalten.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1393"/>
+        <location filename="../virtual_machine.py" line="1393" />
         <source>Controlador gráfico virtual y memoria de video.</source>
         <translation>Virtueller Grafikcontroller und Videospeicher.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1396"/>
+        <location filename="../virtual_machine.py" line="1396" />
         <source>&lt;b&gt;Gráficos / GPU&lt;/b&gt;</source>
         <translation>&lt;b&gt;Grafik / GPU&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1399"/>
+        <location filename="../virtual_machine.py" line="1399" />
         <source>VirtIO-GPU 2D (compatible • snap. discos ✓ • snap. completo ✗)</source>
         <translation>VirtIO-GPU 2D (kompatibel • Disk-Snap. ✓ • Voll-Snap. ✗)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1400"/>
+        <location filename="../virtual_machine.py" line="1400" />
         <source>VirtIO-GPU + VirGL 3D (OpenGL • snapshots ✗)</source>
         <translation>VirtIO-GPU + VirGL 3D (OpenGL • Snapshots ✗)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1401"/>
+        <location filename="../virtual_machine.py" line="1401" />
         <source>VirtIO-GPU + Venus/Vulkan 3D (experimental • snapshots ✗)</source>
         <translation>VirtIO-GPU + Venus/Vulkan 3D (experimentell • Snapshots ✗)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1402"/>
+        <location filename="../virtual_machine.py" line="1402" />
         <source>Red Hat QXL 2D (3D ✗ • snap. completo ✓ • macOS ⚠)</source>
         <translation>Red Hat QXL 2D (3D ✗ • Voll-Snap. ✓ • macOS ⚠)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1403"/>
+        <location filename="../virtual_machine.py" line="1403" />
         <source>VMware SVGA II (3D acelerado ✗ • snap. completo ✓ • macOS ⚠)</source>
         <translation>VMware SVGA II (beschleunigtes 3D ✗ • Voll-Snap. ✓ • macOS ⚠)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1404"/>
+        <location filename="../virtual_machine.py" line="1404" />
         <source>Sin video / Headless</source>
         <translation>Kein Video / Headless</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1405"/>
+        <location filename="../virtual_machine.py" line="1405" />
         <source>Automático detecta las capacidades del host y usa aceleración 3D cuando es segura; si no, vuelve a VirtIO-GPU 2D.
 
 Snapshots:
@@ -1152,22 +1146,22 @@ Snapshots:
   • VirGL / Venus → unterstützen keinerlei Snapshots.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1417"/>
+        <location filename="../virtual_machine.py" line="1417" />
         <source>&lt;b&gt;Memoria de video (VRAM)&lt;/b&gt;</source>
         <translation>&lt;b&gt;Videospeicher (VRAM)&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1425"/>
+        <location filename="../virtual_machine.py" line="1425" />
         <source>Host GPU: detectando…</source>
         <translation>Host-GPU: wird erkannt…</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1448"/>
+        <location filename="../virtual_machine.py" line="1448" />
         <source>🖼️ Mostrar la VM dentro de la app (consola VNC embebida)</source>
         <translation>🖼️ Die VM in der Anwendung anzeigen (eingebettete VNC-Konsole)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1452"/>
+        <location filename="../virtual_machine.py" line="1452" />
         <source>Cuando está activo, la VM se muestra dentro de la app.
 Fuerza gráficos sin aceleración OpenGL (VNC no soporta GL).
 Si lo desactivas, la VM se abre en una ventana externa y puedes
@@ -1178,22 +1172,22 @@ Bei Deaktivierung öffnet sich die VM in einem externen Fenster und du kannst
 Modi mit 3D-Beschleunigung wählen (VirGL, Venus).</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1471"/>
+        <location filename="../virtual_machine.py" line="1471" />
         <source>Consola remota</source>
         <translation>Remote-Konsole</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1475"/>
+        <location filename="../virtual_machine.py" line="1475" />
         <source>VNC (compatible con cualquier gráfico)</source>
         <translation>VNC (mit jeder Grafik kompatibel)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1476"/>
+        <location filename="../virtual_machine.py" line="1476" />
         <source>SPICE (mejor rendimiento en local)</source>
         <translation>SPICE (bessere Leistung lokal)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1477"/>
+        <location filename="../virtual_machine.py" line="1477" />
         <source>VNC: cliente ligero, funciona con cualquier dispositivo de video.
 SPICE: mejor rendimiento en local, requiere un visor spice-gtk.
 Con cualquiera de los dos, QEMU no abre ventana local: solo el socket.</source>
@@ -1202,32 +1196,32 @@ SPICE: bessere Leistung lokal, erfordert einen spice-gtk-Viewer.
 Bei beiden öffnet QEMU kein lokales Fenster: nur den Socket.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1482"/>
+        <location filename="../virtual_machine.py" line="1482" />
         <source>Protocolo:</source>
         <translation>Protokoll:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1485"/>
+        <location filename="../virtual_machine.py" line="1485" />
         <source>Embebida en la app</source>
         <translation>In der Anwendung eingebettet</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1486"/>
+        <location filename="../virtual_machine.py" line="1486" />
         <source>Ventana externa (visor del sistema)</source>
         <translation>Externes Fenster (System-Viewer)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1487"/>
+        <location filename="../virtual_machine.py" line="1487" />
         <source>Ventana nativa de QEMU</source>
         <translation>QEMU-natives Fenster</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1489"/>
+        <location filename="../virtual_machine.py" line="1489" />
         <source>Híbrida (VNC embebido + SPICE externo)</source>
         <translation>Hybrid (eingebettetes VNC + externes SPICE)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1491"/>
+        <location filename="../virtual_machine.py" line="1491" />
         <source>Embebida: la pantalla vive dentro de esta app (pestaña Consola Gráfica).
 Ventana externa: se lanza el visor del sistema (vncviewer / spicy).
 Nativa QEMU: QEMU abre su propia ventana (comportamiento clásico).</source>
@@ -1236,17 +1230,17 @@ Externes Fenster: startet den System-Viewer (vncviewer / spicy).
 QEMU-nativ: QEMU öffnet ein eigenes Fenster (klassisches Verhalten).</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1496"/>
+        <location filename="../virtual_machine.py" line="1496" />
         <source>Modo:</source>
         <translation>Modus:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1503"/>
+        <location filename="../virtual_machine.py" line="1503" />
         <source>Log VNC detallado (DEBUG)</source>
         <translation>Ausführliches VNC-Log (DEBUG)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1504"/>
+        <location filename="../virtual_machine.py" line="1504" />
         <source>Activa el nivel DEBUG del cliente VNC embebido.
 
 Por defecto INFO: el widget VNC no llena launch.log con
@@ -1261,145 +1255,145 @@ des VNC-Clients aktivieren; schreibt Tausende Zeilen pro
 Sekunde und kann die Leistung beeinträchtigen.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1580"/>
+        <location filename="../virtual_machine.py" line="1580" />
         <source>Adaptadores de red virtuales. Cada uno puede usar NAT, bridge o TAP.</source>
         <translation>Virtuelle Netzwerkadapter. Jeder kann NAT, Bridge oder TAP verwenden.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1583"/>
+        <location filename="../virtual_machine.py" line="1583" />
         <source>Adaptadores</source>
         <translation>Adapter</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1589"/>
+        <location filename="../virtual_machine.py" line="1589" />
         <source>➕ Agregar adaptador</source>
         <translation>➕ Adapter hinzufügen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1590"/>
+        <location filename="../virtual_machine.py" line="1590" />
         <source>✏ Editar</source>
         <translation>✏ Bearbeiten</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2578"/>
-        <location filename="../virtual_machine.py" line="2407"/>
-        <location filename="../virtual_machine.py" line="1843"/>
-        <location filename="../virtual_machine.py" line="1591"/>
+        <location filename="../virtual_machine.py" line="2578" />
+        <location filename="../virtual_machine.py" line="2407" />
+        <location filename="../virtual_machine.py" line="1843" />
+        <location filename="../virtual_machine.py" line="1591" />
         <source>🗑 Eliminar</source>
         <translation>🗑 Löschen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1601"/>
+        <location filename="../virtual_machine.py" line="1601" />
         <source>Sin red (ningún adaptador virtual)</source>
         <translation>Kein Netzwerk (kein virtueller Adapter)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1615"/>
+        <location filename="../virtual_machine.py" line="1615" />
         <source>NAT / Internet (recomendado)</source>
         <translation>NAT / Internet (empfohlen)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1616"/>
+        <location filename="../virtual_machine.py" line="1616" />
         <source>Bridge existente</source>
         <translation>Vorhandene Bridge</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1617"/>
+        <location filename="../virtual_machine.py" line="1617" />
         <source>TAP</source>
         <translation>TAP</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1619"/>
+        <location filename="../virtual_machine.py" line="1619" />
         <source>VirtIO (recomendado)</source>
         <translation>VirtIO (empfohlen)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1620"/>
+        <location filename="../virtual_machine.py" line="1620" />
         <source>Intel E1000</source>
         <translation>Intel E1000</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1621"/>
+        <location filename="../virtual_machine.py" line="1621" />
         <source>Realtek RTL8139</source>
         <translation>Realtek RTL8139</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1622"/>
+        <location filename="../virtual_machine.py" line="1622" />
         <source>VMware VMXNET3</source>
         <translation>VMware VMXNET3</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1626"/>
+        <location filename="../virtual_machine.py" line="1626" />
         <source>Interfaz/Bridge:</source>
         <translation>Schnittstelle/Bridge:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1643"/>
+        <location filename="../virtual_machine.py" line="1643" />
         <source>Audio y otros dispositivos integrados de la máquina virtual.</source>
         <translation>Audio und weitere integrierte Geräte der virtuellen Maschine.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1646"/>
+        <location filename="../virtual_machine.py" line="1646" />
         <source>&lt;b&gt;Audio&lt;/b&gt;</source>
         <translation>&lt;b&gt;Audio&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1648"/>
+        <location filename="../virtual_machine.py" line="1648" />
         <source>Intel HDA (recomendado)</source>
         <translation>Intel HDA (empfohlen)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1649"/>
+        <location filename="../virtual_machine.py" line="1649" />
         <source>AC97</source>
         <translation>AC97</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1650"/>
+        <location filename="../virtual_machine.py" line="1650" />
         <source>Sound Blaster 16</source>
         <translation>Sound Blaster 16</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1651"/>
+        <location filename="../virtual_machine.py" line="1651" />
         <source>Sin sonido</source>
         <translation>Kein Ton</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1655"/>
+        <location filename="../virtual_machine.py" line="1655" />
         <source>&lt;b&gt;Dispositivo de señalización (ratón / teclado)&lt;/b&gt;</source>
         <translation>&lt;b&gt;Zeigegerät (Maus / Tastatur)&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1658"/>
+        <location filename="../virtual_machine.py" line="1658" />
         <source>USB Tablet (posición absoluta)</source>
         <translation>USB Tablet (absolute Position)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1659"/>
+        <location filename="../virtual_machine.py" line="1659" />
         <source>USB Mouse (posición relativa)</source>
         <translation>USB-Maus (relative Position)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1660"/>
+        <location filename="../virtual_machine.py" line="1660" />
         <source>USB Keyboard + Tablet</source>
         <translation>USB-Tastatur + Tablet</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1661"/>
+        <location filename="../virtual_machine.py" line="1661" />
         <source>VirtIO Tablet (requiere drivers en el guest)</source>
         <translation>VirtIO Tablet (erfordert Treiber im Gast)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1662"/>
+        <location filename="../virtual_machine.py" line="1662" />
         <source>PS/2 (clásico)</source>
         <translation>PS/2 (klassisch)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1663"/>
+        <location filename="../virtual_machine.py" line="1663" />
         <source>Ninguno</source>
         <translation>Keines</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1664"/>
+        <location filename="../virtual_machine.py" line="1664" />
         <source>Dispositivo de entrada que QEMU emula para el ratón/teclado.
 
 • Automático: macOS usa USB Tablet sobre NEC XHCI; el resto deja
@@ -1426,12 +1420,12 @@ Sekunde und kann die Leistung beeinträchtigen.</translation>
 • Keines: keine emulierte Maus/Tastatur.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1686"/>
+        <location filename="../virtual_machine.py" line="1686" />
         <source>Capturar el puerto serie a un archivo (serial.log)</source>
         <translation>Seriellen Port in eine Datei schreiben (serial.log)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1688"/>
+        <location filename="../virtual_machine.py" line="1688" />
         <source>Activa -serial file:&lt;vm_dir&gt;/serial.log en la linea de QEMU.
 
 El puerto serie del guest se vuelca a un archivo dentro de la
@@ -1440,7 +1434,7 @@ kernel suelen escribir ahi su progreso: es la forma mas directa
 de ver por que una VM se queda en pantalla negra o se reinicia.
 
 El archivo se SOBREESCRIBE en cada arranque: solo conserva la
-ultima sesion. Se puede abrir con &apos;📂 Carpeta&apos; en la pestana
+ultima sesion. Se puede abrir con '📂 Carpeta' en la pestana
 Resumen.</source>
         <translation>Aktiviert -serial file:&lt;vm_dir&gt;/serial.log in der QEMU-Befehlszeile.
 
@@ -1451,93 +1445,93 @@ zu sehen, warum eine VM auf einem schwarzen Bildschirm bleibt
 oder neu startet.
 
 Die Datei wird bei jedem Start ÜBERSCHRIEBEN: es bleibt nur
-die letzte Sitzung erhalten. Sie kann über &apos;📂 Ordner&apos; im
+die letzte Sitzung erhalten. Sie kann über '📂 Ordner' im
 Reiter Übersicht geöffnet werden.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1705"/>
+        <location filename="../virtual_machine.py" line="1705" />
         <source>Para pasar hardware físico (PCI/USB) a esta VM, usa la pestaña &lt;b&gt;Dispositivos&lt;/b&gt; de la parte superior de la ventana.</source>
         <translation>Um physische Hardware (PCI/USB) an diese VM durchzureichen, verwende den Reiter &lt;b&gt;Geräte&lt;/b&gt; oben im Fenster.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1744"/>
+        <location filename="../virtual_machine.py" line="1744" />
         <source>Estado del sistema de virtualización</source>
         <translation>Status des Virtualisierungssystems</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1747"/>
+        <location filename="../virtual_machine.py" line="1747" />
         <source>Distribución: comprobando...</source>
         <translation>Distribution: wird geprüft...</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1748"/>
+        <location filename="../virtual_machine.py" line="1748" />
         <source>Gestor de paquetes: comprobando...</source>
         <translation>Paketmanager: wird geprüft...</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1774"/>
+        <location filename="../virtual_machine.py" line="1774" />
         <source>🔄 Comprobar dependencias</source>
         <translation>🔄 Abhängigkeiten prüfen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1775"/>
+        <location filename="../virtual_machine.py" line="1775" />
         <source>🛠️ Comprobar/Reparar dependencias</source>
         <translation>🛠️ Abhängigkeiten prüfen/reparieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1799"/>
+        <location filename="../virtual_machine.py" line="1799" />
         <source>Controladores y dispositivos</source>
         <translation>Controller und Geräte</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2741"/>
-        <location filename="../virtual_machine.py" line="2415"/>
-        <location filename="../virtual_machine.py" line="1803"/>
+        <location filename="../virtual_machine.py" line="2741" />
+        <location filename="../virtual_machine.py" line="2415" />
+        <location filename="../virtual_machine.py" line="1803" />
         <source>Dispositivo</source>
         <translation>Gerät</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1803"/>
+        <location filename="../virtual_machine.py" line="1803" />
         <source>Tipo / archivo</source>
         <translation>Typ / Datei</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1804"/>
+        <location filename="../virtual_machine.py" line="1804" />
         <source>Tamaño</source>
         <translation>Größe</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1818"/>
+        <location filename="../virtual_machine.py" line="1818" />
         <source>📀 CD / DVD</source>
         <translation>📀 CD / DVD</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1819"/>
+        <location filename="../virtual_machine.py" line="1819" />
         <source>💽 Disco Duro</source>
         <translation>💽 Festplatte</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1820"/>
+        <location filename="../virtual_machine.py" line="1820" />
         <source>💾 Disquete</source>
         <translation>💾 Diskette</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2578"/>
-        <location filename="../virtual_machine.py" line="1825"/>
+        <location filename="../virtual_machine.py" line="2578" />
+        <location filename="../virtual_machine.py" line="1825" />
         <source>✏ Modificar</source>
         <translation>✏ Ändern</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1829"/>
+        <location filename="../virtual_machine.py" line="1829" />
         <source>🗜 Compactar</source>
         <translation>🗜 Komprimieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1831"/>
+        <location filename="../virtual_machine.py" line="1831" />
         <source>Compacta un disco QCOW2 de la VM seleccionada.
 
 Reduce el archivo físico en el host eliminando bloques no
-usados (equivalente a &apos;qemu-img convert -c&apos;). NO cambia el
+usados (equivalente a 'qemu-img convert -c'). NO cambia el
 tamaño virtual que ve el sistema invitado.
 
 Se pedirá confirmación y se recomienda hacer un backup antes
@@ -1545,64 +1539,64 @@ de proceder. Requiere que la VM esté apagada.</source>
         <translation>Komprimiert eine QCOW2-Festplatte der ausgewählten VM.
 
 Reduziert die physische Datei auf dem Host durch Entfernen
-unbenutzter Blöcke (entspricht &apos;qemu-img convert -c&apos;). Ändert NICHT
+unbenutzter Blöcke (entspricht 'qemu-img convert -c'). Ändert NICHT
 die virtuelle Größe, die das Gastsystem sieht.
 
 Es wird eine Bestätigung angefordert und ein Backup vor dem
 Vorgang empfohlen. Erfordert, dass die VM ausgeschaltet ist.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1861"/>
+        <location filename="../virtual_machine.py" line="1861" />
         <source>Orden de arranque</source>
         <translation>Startreihenfolge</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1876"/>
+        <location filename="../virtual_machine.py" line="1876" />
         <source>⬆ Subir</source>
         <translation>⬆ Nach oben</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1877"/>
+        <location filename="../virtual_machine.py" line="1877" />
         <source>⬇ Bajar</source>
         <translation>⬇ Nach unten</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1878"/>
+        <location filename="../virtual_machine.py" line="1878" />
         <source>🗑 Quitar</source>
         <translation>🗑 Entfernen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1903"/>
+        <location filename="../virtual_machine.py" line="1903" />
         <source>Discos, unidades ópticas y orden de arranque de la máquina virtual.</source>
         <translation>Festplatten, optische Laufwerke und Startreihenfolge der virtuellen Maschine.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1936"/>
+        <location filename="../virtual_machine.py" line="1936" />
         <source>&lt;b&gt;MÁQUINAS VIRTUALES&lt;/b&gt;</source>
         <translation>&lt;b&gt;VIRTUELLE MASCHINEN&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1943"/>
+        <location filename="../virtual_machine.py" line="1943" />
         <source>🔍 Buscar máquinas...</source>
         <translation>🔍 Maschinen suchen...</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1955"/>
+        <location filename="../virtual_machine.py" line="1955" />
         <source>Ordenar: Nombre (A-Z)</source>
         <translation>Sortieren: Name (A-Z)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1956"/>
+        <location filename="../virtual_machine.py" line="1956" />
         <source>Ordenar: Estado</source>
         <translation>Sortieren: Status</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1957"/>
+        <location filename="../virtual_machine.py" line="1957" />
         <source>Ordenar: Ultima vez usada</source>
         <translation>Sortieren: Zuletzt verwendet</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1958"/>
+        <location filename="../virtual_machine.py" line="1958" />
         <source>Como ordenar la lista de maquinas virtuales.
   - Nombre: alfabetico.
   - Estado: encendidas primero, luego pausadas, apagadas al final.
@@ -1615,53 +1609,53 @@ Vorgang empfohlen. Erfordert, dass die VM ausgeschaltet ist.</translation>
     (Näherung, wann zuletzt konfiguriert).</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1980"/>
+        <location filename="../virtual_machine.py" line="1980" />
         <source>Todos los grupos</source>
         <translation>Alle Gruppen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1981"/>
+        <location filename="../virtual_machine.py" line="1981" />
         <source>Muestra solo las VMs de un grupo concreto.
   • Todos los grupos: sin filtro de grupo.
   • Sin grupo: solo VMs sin etiqueta de grupo.
   • &lt;nombre&gt;: solo VMs con ese grupo.
 
-Los grupos se asignan desde el botón &apos;🏷 Etiqueta&apos; del Resumen.</source>
+Los grupos se asignan desde el botón '🏷 Etiqueta' del Resumen.</source>
         <translation>Nur VMs einer bestimmten Gruppe anzeigen.
   • Alle Gruppen: kein Gruppenfilter.
   • Ohne Gruppe: nur VMs ohne Gruppenbezeichnung.
   • &lt;Name&gt;: nur VMs mit dieser Gruppe.
 
-Gruppen werden über den Button &apos;🏷 Bezeichnung&apos; in der Übersicht zugewiesen.</translation>
+Gruppen werden über den Button '🏷 Bezeichnung' in der Übersicht zugewiesen.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="1997"/>
+        <location filename="../virtual_machine.py" line="1997" />
         <source>➕ Nueva VM</source>
         <translation>➕ Neue VM</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2026"/>
+        <location filename="../virtual_machine.py" line="2026" />
         <source>Selecciona una máquina virtual</source>
         <translation>Virtuelle Maschine auswählen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3455"/>
-        <location filename="../virtual_machine.py" line="2057"/>
+        <location filename="../virtual_machine.py" line="3455" />
+        <location filename="../virtual_machine.py" line="2057" />
         <source>● Sin VM seleccionada</source>
         <translation>● Keine VM ausgewählt</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2063"/>
+        <location filename="../virtual_machine.py" line="2063" />
         <source>▶ Iniciar</source>
         <translation>▶ Starten</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2065"/>
+        <location filename="../virtual_machine.py" line="2065" />
         <source>⏸ Pausar</source>
         <translation>⏸ Pausieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2066"/>
+        <location filename="../virtual_machine.py" line="2066" />
         <source>Pausar la VM. Usa la flecha para más opciones:
 • Pausar (rápido): detiene sin guardar el estado en disco.
 • Guardar estado y pausar: escribe la RAM a disco antes de pausar.
@@ -1672,22 +1666,22 @@ Gruppen werden über den Button &apos;🏷 Bezeichnung&apos; in der Übersicht z
 • Fortsetzen: setzt die pausierte VM fort.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2079"/>
+        <location filename="../virtual_machine.py" line="2079" />
         <source>⏹ Apagar</source>
         <translation>⏹ Herunterfahren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2080"/>
+        <location filename="../virtual_machine.py" line="2080" />
         <source>Apagado (ACPI): pide a la VM que se apague de forma ordenada.</source>
         <translation>Herunterfahren (ACPI): fordert die VM zum geordneten Herunterfahren auf.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2085"/>
+        <location filename="../virtual_machine.py" line="2085" />
         <source>⏹ Apagado (ACPI)</source>
         <translation>⏹ Herunterfahren (ACPI)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2086"/>
+        <location filename="../virtual_machine.py" line="2086" />
         <source>Pide a la VM que se apague de forma ordenada, como pulsar el botón de
 encendido en un equipo real. El sistema operativo invitado decide cuándo
 y cómo cerrar. Puede tardar unos segundos o no responder si está colgado.</source>
@@ -1696,12 +1690,12 @@ Ein-/Ausschalters an einem echten Rechner. Das Gastsystem entscheidet,
 wann und wie es schließt. Kann ein paar Sekunden dauern oder hängen bleiben.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2091"/>
+        <location filename="../virtual_machine.py" line="2091" />
         <source>⏻ Forzar apagado</source>
         <translation>⏻ Ausschalten erzwingen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2092"/>
+        <location filename="../virtual_machine.py" line="2092" />
         <source>Corta la VM de inmediato, sin avisar al sistema operativo invitado —
 como desenchufar un equipo real. Puede causar pérdida de datos no
 guardados; úsalo solo si la VM no responde al apagado normal.</source>
@@ -1711,12 +1705,12 @@ ungespeicherter Daten verursachen; nur verwenden, wenn die VM nicht
 auf normales Herunterfahren reagiert.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2097"/>
+        <location filename="../virtual_machine.py" line="2097" />
         <source>⟳ Reiniciar</source>
         <translation>⟳ Neustart</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2098"/>
+        <location filename="../virtual_machine.py" line="2098" />
         <source>Reinicia la VM (equivalente al botón de reinicio de un equipo real).
 No es un apagado ordenado del sistema operativo invitado: simplemente
 reinicia el hardware virtual.</source>
@@ -1725,12 +1719,12 @@ Kein geordnetes Herunterfahren des Gastsystems: es wird nur die
 virtuelle Hardware zurückgesetzt.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2103"/>
+        <location filename="../virtual_machine.py" line="2103" />
         <source>⟲ Forzar reinicio</source>
         <translation>⟲ Neustart erzwingen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2104"/>
+        <location filename="../virtual_machine.py" line="2104" />
         <source>Corta la VM por completo y la vuelve a iniciar desde cero, sin avisar
 al sistema operativo invitado. Úsalo solo si la VM no responde ni al
 apagado ni al reinicio normales.</source>
@@ -1739,83 +1733,83 @@ Gastsystem zu warnen. Nur verwenden, wenn die VM weder auf normales
 Herunterfahren noch auf Neustart reagiert.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2127"/>
+        <location filename="../virtual_machine.py" line="2127" />
         <source>⏸ Pausar (rápido)</source>
         <translation>⏸ Pausieren (schnell)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2128"/>
+        <location filename="../virtual_machine.py" line="2128" />
         <source>Pausa la VM sin guardar el estado en disco. Es instantáneo, pero
 el estado (RAM y dispositivos) se pierde si el host se reinicia.</source>
         <translation>Pausiert die VM, ohne den Zustand auf Disk zu speichern. Sofort, aber
 der Zustand (RAM und Geräte) geht bei einem Host-Neustart verloren.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2132"/>
+        <location filename="../virtual_machine.py" line="2132" />
         <source>▶ Reanudar</source>
         <translation>▶ Fortsetzen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2133"/>
+        <location filename="../virtual_machine.py" line="2133" />
         <source>Reanuda la ejecución de la VM pausada.</source>
         <translation>Setzt die Ausführung der pausierten VM fort.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2136"/>
+        <location filename="../virtual_machine.py" line="2136" />
         <source>📸 Tomar Snapshot</source>
         <translation>📸 Snapshot erstellen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2137"/>
+        <location filename="../virtual_machine.py" line="2137" />
         <source>Guarda la RAM y el estado de los dispositivos a disco (como un
 snapshot) y luego pausa la VM. Tarda más pero sobrevive a reinicios.
 El snapshot aparecerá en la pestaña Snapshots y su captura de
-pantalla en el panel &apos;Último snapshot&apos;.</source>
+pantalla en el panel 'Último snapshot'.</source>
         <translation>Speichert RAM und Gerätezustand auf Disk (wie einen Snapshot)
 und pausiert dann die VM. Dauert länger, übersteht aber Neustarts.
 Der Snapshot erscheint im Reiter Snapshots, der Screenshot
-im Bereich &apos;Letzter Snapshot&apos;.</translation>
+im Bereich 'Letzter Snapshot'.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2149"/>
+        <location filename="../virtual_machine.py" line="2149" />
         <source>Iniciar VM</source>
         <translation>VM starten</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2150"/>
+        <location filename="../virtual_machine.py" line="2150" />
         <source>Pausar/Reanudar VM</source>
         <translation>VM pausieren/fortsetzen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2151"/>
+        <location filename="../virtual_machine.py" line="2151" />
         <source>Apagado (ACPI): pide a la VM que se apague de forma ordenada.
 Usa la flecha para más opciones (forzar, reiniciar).</source>
         <translation>Herunterfahren (ACPI): fordert die VM zum geordneten Herunterfahren auf.
 Mit dem Pfeil weitere Optionen (erzwingen, Neustart).</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2188"/>
-        <source>Selecciona una VM para administrarla. Usa &apos;Nueva máquina virtual&apos; para crear otra.</source>
-        <translation>Wähle eine VM zur Verwaltung. Mit &apos;Neue virtuelle Maschine&apos; eine weitere anlegen.</translation>
+        <location filename="../virtual_machine.py" line="2188" />
+        <source>Selecciona una VM para administrarla. Usa 'Nueva máquina virtual' para crear otra.</source>
+        <translation>Wähle eine VM zur Verwaltung. Mit 'Neue virtuelle Maschine' eine weitere anlegen.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2199"/>
+        <location filename="../virtual_machine.py" line="2199" />
         <source>Nueva máquina virtual</source>
         <translation>Neue virtuelle Maschine</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2203"/>
+        <location filename="../virtual_machine.py" line="2203" />
         <source>● Nueva VM</source>
         <translation>● Neue VM</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3014"/>
-        <location filename="../virtual_machine.py" line="2239"/>
+        <location filename="../virtual_machine.py" line="3014" />
+        <location filename="../virtual_machine.py" line="2239" />
         <source>💿 Medios</source>
         <translation>💿 Medien</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2241"/>
+        <location filename="../virtual_machine.py" line="2241" />
         <source>Medios de la VM: unidades CD/DVD y dispositivos USB.
 Cambia ISO en caliente, expulsa medios y conecta/desconecta
 USB sin reiniciar la máquina. Atajo: Ctrl+M.</source>
@@ -1824,22 +1818,22 @@ ISO im laufenden Betrieb wechseln, Medien auswerfen und
 USB verbinden/trennen ohne Neustart. Tastenkürzel: Strg+M.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2260"/>
+        <location filename="../virtual_machine.py" line="2260" />
         <source>🧬 Clonar</source>
         <translation>🧬 Klonen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2262"/>
+        <location filename="../virtual_machine.py" line="2262" />
         <source>Crea una copia completa de esta VM en una carpeta nueva.</source>
         <translation>Erstellt eine vollständige Kopie dieser VM in einem neuen Ordner.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2263"/>
+        <location filename="../virtual_machine.py" line="2263" />
         <source>🧬 Desenlazar</source>
         <translation>🧬 Entkoppeln</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2265"/>
+        <location filename="../virtual_machine.py" line="2265" />
         <source>Convierte este clon enlazado en un QCOW2 autónomo.
 Después, el clon deja de depender del original y puede
 moverse o copiarse por separado.
@@ -1854,52 +1848,52 @@ Erscheint nur, wenn die ausgewählte VM ein verknüpfter
 Klon und ausgeschaltet ist.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2270"/>
+        <location filename="../virtual_machine.py" line="2270" />
         <source>⇩ Importar</source>
         <translation>⇩ Importieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2272"/>
+        <location filename="../virtual_machine.py" line="2272" />
         <source>Importar una VM desde una carpeta (con vm_config.ini) o desde
 un archivo .tar.gz / .zip exportado previamente.</source>
         <translation>Eine VM aus einem Ordner (mit vm_config.ini) oder aus einer
 zuvor exportierten .tar.gz- / .zip-Datei importieren.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2274"/>
+        <location filename="../virtual_machine.py" line="2274" />
         <source>⇪ Exportar</source>
         <translation>⇪ Exportieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2276"/>
+        <location filename="../virtual_machine.py" line="2276" />
         <source>Exportar esta VM como carpeta, .tar.gz o .zip portable.
 Se omiten los archivos de runtime (pids, sockets, logs).</source>
         <translation>Diese VM als Ordner, portable .tar.gz- oder .zip-Datei exportieren.
 Laufzeitdateien (PIDs, Sockets, Logs) werden übersprungen.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2278"/>
+        <location filename="../virtual_machine.py" line="2278" />
         <source>💾 Plantilla</source>
         <translation>💾 Vorlage</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2280"/>
+        <location filename="../virtual_machine.py" line="2280" />
         <source>Guarda la configuración de hardware de esta VM como
 plantilla reutilizable. Se omiten discos, ISOs, MACs,
 carpetas compartidas, notas y reglas NAT.
-Aparecerá en el menú del botón &apos;➕ Nueva VM&apos;.</source>
+Aparecerá en el menú del botón '➕ Nueva VM'.</source>
         <translation>Speichert die Hardware-Konfiguration dieser VM als
 wiederverwendbare Vorlage. Festplatten, ISOs, MACs,
 gemeinsame Ordner, Notizen und NAT-Regeln werden übersprungen.
-Erscheint im Menü des Buttons &apos;➕ Neue VM&apos;.</translation>
+Erscheint im Menü des Buttons '➕ Neue VM'.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2284"/>
+        <location filename="../virtual_machine.py" line="2284" />
         <source>📜 Comando QEMU</source>
         <translation>📜 QEMU-Befehl</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2286"/>
+        <location filename="../virtual_machine.py" line="2286" />
         <source>Muestra el contenido de run_temp.sh: el comando exacto con
 el que QEMU está ejecutando (o ejecutó por última vez) esta
 VM. Solo está disponible si la VM se ha arrancado alguna vez.</source>
@@ -1908,12 +1902,12 @@ QEMU diese VM ausführt (oder zuletzt ausgeführt hat). Nur
 verfügbar, wenn die VM mindestens einmal gestartet wurde.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2289"/>
+        <location filename="../virtual_machine.py" line="2289" />
         <source>📝 Notas</source>
         <translation>📝 Notizen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2291"/>
+        <location filename="../virtual_machine.py" line="2291" />
         <source>Notas libres sobre esta VM. Se guardan en vm_config.ini
 (extra.notes) y aparecen como aviso amarillo debajo del
 estado en esta misma pestaña.</source>
@@ -1922,24 +1916,24 @@ estado en esta misma pestaña.</source>
 Status in diesem Reiter.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2294"/>
+        <location filename="../virtual_machine.py" line="2294" />
         <source>🏷 Etiqueta</source>
         <translation>🏷 Bezeichnung</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2296"/>
+        <location filename="../virtual_machine.py" line="2296" />
         <source>Grupo y color de esta VM. El grupo agrupa VMs en la lista
 lateral; el color se aplica como fondo del ítem.</source>
         <translation>Gruppe und Farbe dieser VM. Die Gruppe bündelt VMs in der
 Seitenliste; die Farbe wird als Hintergrund des Eintrags angewendet.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2298"/>
+        <location filename="../virtual_machine.py" line="2298" />
         <source>⚖ Comparar con defaults</source>
         <translation>⚖ Mit Standardwerten vergleichen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2300"/>
+        <location filename="../virtual_machine.py" line="2300" />
         <source>Compara la configuración actual de esta VM con los
 valores por defecto del perfil del SO. Permite aplicar
 los defaults a un campo o a todos; los cambios se aplican
@@ -1950,436 +1944,436 @@ können auf ein Feld oder alle angewendet werden; Änderungen
 betreffen die Widgets und werden beim Speichern persistiert.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2304"/>
+        <location filename="../virtual_machine.py" line="2304" />
         <source>🗑️ Eliminar</source>
         <translation>🗑 Löschen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2306"/>
+        <location filename="../virtual_machine.py" line="2306" />
         <source>Elimina esta VM (con opción de conservar los discos).</source>
         <translation>Löscht diese VM (mit Option, die Festplatten zu behalten).</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2328"/>
+        <location filename="../virtual_machine.py" line="2328" />
         <source>Resumen de Configuración</source>
         <translation>Konfigurationsübersicht</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2358"/>
+        <location filename="../virtual_machine.py" line="2358" />
         <source>Selecciona una máquina virtual en la lista de la izquierda.</source>
         <translation>Wähle eine virtuelle Maschine aus der linken Liste.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2369"/>
+        <location filename="../virtual_machine.py" line="2369" />
         <source>&lt;b&gt;Snapshots de la máquina virtual&lt;/b&gt;</source>
         <translation>&lt;b&gt;Snapshots der virtuellen Maschine&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2371"/>
+        <location filename="../virtual_machine.py" line="2371" />
         <source>Crea, restaura, elimina y administra snapshots. La aplicación comprueba los discos QCOW2 escribibles, el espacio libre y qué discos formarán parte del snapshot antes de ejecutarlo.</source>
         <translation>Erstellt, stellt wieder her, löscht und verwaltet Snapshots. Die Anwendung prüft die beschreibbaren QCOW2-Festplatten, den freien Speicher und welche Festplatten Teil des Snapshots werden, bevor sie ihn ausführt.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2385"/>
+        <location filename="../virtual_machine.py" line="2385" />
         <source>⚠ Esta VM es un clon enlazado (backing file QCOW2). Los snapshots completos (RAM + dispositivos) no se pueden restaurar en QEMU con backing file; la app usará siempre snapshots SOLO DE DISCOS. Para tener snapshots completos, desenlaza primero el clon con ‘🧬 Desenlazar’ en la pestaña Resumen.</source>
         <translation>⚠ Diese VM ist ein verknüpfter Klon (QCOW2-Backing-Datei). Vollständige Snapshots (RAM + Geräte) können in QEMU mit Backing-Datei nicht wiederhergestellt werden; die App verwendet stets NUR-DISK-Snapshots. Für vollständige Snapshots zuerst den Klon mit ‘🧬 Entkoppeln’ im Reiter Übersicht lösen.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2403"/>
+        <location filename="../virtual_machine.py" line="2403" />
         <source>🔄 Actualizar</source>
         <translation>🔄 Aktualisieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2404"/>
+        <location filename="../virtual_machine.py" line="2404" />
         <source>➕ Crear</source>
         <translation>➕ Erstellen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2405"/>
+        <location filename="../virtual_machine.py" line="2405" />
         <source>↩ Restaurar</source>
         <translation>↩ Wiederherstellen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2406"/>
+        <location filename="../virtual_machine.py" line="2406" />
         <source>✏ Cambiar nombre</source>
         <translation>✏ Umbenennen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2415"/>
+        <location filename="../virtual_machine.py" line="2415" />
         <source>Formato</source>
         <translation>Format</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2416"/>
+        <location filename="../virtual_machine.py" line="2416" />
         <source>Tamaño virtual</source>
         <translation>Virtuelle Größe</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2416"/>
+        <location filename="../virtual_machine.py" line="2416" />
         <source>Tamaño archivo</source>
         <translation>Dateigröße</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2417"/>
+        <location filename="../virtual_machine.py" line="2417" />
         <source>Libre host</source>
         <translation>Host frei</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2417"/>
+        <location filename="../virtual_machine.py" line="2417" />
         <source>Escritura</source>
         <translation>Schreibbar</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2417"/>
+        <location filename="../virtual_machine.py" line="2417" />
         <source>Snapshot</source>
         <translation>Snapshot</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2429"/>
+        <location filename="../virtual_machine.py" line="2429" />
         <source>Sin operación de snapshot</source>
         <translation>Kein Snapshot-Vorgang</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2443"/>
+        <location filename="../virtual_machine.py" line="2443" />
         <source>ID</source>
         <translation>ID</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2443"/>
+        <location filename="../virtual_machine.py" line="2443" />
         <source>Nombre</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2443"/>
+        <location filename="../virtual_machine.py" line="2443" />
         <source>Tamaño VM</source>
         <translation>VM-Größe</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2444"/>
+        <location filename="../virtual_machine.py" line="2444" />
         <source>Fecha</source>
         <translation>Datum</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2444"/>
+        <location filename="../virtual_machine.py" line="2444" />
         <source>Reloj VM</source>
         <translation>VM-Uhr</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2452"/>
+        <location filename="../virtual_machine.py" line="2452" />
         <source>Vista:</source>
         <translation>Ansicht:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2453"/>
+        <location filename="../virtual_machine.py" line="2453" />
         <source>📋 Lista</source>
         <translation>📋 Liste</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2455"/>
+        <location filename="../virtual_machine.py" line="2455" />
         <source>🌳 Organigrama</source>
         <translation>🌳 Baum</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3049"/>
-        <location filename="../virtual_machine.py" line="2480"/>
+        <location filename="../virtual_machine.py" line="3049" />
+        <location filename="../virtual_machine.py" line="2480" />
         <source>Zoom:</source>
         <translation>Zoom:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2483"/>
+        <location filename="../virtual_machine.py" line="2483" />
         <source>Alejar la miniatura</source>
         <translation>Miniatur verkleinern</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2486"/>
+        <location filename="../virtual_machine.py" line="2486" />
         <source>Acercar la miniatura</source>
         <translation>Miniatur vergrößern</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2487"/>
+        <location filename="../virtual_machine.py" line="2487" />
         <source>↺ Ajustar</source>
         <translation>↺ Anpassen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2489"/>
+        <location filename="../virtual_machine.py" line="2489" />
         <source>Ajustar al tamaño original</source>
         <translation>An Originalgröße anpassen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2512"/>
+        <location filename="../virtual_machine.py" line="2512" />
         <source>Sin captura de pantalla</source>
         <translation>Kein Screenshot</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2540"/>
+        <location filename="../virtual_machine.py" line="2540" />
         <source>Integración Host ↔ Guest. Aquí se configuran las carpetas compartidas y el portapapeles (clipboard).</source>
         <translation>Host ↔ Gast-Integration. Hier werden gemeinsame Ordner und die Zwischenablage konfiguriert.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2548"/>
+        <location filename="../virtual_machine.py" line="2548" />
         <source>Comparte directorios del host con el guest. Automático usa VirtioFS en Linux cuando virtiofsd está disponible, 9p como respaldo y SMB para Windows/macOS. Solo lectura impide que el guest modifique archivos del host.</source>
         <translation>Gibt Host-Verzeichnisse für den Gast frei. Automatisch verwendet VirtioFS unter Linux, wenn virtiofsd verfügbar ist, 9p als Ausweichlösung und SMB für Windows/macOS. Nur-Lesen verhindert, dass der Gast Host-Dateien verändert.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2551"/>
+        <location filename="../virtual_machine.py" line="2551" />
         <source>Dependencias del host</source>
         <translation>Host-Abhängigkeiten</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2553"/>
+        <location filename="../virtual_machine.py" line="2553" />
         <source>VirtioFS: SIN COMPROBAR</source>
         <translation>VirtioFS: UNGEPRÜFT</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2554"/>
+        <location filename="../virtual_machine.py" line="2554" />
         <source>9p: SIN COMPROBAR</source>
         <translation>9p: UNGEPRÜFT</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2555"/>
+        <location filename="../virtual_machine.py" line="2555" />
         <source>SMB: SIN COMPROBAR</source>
         <translation>SMB: UNGEPRÜFT</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2560"/>
+        <location filename="../virtual_machine.py" line="2560" />
         <source>9p forma parte de QEMU y normalmente no requiere instalar un paquete adicional en el host. VirtioFS necesita virtiofsd y SMB necesita Samba/smbd.</source>
         <translation>9p ist Teil von QEMU und erfordert normalerweise kein zusätzliches Paket auf dem Host. VirtioFS benötigt virtiofsd und SMB benötigt Samba/smbd.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2722"/>
-        <location filename="../virtual_machine.py" line="2563"/>
+        <location filename="../virtual_machine.py" line="2722" />
+        <location filename="../virtual_machine.py" line="2563" />
         <source>🔄 Comprobar</source>
         <translation>🔄 Prüfen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2564"/>
+        <location filename="../virtual_machine.py" line="2564" />
         <source>🛠️ Instalar faltantes</source>
         <translation>🛠️ Fehlende installieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2574"/>
+        <location filename="../virtual_machine.py" line="2574" />
         <source>Host</source>
         <translation>Host</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2574"/>
+        <location filename="../virtual_machine.py" line="2574" />
         <source>Guest / etiqueta</source>
         <translation>Gast / Bezeichnung</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2574"/>
+        <location filename="../virtual_machine.py" line="2574" />
         <source>Método</source>
         <translation>Methode</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2574"/>
+        <location filename="../virtual_machine.py" line="2574" />
         <source>Montaje en el guest</source>
         <translation>Einhängen im Gast</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2574"/>
+        <location filename="../virtual_machine.py" line="2574" />
         <source>Acceso</source>
         <translation>Zugriff</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2578"/>
+        <location filename="../virtual_machine.py" line="2578" />
         <source>➕ Agregar</source>
         <translation>➕ Hinzufügen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2578"/>
+        <location filename="../virtual_machine.py" line="2578" />
         <source>💾 Guardar</source>
         <translation>💾 Speichern</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2585"/>
+        <location filename="../virtual_machine.py" line="2585" />
         <source>Guest Tools reúne la integración del sistema invitado: QEMU Guest Agent, controladores VirtIO y, en Windows, componentes SPICE. La ISO se puede montar como CD/DVD en cualquier VM.</source>
         <translation>Guest Tools bündelt die Integration des Gastsystems: QEMU Guest Agent, VirtIO-Treiber und unter Windows SPICE-Komponenten. Die ISO kann als CD/DVD in jede VM eingelegt werden.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2587"/>
+        <location filename="../virtual_machine.py" line="2587" />
         <source>QEMU Guest Agent</source>
         <translation>QEMU Guest Agent</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2589"/>
+        <location filename="../virtual_machine.py" line="2589" />
         <source>Activar canal QEMU Guest Agent al iniciar la VM</source>
         <translation>QEMU-Guest-Agent-Kanal beim VM-Start aktivieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2592"/>
+        <location filename="../virtual_machine.py" line="2592" />
         <source>Canal:</source>
         <translation>Kanal:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2593"/>
+        <location filename="../virtual_machine.py" line="2593" />
         <source>Estado: no comprobado</source>
         <translation>Status: nicht geprüft</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3460"/>
-        <location filename="../virtual_machine.py" line="2594"/>
+        <location filename="../virtual_machine.py" line="3460" />
+        <location filename="../virtual_machine.py" line="2594" />
         <source>Estado:</source>
         <translation>Status:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2596"/>
+        <location filename="../virtual_machine.py" line="2596" />
         <source>🔎 Probar conexión</source>
         <translation>🔎 Verbindung testen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2597"/>
+        <location filename="../virtual_machine.py" line="2597" />
         <source>💿 Crear / actualizar ISO Guest Tools</source>
         <translation>💿 Guest-Tools-ISO erstellen / aktualisieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2598"/>
+        <location filename="../virtual_machine.py" line="2598" />
         <source>🧰 Adjuntar a esta VM</source>
         <translation>🧰 An diese VM anhängen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2599"/>
+        <location filename="../virtual_machine.py" line="2599" />
         <source>Crea la ISO si falta y la adjunta como CD/DVD a la VM seleccionada, en un solo paso.</source>
         <translation>Erstellt die ISO, falls sie fehlt, und hängt sie als CD/DVD an die ausgewählte VM an, in einem Schritt.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2600"/>
+        <location filename="../virtual_machine.py" line="2600" />
         <source>📂 Abrir carpeta de Guest Tools</source>
         <translation>📂 Guest-Tools-Ordner öffnen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2606"/>
+        <location filename="../virtual_machine.py" line="2606" />
         <source>Acciones:</source>
         <translation>Aktionen:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2608"/>
+        <location filename="../virtual_machine.py" line="2608" />
         <source>Linux: instala qemu-guest-agent desde esta ISO o desde el gestor de paquetes. Windows: INSTALL-WINDOWS.CMD descarga e instala VirtIO Guest Tools y SPICE Guest Tools desde sus fuentes oficiales. Después reinicia el guest.</source>
         <translation>Linux: Installiere qemu-guest-agent von dieser ISO oder aus dem Paketmanager. Windows: INSTALL-WINDOWS.CMD lädt die VirtIO Guest Tools und SPICE Guest Tools aus offiziellen Quellen herunter und installiert sie. Danach den Gast neu starten.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2614"/>
+        <location filename="../virtual_machine.py" line="2614" />
         <source>Compartir clipboard</source>
         <translation>Zwischenablage teilen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2617"/>
+        <location filename="../virtual_machine.py" line="2617" />
         <source>Desactivado</source>
         <translation>Deaktiviert</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2618"/>
+        <location filename="../virtual_machine.py" line="2618" />
         <source>Host → SO invitado</source>
         <translation>Host → Gastsystem</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2619"/>
+        <location filename="../virtual_machine.py" line="2619" />
         <source>SO invitado → Host</source>
         <translation>Gastsystem → Host</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2620"/>
+        <location filename="../virtual_machine.py" line="2620" />
         <source>Bidireccional</source>
         <translation>Bidirektional</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2621"/>
+        <location filename="../virtual_machine.py" line="2621" />
         <source>Dirección:</source>
         <translation>Richtung:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2622"/>
+        <location filename="../virtual_machine.py" line="2622" />
         <source>Linux y Windows: se usará QEMU vdagent + canal VirtIO/SPICE y GTK para clipboard bidireccional. El guest debe tener spice-vdagent (Linux) o SPICE Guest Tools (Windows). macOS se probará en una fase específica.</source>
         <translation>Linux und Windows: Es werden QEMU vdagent + VirtIO/SPICE-Kanal und GTK für die bidirektionale Zwischenablage verwendet. Der Gast muss spice-vdagent (Linux) oder SPICE Guest Tools (Windows) haben. macOS wird in einer speziellen Phase getestet.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2625"/>
+        <location filename="../virtual_machine.py" line="2625" />
         <source>💾 Guardar configuración</source>
         <translation>💾 Konfiguration speichern</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2741"/>
-        <location filename="../virtual_machine.py" line="2630"/>
+        <location filename="../virtual_machine.py" line="2741" />
+        <location filename="../virtual_machine.py" line="2630" />
         <source>Estado</source>
         <translation>Status</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2632"/>
+        <location filename="../virtual_machine.py" line="2632" />
         <source>Configuración por VM. El mecanismo concreto se seleccionará según el SO invitado y su soporte de integración.</source>
         <translation>Konfiguration pro VM. Der konkrete Mechanismus wird je nach Gastbetriebssystem und dessen Integrationsunterstützung gewählt.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2637"/>
+        <location filename="../virtual_machine.py" line="2637" />
         <source>Compartir Carpetas</source>
         <translation>Ordner teilen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2638"/>
+        <location filename="../virtual_machine.py" line="2638" />
         <source>Guest Tools</source>
         <translation>Guest Tools</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2639"/>
+        <location filename="../virtual_machine.py" line="2639" />
         <source>Clipboard</source>
         <translation>Zwischenablage</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2649"/>
+        <location filename="../virtual_machine.py" line="2649" />
         <source>Passthrough de hardware físico. PCI usa VFIO; USB usa usb-host sobre XHCI. El programa comprobará el acceso a /dev/bus/usb, desmontará automáticamente el almacenamiento USB seleccionado del anfitrión y solicitará permisos administrativos solo cuando sea necesario. No selecciones Root Hubs.</source>
         <translation>Passthrough physischer Hardware. PCI verwendet VFIO; USB verwendet usb-host über XHCI. Das Programm prüft den Zugriff auf /dev/bus/usb, hängt den ausgewählten USB-Speicher automatisch vom Host aus und fordert administrative Rechte nur bei Bedarf an. Root Hubs dürfen nicht ausgewählt werden.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2673"/>
+        <location filename="../virtual_machine.py" line="2673" />
         <source>Diagnóstico PCI / VFIO</source>
         <translation>PCI- / VFIO-Diagnose</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2675"/>
+        <location filename="../virtual_machine.py" line="2675" />
         <source>Comprobando Intel VT-d / IOMMU...</source>
         <translation>Intel VT-d / IOMMU wird geprüft...</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2680"/>
+        <location filename="../virtual_machine.py" line="2680" />
         <source>🔄 Comprobar IOMMU / VFIO</source>
         <translation>🔄 IOMMU / VFIO prüfen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2682"/>
+        <location filename="../virtual_machine.py" line="2682" />
         <source>ℹ Ver diagnóstico detallado</source>
         <translation>ℹ Detaillierte Diagnose anzeigen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2684"/>
+        <location filename="../virtual_machine.py" line="2684" />
         <source>🛠 Preparar intel_iommu=on</source>
         <translation>🛠 intel_iommu=on vorbereiten</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2686"/>
+        <location filename="../virtual_machine.py" line="2686" />
         <source>⚙ Abrir UEFI/BIOS</source>
         <translation>⚙ UEFI/BIOS öffnen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2703"/>
+        <location filename="../virtual_machine.py" line="2703" />
         <source>Permisos USB del host</source>
         <translation>USB-Berechtigungen des Hosts</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2706"/>
+        <location filename="../virtual_machine.py" line="2706" />
         <source>Para poder pasar memorias o discos USB a la VM sin pedir contraseña cada vez, el sistema necesita una regla udev que conceda acceso al usuario activo. Puedes instalarla aquí con un clic; solo se aplica a esta categoría de dispositivos.</source>
         <translation>Um USB-Sticks oder -Festplatten ohne Passwortabfrage an die VM durchzureichen, benötigt das System eine udev-Regel, die dem aktiven Benutzer Zugriff gewährt. Du kannst sie hier mit einem Klick installieren; sie gilt nur für diese Gerätekategorie.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2717"/>
+        <location filename="../virtual_machine.py" line="2717" />
         <source>Comprobando…</source>
         <translation>Prüfe…</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2726"/>
+        <location filename="../virtual_machine.py" line="2726" />
         <source>🔧 Configurar permisos USB</source>
         <translation>🔧 USB-Berechtigungen konfigurieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2727"/>
+        <location filename="../virtual_machine.py" line="2727" />
         <source>Crea /etc/udev/rules.d/50-vm-manager-usb.rules con la regla
 que permite el acceso a los dispositivos USB al usuario activo.
 Solo se toca este archivo; el resto de la configuración USB
@@ -2390,132 +2384,132 @@ Nur diese Datei wird angefasst; der Rest der USB-Konfiguration
 des Systems bleibt unverändert.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2741"/>
+        <location filename="../virtual_machine.py" line="2741" />
         <source>Usar</source>
         <translation>Verwenden</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2741"/>
+        <location filename="../virtual_machine.py" line="2741" />
         <source>Tipo</source>
         <translation>Typ</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2741"/>
+        <location filename="../virtual_machine.py" line="2741" />
         <source>IOMMU / Driver</source>
         <translation>IOMMU / Treiber</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2747"/>
+        <location filename="../virtual_machine.py" line="2747" />
         <source>🔄 Detectar dispositivos</source>
         <translation>🔄 Geräte erkennen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2748"/>
+        <location filename="../virtual_machine.py" line="2748" />
         <source>💾 Guardar selección</source>
         <translation>💾 Auswahl speichern</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2751"/>
+        <location filename="../virtual_machine.py" line="2751" />
         <source>🔌 Conectar USB en caliente</source>
         <translation>🔌 USB im laufenden Betrieb verbinden</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2753"/>
+        <location filename="../virtual_machine.py" line="2753" />
         <source>⏏ Desconectar USB</source>
         <translation>⏏ USB trennen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2823"/>
+        <location filename="../virtual_machine.py" line="2823" />
         <source>Resumen</source>
         <translation>Übersicht</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2824"/>
+        <location filename="../virtual_machine.py" line="2824" />
         <source>Configuración VM</source>
         <translation>VM-Einstellungen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2880"/>
-        <location filename="../virtual_machine.py" line="2835"/>
+        <location filename="../virtual_machine.py" line="2880" />
+        <location filename="../virtual_machine.py" line="2835" />
         <source>Configuración Host</source>
         <translation>Host-Einstellungen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2836"/>
+        <location filename="../virtual_machine.py" line="2836" />
         <source>Ajustes y diagnostico del sistema anfitrion. Nada de esta seccion se guarda con la VM: aplica a todo el equipo.</source>
         <translation>Einstellungen und Diagnose des Wirtssystems. Nichts aus diesem Bereich wird mit der VM gespeichert: es gilt für den gesamten Rechner.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2889"/>
+        <location filename="../virtual_machine.py" line="2889" />
         <source>Snapshots</source>
         <translation>Snapshots</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2898"/>
-        <source>&lt;b&gt;Backups de la maquina virtual&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#666;font-size:11px;&apos;&gt;Copia periodica de la carpeta completa (discos + config + snapshots). El backup se guarda como carpeta independiente; se puede restaurar con el boton &lt;b&gt;Importar&lt;/b&gt; de la pestana Resumen apuntando a la carpeta del backup.&lt;/span&gt;</source>
-        <translation>&lt;b&gt;Backups der virtuellen Maschine&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#666;font-size:11px;&apos;&gt;Regelmäßige Kopie des gesamten Ordners (Festplatten + Konfiguration + Snapshots). Das Backup wird als eigenständiger Ordner gespeichert; es kann über den Button &lt;b&gt;Importieren&lt;/b&gt; im Reiter Übersicht wiederhergestellt werden, indem auf den Backup-Ordner gezeigt wird.&lt;/span&gt;</translation>
+        <location filename="../virtual_machine.py" line="2898" />
+        <source>&lt;b&gt;Backups de la maquina virtual&lt;/b&gt;&lt;br&gt;&lt;span style='color:#666;font-size:11px;'&gt;Copia periodica de la carpeta completa (discos + config + snapshots). El backup se guarda como carpeta independiente; se puede restaurar con el boton &lt;b&gt;Importar&lt;/b&gt; de la pestana Resumen apuntando a la carpeta del backup.&lt;/span&gt;</source>
+        <translation>&lt;b&gt;Backups der virtuellen Maschine&lt;/b&gt;&lt;br&gt;&lt;span style='color:#666;font-size:11px;'&gt;Regelmäßige Kopie des gesamten Ordners (Festplatten + Konfiguration + Snapshots). Das Backup wird als eigenständiger Ordner gespeichert; es kann über den Button &lt;b&gt;Importieren&lt;/b&gt; im Reiter Übersicht wiederhergestellt werden, indem auf den Backup-Ordner gezeigt wird.&lt;/span&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2923"/>
+        <location filename="../virtual_machine.py" line="2923" />
         <source>💾 Backups</source>
         <translation>💾 Backups</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2940"/>
+        <location filename="../virtual_machine.py" line="2940" />
         <source>📚 Medios</source>
         <translation>📚 Medien</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2962"/>
+        <location filename="../virtual_machine.py" line="2962" />
         <source>La VM no está corriendo.</source>
         <translation>Die VM läuft nicht.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2971"/>
+        <location filename="../virtual_machine.py" line="2971" />
         <source>↗ Abrir en ventana externa</source>
         <translation>↗ In externem Fenster öffnen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2972"/>
+        <location filename="../virtual_machine.py" line="2972" />
         <source>Lanza el visor externo del protocolo configurado en Pantalla,
-aunque el modo sea &apos;embebida&apos;. Útil para tener las dos vistas a la vez.</source>
+aunque el modo sea 'embebida'. Útil para tener las dos vistas a la vez.</source>
         <translation>Startet den externen Viewer des unter Anzeige konfigurierten Protokolls,
-auch wenn der Modus &apos;eingebettet&apos; ist. Nützlich, um beide Ansichten gleichzeitig zu haben.</translation>
+auch wenn der Modus 'eingebettet' ist. Nützlich, um beide Ansichten gleichzeitig zu haben.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2984"/>
+        <location filename="../virtual_machine.py" line="2984" />
         <source>Externos en pantalla completa</source>
         <translation>Externe im Vollbild</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="2985"/>
+        <location filename="../virtual_machine.py" line="2985" />
         <source>Cuando está marcado, los visores externos (los que abre el
-botón &apos;Abrir en ventana externa&apos; o el modo &apos;Ventana externa&apos;
+botón 'Abrir en ventana externa' o el modo 'Ventana externa'
 de Configuración → Pantalla) se lanzan ocupando toda la
 pantalla. NO afecta al visor embebido (VNC dentro de la app):
-para ese, usa el botón &apos;Pantalla completa del visor&apos;.</source>
+para ese, usa el botón 'Pantalla completa del visor'.</source>
         <translation>Wenn aktiviert, werden externe Viewer (die durch den Button
-&apos;In externem Fenster öffnen&apos; oder den Modus &apos;Externes Fenster&apos;
+'In externem Fenster öffnen' oder den Modus 'Externes Fenster'
 in Konfiguration → Anzeige geöffnet werden) im Vollbild gestartet.
 Betrifft NICHT den eingebetteten Viewer (VNC in der Anwendung):
-Verwende für diesen den Button &apos;Viewer-Vollbild&apos;.</translation>
+Verwende für diesen den Button 'Viewer-Vollbild'.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3015"/>
+        <location filename="../virtual_machine.py" line="3015" />
         <source>Medios de la VM: unidades CD/DVD y dispositivos USB.
-Mismo menú que el botón &apos;Medios&apos; de la pestaña Resumen.
+Mismo menú que el botón 'Medios' de la pestaña Resumen.
 Atajo: Ctrl+M.</source>
         <translation>Medien der VM: CD/DVD-Laufwerke und USB-Geräte.
-Gleiches Menü wie der Button &apos;Medien&apos; im Reiter Übersicht.
+Gleiches Menü wie der Button 'Medien' im Reiter Übersicht.
 Tastenkürzel: Strg+M.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3034"/>
+        <location filename="../virtual_machine.py" line="3034" />
         <source>🔄 Reconectar</source>
         <translation>🔄 Neu verbinden</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3035"/>
+        <location filename="../virtual_machine.py" line="3035" />
         <source>Reconectar el widget VNC.
 Útil si cambiaste la resolución del guest y la imagen
 quedó recortada o mal escalada. El cliente VNC básico
@@ -2532,41 +2526,41 @@ Neuverbinden ändern.
 Tastenkürzel: Strg+R.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3051"/>
+        <location filename="../virtual_machine.py" line="3051" />
         <source>🔍−</source>
         <translation>🔍−</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3053"/>
+        <location filename="../virtual_machine.py" line="3053" />
         <source>Reducir el zoom del visor embebido.
 Escalones: 10, 25, 50, 75, 100, 125, 150, 200, 300, 400.</source>
         <translation>Zoom des eingebetteten Viewers verkleinern.
 Stufen: 10, 25, 50, 75, 100, 125, 150, 200, 300, 400.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3060"/>
+        <location filename="../virtual_machine.py" line="3060" />
         <source>Ajustado</source>
         <translation>Angepasst</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3066"/>
+        <location filename="../virtual_machine.py" line="3066" />
         <source>🔍+</source>
         <translation>🔍+</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3068"/>
+        <location filename="../virtual_machine.py" line="3068" />
         <source>Aumentar el zoom del visor embebido.
 Escalones: 10, 25, 50, 75, 100, 125, 150, 200, 300, 400.</source>
         <translation>Zoom des eingebetteten Viewers vergrößern.
 Stufen: 10, 25, 50, 75, 100, 125, 150, 200, 300, 400.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3075"/>
+        <location filename="../virtual_machine.py" line="3075" />
         <source>⊞ Ajustar</source>
         <translation>⊞ Anpassen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3076"/>
+        <location filename="../virtual_machine.py" line="3076" />
         <source>Ajustar la imagen de la VM al tamaño del widget (escala
 automática). La VM se ve entera, sin barras de scroll.
 Si la relación de aspecto no coincide, aparecen bandas
@@ -2577,24 +2571,24 @@ Bei abweichendem Seitenverhältnis erscheinen schwarze
 Streifen an den Seiten.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3085"/>
+        <location filename="../virtual_machine.py" line="3085" />
         <source>1:1 Tamaño real</source>
         <translation>1:1 Originalgröße</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3086"/>
+        <location filename="../virtual_machine.py" line="3086" />
         <source>Mostrar la imagen de la VM a su resolución real (100%).
 Si no cabe en la ventana, aparecen barras de scroll.</source>
         <translation>Das VM-Bild in seiner tatsächlichen Auflösung anzeigen (100%).
 Falls es nicht ins Fenster passt, erscheinen Bildlaufleisten.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3100"/>
+        <location filename="../virtual_machine.py" line="3100" />
         <source>🎬 Presentación</source>
         <translation>🎬 Präsentation</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3101"/>
+        <location filename="../virtual_machine.py" line="3101" />
         <source>Modo presentación: oculta los paneles laterales, entra
 en pantalla completa y salta a la Consola Gráfica.
 Requiere que la VM esté encendida.
@@ -2607,17 +2601,17 @@ Erfordert, dass die VM läuft.
 Tastenkürzel: F11. Zum Verlassen: F11 oder Escape.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3112"/>
+        <location filename="../virtual_machine.py" line="3112" />
         <source>⛶ Pantalla completa del visor</source>
         <translation>⛶ Viewer-Vollbild</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3119"/>
+        <location filename="../virtual_machine.py" line="3119" />
         <source>Salir con:</source>
         <translation>Verlassen mit:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3130"/>
+        <location filename="../virtual_machine.py" line="3130" />
         <source>Combinación de teclas para salir de la pantalla completa del visor embebido.
 Evita elegir una tecla que necesites enviar dentro de la VM (p. ej. si vas a
 usar Escape o F11 dentro del sistema invitado, no la uses aquí).</source>
@@ -2626,127 +2620,127 @@ Vermeide eine Taste zu wählen, die du innerhalb der VM benötigst (z. B. wenn d
 Escape oder F11 im Gastsystem verwenden willst, nutze sie hier nicht).</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3163"/>
+        <location filename="../virtual_machine.py" line="3163" />
         <source>🖥️ Consola Gráfica</source>
         <translation>🖥️ Grafische Konsole</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3178"/>
+        <location filename="../virtual_machine.py" line="3178" />
         <source>🩺 Salud de la VM</source>
         <translation>🩺 VM-Zustand</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3179"/>
+        <location filename="../virtual_machine.py" line="3179" />
         <source>Comprueba de un vistazo si la VM realmente está corriendo, si el Guest Agent responde y si las carpetas compartidas montaron.</source>
         <translation>Prüft auf einen Blick, ob die VM wirklich läuft, ob der Guest Agent antwortet und ob die gemeinsamen Ordner eingehängt wurden.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3182"/>
+        <location filename="../virtual_machine.py" line="3182" />
         <source>🚦 Semáforos</source>
         <translation>🚦 Ampeln</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3196"/>
+        <location filename="../virtual_machine.py" line="3196" />
         <source>🧹 Limpiar procesos huérfanos</source>
         <translation>🧹 Verwaiste Prozesse bereinigen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3197"/>
+        <location filename="../virtual_machine.py" line="3197" />
         <source>Busca procesos QEMU/virtiofsd/swtpm que quedaron colgados de una sesión anterior (por un cierre forzado) y ofrece detenerlos.</source>
         <translation>Sucht nach QEMU-/virtiofsd-/swtpm-Prozessen aus einer früheren Sitzung (durch einen erzwungenen Abschluss) und bietet an, sie zu beenden.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3203"/>
+        <location filename="../virtual_machine.py" line="3203" />
         <source>Nivel:</source>
         <translation>Stufe:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3205"/>
+        <location filename="../virtual_machine.py" line="3205" />
         <source>Todo</source>
         <translation>Alles</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3206"/>
+        <location filename="../virtual_machine.py" line="3206" />
         <source>Avisos+</source>
         <translation>Warnungen+</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3207"/>
+        <location filename="../virtual_machine.py" line="3207" />
         <source>Errores</source>
         <translation>Fehler</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3220"/>
+        <location filename="../virtual_machine.py" line="3220" />
         <source>🔍 Filtrar...</source>
         <translation>🔍 Filtern...</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3232"/>
+        <location filename="../virtual_machine.py" line="3232" />
         <source>Auto-scroll</source>
         <translation>Automatisches Scrollen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3244"/>
+        <location filename="../virtual_machine.py" line="3244" />
         <source>📄 Ver log completo</source>
         <translation>📄 Vollständiges Log anzeigen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3245"/>
+        <location filename="../virtual_machine.py" line="3245" />
         <source>Muestra el historial completo guardado en disco para esta VM (launch.log), no solo lo que cabe en esta ventana.</source>
         <translation>Zeigt den vollständigen auf dem Datenträger gespeicherten Verlauf dieser VM (launch.log), nicht nur das, was in dieses Fenster passt.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3248"/>
+        <location filename="../virtual_machine.py" line="3248" />
         <source>💾 Exportar log</source>
         <translation>💾 Log exportieren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3249"/>
+        <location filename="../virtual_machine.py" line="3249" />
         <source>Guarda el log completo de esta VM en un archivo, útil para pedir ayuda o reportar un problema.</source>
         <translation>Speichert das vollständige Log dieser VM in einer Datei – nützlich, um Hilfe zu erbitten oder ein Problem zu melden.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3252"/>
+        <location filename="../virtual_machine.py" line="3252" />
         <source>Limpiar consola</source>
         <translation>Konsole leeren</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3253"/>
-        <source>Borra los mensajes mostrados aquí (el historial completo en disco no se toca; usa &apos;Ver log completo&apos;).</source>
-        <translation>Löscht die hier angezeigten Meldungen (der vollständige Verlauf auf dem Datenträger bleibt unberührt; verwende &apos;Vollständiges Log anzeigen&apos;).</translation>
+        <location filename="../virtual_machine.py" line="3253" />
+        <source>Borra los mensajes mostrados aquí (el historial completo en disco no se toca; usa 'Ver log completo').</source>
+        <translation>Löscht die hier angezeigten Meldungen (der vollständige Verlauf auf dem Datenträger bleibt unberührt; verwende 'Vollständiges Log anzeigen').</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3264"/>
+        <location filename="../virtual_machine.py" line="3264" />
         <source>📋 Consola de Progreso</source>
         <translation>📋 Fortschrittskonsole</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3275"/>
+        <location filename="../virtual_machine.py" line="3275" />
         <source>&lt;h2&gt;Ayuda de Virtual.Machine&lt;/h2&gt;</source>
         <translation>&lt;h2&gt;Hilfe zu Virtual.Machine&lt;/h2&gt;</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3281"/>
+        <location filename="../virtual_machine.py" line="3281" />
         <source>Guia completa de la consola (VNC / SPICE)</source>
         <translation>Vollständige Konsolenanleitung (VNC / SPICE)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3330"/>
+        <location filename="../virtual_machine.py" line="3330" />
         <source>❓ Ayuda</source>
         <translation>❓ Hilfe</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3344"/>
+        <location filename="../virtual_machine.py" line="3344" />
         <source>Idioma de la interfaz.</source>
         <translation>Sprache der Benutzeroberfläche.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3399"/>
+        <location filename="../virtual_machine.py" line="3399" />
         <source>📌 Fijar</source>
         <translation>📌 Anheften</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3400"/>
+        <location filename="../virtual_machine.py" line="3400" />
         <source>Fija este panel como columna derecha de la ventana, siempre visible.
 Útil para monitorizar CPU/RAM mientras trabajas en otra pestaña.
 Vuelve a pulsar para devolverlo a Resumen.</source>
@@ -2755,17 +2749,17 @@ Nützlich zur CPU-/RAM-Überwachung während der Arbeit in einem anderen Reiter.
 Erneut drücken, um es zur Übersicht zurückzugeben.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3419"/>
+        <location filename="../virtual_machine.py" line="3419" />
         <source>📊 Uso de recursos</source>
         <translation>📊 Ressourcennutzung</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3421"/>
+        <location filename="../virtual_machine.py" line="3421" />
         <source>CPU (VM)</source>
         <translation>CPU (VM)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3422"/>
+        <location filename="../virtual_machine.py" line="3422" />
         <source>Uso de CPU del proceso QEMU en el host, atribuido a esta VM.
 100% = el proceso usa el equivalente a todos los hilos del host.
 Si el host tiene 8 hilos y QEMU usa 4, verás 50%.</source>
@@ -2774,26 +2768,26 @@ Si el host tiene 8 hilos y QEMU usa 4, verás 50%.</source>
 Bei 8 Host-Threads und 4 durch QEMU werden 50% angezeigt.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3427"/>
+        <location filename="../virtual_machine.py" line="3427" />
         <source>RAM (QEMU)</source>
         <translation>RAM (QEMU)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3428"/>
+        <location filename="../virtual_machine.py" line="3428" />
         <source>Memoria RSS del proceso QEMU en el host (lo que QEMU ocupa
 realmente en el sistema anfitrión), como porcentaje de la RAM
-total del host. No es la RAM que &apos;ve&apos; el sistema invitado.</source>
+total del host. No es la RAM que 've' el sistema invitado.</source>
         <translation>RSS-Speicher des QEMU-Prozesses auf dem Host (was QEMU tatsächlich
 im Wirtssystem belegt), als Prozentsatz des Gesamt-RAM des Hosts.
-Nicht der RAM, den das Gastsystem &apos;sieht&apos;.</translation>
+Nicht der RAM, den das Gastsystem 'sieht'.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3433"/>
+        <location filename="../virtual_machine.py" line="3433" />
         <source>Disco (VM)</source>
         <translation>Festplatte (VM)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3434"/>
+        <location filename="../virtual_machine.py" line="3434" />
         <source>I/O de disco generado por el proceso QEMU para esta VM, según
 /proc/&lt;pid_qemu&gt;/io (read_bytes + write_bytes).
 Es el tráfico real a los archivos de disco de la VM en el host.</source>
@@ -2802,76 +2796,76 @@ Es el tráfico real a los archivos de disco de la VM en el host.</source>
 Dies ist der reale Datenverkehr zu den Festplattendateien der VM auf dem Host.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3439"/>
+        <location filename="../virtual_machine.py" line="3439" />
         <source>Red (VM)</source>
         <translation>Netzwerk (VM)</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3440"/>
+        <location filename="../virtual_machine.py" line="3440" />
         <source>Tráfico de red de esta VM.
 • Modo TAP/Bridge: se leen los contadores reales de la interfaz
   asociada en el host (exacto).
 • Modo NAT: QEMU usa un stack interno sin interfaz visible en
   el host, así que no se puede medir sin Guest Agent.
-  El gráfico mostrará &apos;NAT (sin medida)&apos;.</source>
+  El gráfico mostrará 'NAT (sin medida)'.</source>
         <translation>Netzwerkverkehr dieser VM.
 • TAP-/Bridge-Modus: es werden die echten Zähler der zugeordneten
   Host-Schnittstelle gelesen (exakt).
 • NAT-Modus: QEMU nutzt einen internen Stack ohne sichtbare
   Host-Schnittstelle, daher ohne Guest Agent nicht messbar.
-  Die Anzeige zeigt &apos;NAT (keine Messung)&apos;.</translation>
+  Die Anzeige zeigt 'NAT (keine Messung)'.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3453"/>
+        <location filename="../virtual_machine.py" line="3453" />
         <source>ℹ️ Información general</source>
         <translation>ℹ️ Allgemeine Informationen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3461"/>
+        <location filename="../virtual_machine.py" line="3461" />
         <source>Tiempo activo:</source>
         <translation>Laufzeit:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3462"/>
+        <location filename="../virtual_machine.py" line="3462" />
         <source>Procesos:</source>
         <translation>Prozesse:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3463"/>
+        <location filename="../virtual_machine.py" line="3463" />
         <source>Dirección IP:</source>
         <translation>IP-Adresse:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3464"/>
+        <location filename="../virtual_machine.py" line="3464" />
         <source>Dirección MAC:</source>
         <translation>MAC-Adresse:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3471"/>
-        <location filename="../virtual_machine.py" line="3469"/>
+        <location filename="../virtual_machine.py" line="3471" />
+        <location filename="../virtual_machine.py" line="3469" />
         <source>Guest Agent:</source>
         <translation>Guest Agent:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3475"/>
-        <location filename="../virtual_machine.py" line="3473"/>
+        <location filename="../virtual_machine.py" line="3475" />
+        <location filename="../virtual_machine.py" line="3473" />
         <source>Carpetas:</source>
         <translation>Ordner:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3479"/>
-        <location filename="../virtual_machine.py" line="3477"/>
+        <location filename="../virtual_machine.py" line="3479" />
+        <location filename="../virtual_machine.py" line="3477" />
         <source>Clipboard:</source>
         <translation>Zwischenablage:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3488"/>
-        <location filename="../virtual_machine.py" line="3481"/>
+        <location filename="../virtual_machine.py" line="3488" />
+        <location filename="../virtual_machine.py" line="3481" />
         <source>spice-vdagent:</source>
         <translation>spice-vdagent:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3483"/>
+        <location filename="../virtual_machine.py" line="3483" />
         <source>Detección de spice-vdagent en el guest vía QEMU Guest Agent.
 Cuando está activo, el clipboard bidireccional y la
 resolución automática funcionan.</source>
@@ -2880,12 +2874,12 @@ Bei Aktivität funktionieren bidirektionale Zwischenablage und
 automatische Auflösung.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3492"/>
+        <location filename="../virtual_machine.py" line="3492" />
         <source>PID QEMU:</source>
         <translation>QEMU-PID:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3495"/>
+        <location filename="../virtual_machine.py" line="3495" />
         <source>Uso de CPU del proceso QEMU expresado como porcentaje del total
 de hilos del host. Si el host tiene 8 hilos y QEMU usa 4, el
 valor mostrado es 50%.</source>
@@ -2894,59 +2888,59 @@ Bei 8 Host-Threads und 4 durch QEMU beträgt der angezeigte
 Wert 50%.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3500"/>
+        <location filename="../virtual_machine.py" line="3500" />
         <source>CPU (VM):</source>
         <translation>CPU (VM):</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3503"/>
+        <location filename="../virtual_machine.py" line="3503" />
         <source>Memoria RAM libre del host, respecto al total.</source>
         <translation>Freier Host-RAM im Verhältnis zum Gesamtspeicher.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3506"/>
+        <location filename="../virtual_machine.py" line="3506" />
         <source>RAM host:</source>
         <translation>Host-RAM:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3509"/>
+        <location filename="../virtual_machine.py" line="3509" />
         <source>Tamaño del archivo de disco principal de la VM y su tamaño
 virtual (lo que ve el sistema invitado).</source>
         <translation>Größe der Hauptfestplattendatei der VM und ihre virtuelle
 Größe (was das Gastsystem sieht).</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3513"/>
+        <location filename="../virtual_machine.py" line="3513" />
         <source>Disco:</source>
         <translation>Festplatte:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3516"/>
+        <location filename="../virtual_machine.py" line="3516" />
         <source>Número de snapshots registrados y antigüedad del último.</source>
         <translation>Anzahl der registrierten Snapshots und Alter des letzten.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3519"/>
+        <location filename="../virtual_machine.py" line="3519" />
         <source>Snapshots:</source>
         <translation>Snapshots:</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3524"/>
+        <location filename="../virtual_machine.py" line="3524" />
         <source>🖼️ Último snapshot</source>
         <translation>🖼️ Letzter Snapshot</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3529"/>
+        <location filename="../virtual_machine.py" line="3529" />
         <source>Sin VM seleccionada</source>
         <translation>Keine VM ausgewählt</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3553"/>
+        <location filename="../virtual_machine.py" line="3553" />
         <source>↩ Restaurar este snapshot</source>
         <translation>↩ Diesen Snapshot wiederherstellen</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3554"/>
+        <location filename="../virtual_machine.py" line="3554" />
         <source>Restaura el snapshot más reciente de esta VM.
 Si la VM está corriendo, se restaura en caliente (snapshot-load).
 Si está apagada, se restauran los discos QCOW2 internos.</source>
@@ -2955,12 +2949,12 @@ Bei laufender VM wird im laufenden Betrieb wiederhergestellt (snapshot-load).
 Bei ausgeschalteter VM werden die internen QCOW2-Festplatten wiederhergestellt.</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3746"/>
+        <location filename="../virtual_machine.py" line="3746" />
         <source>Cambio de idioma</source>
         <translation>Sprachwechsel</translation>
     </message>
     <message>
-        <location filename="../virtual_machine.py" line="3747"/>
+        <location filename="../virtual_machine.py" line="3747" />
         <source>Se ha cambiado el idioma a {0}.
 
 Para que TODA la aplicación use el idioma nuevo
@@ -3109,14 +3103,14 @@ Jetzt neu starten?</translation>
     <message>
         <source>No hay una máquina virtual seleccionada.
 
-Pulsa &apos;Nueva máquina virtual&apos; para comenzar.</source>
+Pulsa 'Nueva máquina virtual' para comenzar.</source>
         <translation>Keine virtuelle Maschine ausgewählt.
 
-Drücke &apos;Neue virtuelle Maschine&apos;, um zu beginnen.</translation>
+Drücke 'Neue virtuelle Maschine', um zu beginnen.</translation>
     </message>
     <message>
-        <source>Configura el sistema en la pestaña &apos;Configuración&apos;.</source>
-        <translation>Konfiguriere das System im Reiter &apos;Konfiguration&apos;.</translation>
+        <source>Configura el sistema en la pestaña 'Configuración'.</source>
+        <translation>Konfiguriere das System im Reiter 'Konfiguration'.</translation>
     </message>
     <message>
         <source>● Ejecutándose</source>
@@ -3191,16 +3185,16 @@ Drücke &apos;Neue virtuelle Maschine&apos;, um zu beginnen.</translation>
         <translation>Speicherort:</translation>
     </message>
     <message>
-        <source>Usa &apos;Configuración&apos; para modificar hardware y opciones avanzadas.</source>
-        <translation>Verwende &apos;Konfiguration&apos;, um Hardware und erweiterte Optionen zu ändern.</translation>
+        <source>Usa 'Configuración' para modificar hardware y opciones avanzadas.</source>
+        <translation>Verwende 'Konfiguration', um Hardware und erweiterte Optionen zu ändern.</translation>
     </message>
     <message>
         <source>VM nueva: todavía no se ha guardado una configuración.</source>
         <translation>Neue VM: Es wurde noch keine Konfiguration gespeichert.</translation>
     </message>
     <message>
-        <source>Configura la VM en la pestaña &apos;Configuración&apos; y pulsa el botón de inicio.</source>
-        <translation>Konfiguriere die VM im Reiter &apos;Konfiguration&apos; und drücke die Start-Schaltfläche.</translation>
+        <source>Configura la VM en la pestaña 'Configuración' y pulsa el botón de inicio.</source>
+        <translation>Konfiguriere die VM im Reiter 'Konfiguration' und drücke die Start-Schaltfläche.</translation>
     </message>
     <message>
         <source>● Configurada</source>
@@ -3267,16 +3261,16 @@ funktionieren nicht mehr.</translation>
         <translation>Letzte Anfragen anzeigen</translation>
     </message>
     <message>
-        <source>Ejemplo de uso desde terminal:&lt;br&gt;&lt;code&gt;curl -H &apos;X-API-Token: &amp;lt;tu-token&amp;gt;&apos; http://127.0.0.1:8730/api/vms&lt;/code&gt;</source>
-        <translation>Beispiel für die Verwendung im Terminal:&lt;br&gt;&lt;code&gt;curl -H &apos;X-API-Token: &amp;lt;dein-token&amp;gt;&apos; http://127.0.0.1:8730/api/vms&lt;/code&gt;</translation>
+        <source>Ejemplo de uso desde terminal:&lt;br&gt;&lt;code&gt;curl -H 'X-API-Token: &amp;lt;tu-token&amp;gt;' http://127.0.0.1:8730/api/vms&lt;/code&gt;</source>
+        <translation>Beispiel für die Verwendung im Terminal:&lt;br&gt;&lt;code&gt;curl -H 'X-API-Token: &amp;lt;dein-token&amp;gt;' http://127.0.0.1:8730/api/vms&lt;/code&gt;</translation>
     </message>
     <message>
-        <source>&lt;b style=&apos;color:#2e7d32;&apos;&gt;Activa&lt;/b&gt; — {0} peticiones desde el arranque</source>
-        <translation>&lt;b style=&apos;color:#2e7d32;&apos;&gt;Aktiv&lt;/b&gt; — {0} Anfragen seit dem Start</translation>
+        <source>&lt;b style='color:#2e7d32;'&gt;Activa&lt;/b&gt; — {0} peticiones desde el arranque</source>
+        <translation>&lt;b style='color:#2e7d32;'&gt;Aktiv&lt;/b&gt; — {0} Anfragen seit dem Start</translation>
     </message>
     <message>
-        <source>&lt;b style=&apos;color:#888;&apos;&gt;Detenida&lt;/b&gt;</source>
-        <translation>&lt;b style=&apos;color:#888;&apos;&gt;Gestoppt&lt;/b&gt;</translation>
+        <source>&lt;b style='color:#888;'&gt;Detenida&lt;/b&gt;</source>
+        <translation>&lt;b style='color:#888;'&gt;Gestoppt&lt;/b&gt;</translation>
     </message>
     <message>
         <source>API REST</source>
@@ -3365,10 +3359,10 @@ Desktop-Stil wiederhergestellt (Breeze, Adwaita usw.).</translation>
         <translation>Thema:</translation>
     </message>
     <message>
-        <source>Al cambiar entre &apos;Sistema&apos; y &apos;Claro/Oscuro&apos; puede ser necesario
+        <source>Al cambiar entre 'Sistema' y 'Claro/Oscuro' puede ser necesario
 reiniciar la app para que TODOS los widgets se repinten con los
 colores nuevos (depende del estilo del escritorio).</source>
-        <translation>Beim Wechsel zwischen &apos;System&apos; und &apos;Hell/Dunkel&apos; kann ein
+        <translation>Beim Wechsel zwischen 'System' und 'Hell/Dunkel' kann ein
 Neustart der App erforderlich sein, damit ALLE Widgets mit
 den neuen Farben neu gezeichnet werden (abhängig vom Desktop-Stil).</translation>
     </message>
@@ -3542,10 +3536,10 @@ Aktiviert: Wenn die VM läuft, werden die Festplatten trotzdem kopiert; die Kopi
     <message>
         <source>La VM esta encendida.
 
-Para evitar una copia inconsistente, apagala primero, o marca la opcion &apos;Tambien cuando la VM esta encendida&apos; en esta seccion (asumiendo el riesgo).</source>
+Para evitar una copia inconsistente, apagala primero, o marca la opcion 'Tambien cuando la VM esta encendida' en esta seccion (asumiendo el riesgo).</source>
         <translation>Die VM läuft.
 
-Um eine inkonsistente Kopie zu vermeiden, fahre sie zuerst herunter, oder aktiviere die Option &apos;Auch bei laufender VM&apos; in diesem Bereich (unter Übernahme des Risikos).</translation>
+Um eine inkonsistente Kopie zu vermeiden, fahre sie zuerst herunter, oder aktiviere die Option 'Auch bei laufender VM' in diesem Bereich (unter Übernahme des Risikos).</translation>
     </message>
     <message>
         <source>Comparar con defaults</source>
@@ -3636,8 +3630,8 @@ Um eine inkonsistente Kopie zu vermeiden, fahre sie zuerst herunter, oder aktivi
         <translation>Wähle zuerst eine Zeile aus.</translation>
     </message>
     <message>
-        <source>==&gt; Comparar defaults: aplicados {0} campo(s) a &apos;{1}&apos;.</source>
-        <translation>==&gt; Standardvergleich: {0} Feld(er) auf &apos;{1}&apos; angewendet.</translation>
+        <source>==&gt; Comparar defaults: aplicados {0} campo(s) a '{1}'.</source>
+        <translation>==&gt; Standardvergleich: {0} Feld(er) auf '{1}' angewendet.</translation>
     </message>
     <message>
         <source>&lt;b&gt;Sesión actual: X11.&lt;/b&gt; Tanto VNC como SPICE se pueden embeber dentro de la app.</source>
@@ -3656,16 +3650,16 @@ Um eine inkonsistente Kopie zu vermeiden, fahre sie zuerst herunter, oder aktivi
         <translation>&lt;b&gt;spice-gtk mit Python-Binding: nein.&lt;/b&gt; Auch unter X11 kann SPICE nicht eingebettet werden; es wird immer auf einen externen Viewer zurückgegriffen. Installiere es mit:&lt;br&gt;&amp;nbsp;&amp;nbsp;&lt;code&gt;Debian/Ubuntu: python3-gi gir1.2-spiceclientgtk-3.0&lt;/code&gt;&lt;br&gt;&amp;nbsp;&amp;nbsp;&lt;code&gt;Arch: python-gobject spice-gtk&lt;/code&gt;</translation>
     </message>
     <message>
-        <source>&lt;b&gt;VNC&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Compatible con cualquier gráfico virtual (VirtIO-GPU 2D, QXL, std).&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Se puede embeber dentro de la app, incluso en Wayland.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Muchos visores externos disponibles (gvncviewer, vncviewer, remmina).&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Sin dependencias adicionales en el guest para funcionar.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Sin aceleración 3D ni streaming de video (redibuja por regiones).&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Clipboard limitado: solo texto, y el guest necesita &lt;code&gt;vncconfig&lt;/code&gt; corriendo.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Sin audio remoto.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Menos fluido en uso intensivo (vídeo, animaciones, 3D).</source>
-        <translation>&lt;b&gt;VNC&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Kompatibel mit jeder virtuellen Grafik (VirtIO-GPU 2D, QXL, std).&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Kann in die Anwendung eingebettet werden, auch unter Wayland.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Viele externe Viewer verfügbar (gvncviewer, vncviewer, remmina).&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Keine zusätzlichen Abhängigkeiten im Gast erforderlich.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Keine 3D-Beschleunigung und kein Video-Streaming (Neuzeichnung nach Regionen).&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Eingeschränkte Zwischenablage: nur Text, und der Gast benötigt ein laufendes &lt;code&gt;vncconfig&lt;/code&gt;.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Kein Remote-Audio.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Weniger flüssig bei intensiver Nutzung (Video, Animationen, 3D).</translation>
+        <source>&lt;b&gt;VNC&lt;/b&gt;&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Compatible con cualquier gráfico virtual (VirtIO-GPU 2D, QXL, std).&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Se puede embeber dentro de la app, incluso en Wayland.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Muchos visores externos disponibles (gvncviewer, vncviewer, remmina).&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Sin dependencias adicionales en el guest para funcionar.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Sin aceleración 3D ni streaming de video (redibuja por regiones).&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Clipboard limitado: solo texto, y el guest necesita &lt;code&gt;vncconfig&lt;/code&gt; corriendo.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Sin audio remoto.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Menos fluido en uso intensivo (vídeo, animaciones, 3D).</source>
+        <translation>&lt;b&gt;VNC&lt;/b&gt;&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Kompatibel mit jeder virtuellen Grafik (VirtIO-GPU 2D, QXL, std).&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Kann in die Anwendung eingebettet werden, auch unter Wayland.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Viele externe Viewer verfügbar (gvncviewer, vncviewer, remmina).&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Keine zusätzlichen Abhängigkeiten im Gast erforderlich.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Keine 3D-Beschleunigung und kein Video-Streaming (Neuzeichnung nach Regionen).&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Eingeschränkte Zwischenablage: nur Text, und der Gast benötigt ein laufendes &lt;code&gt;vncconfig&lt;/code&gt;.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Kein Remote-Audio.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Weniger flüssig bei intensiver Nutzung (Video, Animationen, 3D).</translation>
     </message>
     <message>
-        <source>&lt;b&gt;SPICE&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Mejor rendimiento y fluidez en local (compresión + streaming de video).&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Clipboard bidireccional avanzado (con &lt;code&gt;spice-vdagent&lt;/code&gt; en el guest).&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Audio remoto integrado.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Varios monitores, redirección USB y carpetas compartidas nativas.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; No se puede embeber en Wayland (solo X11 con spice-gtk Python).&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Requiere un visor externo (spicy o remote-viewer) si no se puede embeber.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Para aprovecharlo hay que instalar &lt;code&gt;spice-vdagent&lt;/code&gt; en el guest.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Incompatible con VirGL y Venus (usan OpenGL y obligan a la ventana nativa de QEMU).</source>
-        <translation>&lt;b&gt;SPICE&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Bessere lokale Leistung und Flüssigkeit (Kompression + Video-Streaming).&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Erweiterte bidirektionale Zwischenablage (mit &lt;code&gt;spice-vdagent&lt;/code&gt; im Gast).&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Integriertes Remote-Audio.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Mehrere Monitore, USB-Redirection und native gemeinsame Ordner.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Kann unter Wayland nicht eingebettet werden (nur X11 mit spice-gtk Python).&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Erfordert einen externen Viewer (spicy oder remote-viewer), wenn kein Embedding möglich ist.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Um es zu nutzen, muss &lt;code&gt;spice-vdagent&lt;/code&gt; im Gast installiert werden.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Inkompatibel mit VirGL und Venus (sie verwenden OpenGL und erzwingen das QEMU-native Fenster).</translation>
+        <source>&lt;b&gt;SPICE&lt;/b&gt;&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Mejor rendimiento y fluidez en local (compresión + streaming de video).&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Clipboard bidireccional avanzado (con &lt;code&gt;spice-vdagent&lt;/code&gt; en el guest).&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Audio remoto integrado.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Varios monitores, redirección USB y carpetas compartidas nativas.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; No se puede embeber en Wayland (solo X11 con spice-gtk Python).&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Requiere un visor externo (spicy o remote-viewer) si no se puede embeber.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Para aprovecharlo hay que instalar &lt;code&gt;spice-vdagent&lt;/code&gt; en el guest.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Incompatible con VirGL y Venus (usan OpenGL y obligan a la ventana nativa de QEMU).</source>
+        <translation>&lt;b&gt;SPICE&lt;/b&gt;&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Bessere lokale Leistung und Flüssigkeit (Kompression + Video-Streaming).&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Erweiterte bidirektionale Zwischenablage (mit &lt;code&gt;spice-vdagent&lt;/code&gt; im Gast).&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Integriertes Remote-Audio.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Mehrere Monitore, USB-Redirection und native gemeinsame Ordner.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Kann unter Wayland nicht eingebettet werden (nur X11 mit spice-gtk Python).&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Erfordert einen externen Viewer (spicy oder remote-viewer), wenn kein Embedding möglich ist.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Um es zu nutzen, muss &lt;code&gt;spice-vdagent&lt;/code&gt; im Gast installiert werden.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Inkompatibel mit VirGL und Venus (sie verwenden OpenGL und erzwingen das QEMU-native Fenster).</translation>
     </message>
     <message>
-        <source>&lt;b&gt;Híbrida (VNC embebido + SPICE externo)&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Lo mejor de ambos: VNC siempre visible dentro de la app, SPICE para rendimiento y clipboard.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Funciona en cualquier sesión: Wayland o X11.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Si spicy falla o lo cierras, el widget VNC sigue funcionando.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Útil para ver la VM en dos monitores o para grabar y controlar a la vez.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Consume más recursos: QEMU mantiene dos servidores de display en paralelo.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Verás la misma VM en dos ventanas (dentro de la app y en la de spicy).&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; La configuración del guest para sacar partido a SPICE (vdagent, drivers) hay que hacerla igual.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Como SPICE, incompatible con VirGL y Venus.</source>
-        <translation>&lt;b&gt;Hybrid (eingebettetes VNC + externes SPICE)&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Das Beste aus beiden: VNC immer in der Anwendung sichtbar, SPICE für Leistung und Zwischenablage.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Funktioniert in jeder Sitzung: Wayland oder X11.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Wenn spicy fehlschlägt oder geschlossen wird, arbeitet das VNC-Widget weiter.&lt;br&gt;&lt;span style=&apos;color:#2e7d32;&apos;&gt;✓&lt;/span&gt; Nützlich, um die VM auf zwei Monitoren zu sehen oder gleichzeitig aufzuzeichnen und zu steuern.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Verbraucht mehr Ressourcen: QEMU unterhält zwei Display-Server parallel.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Dieselbe VM erscheint in zwei Fenstern (in der Anwendung und in spicy).&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Die Konfiguration des Gastes für SPICE (vdagent, Treiber) muss trotzdem erfolgen.&lt;br&gt;&lt;span style=&apos;color:#c62828;&apos;&gt;✗&lt;/span&gt; Wie SPICE inkompatibel mit VirGL und Venus.</translation>
+        <source>&lt;b&gt;Híbrida (VNC embebido + SPICE externo)&lt;/b&gt;&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Lo mejor de ambos: VNC siempre visible dentro de la app, SPICE para rendimiento y clipboard.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Funciona en cualquier sesión: Wayland o X11.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Si spicy falla o lo cierras, el widget VNC sigue funcionando.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Útil para ver la VM en dos monitores o para grabar y controlar a la vez.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Consume más recursos: QEMU mantiene dos servidores de display en paralelo.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Verás la misma VM en dos ventanas (dentro de la app y en la de spicy).&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; La configuración del guest para sacar partido a SPICE (vdagent, drivers) hay que hacerla igual.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Como SPICE, incompatible con VirGL y Venus.</source>
+        <translation>&lt;b&gt;Hybrid (eingebettetes VNC + externes SPICE)&lt;/b&gt;&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Das Beste aus beiden: VNC immer in der Anwendung sichtbar, SPICE für Leistung und Zwischenablage.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Funktioniert in jeder Sitzung: Wayland oder X11.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Wenn spicy fehlschlägt oder geschlossen wird, arbeitet das VNC-Widget weiter.&lt;br&gt;&lt;span style='color:#2e7d32;'&gt;✓&lt;/span&gt; Nützlich, um die VM auf zwei Monitoren zu sehen oder gleichzeitig aufzuzeichnen und zu steuern.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Verbraucht mehr Ressourcen: QEMU unterhält zwei Display-Server parallel.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Dieselbe VM erscheint in zwei Fenstern (in der Anwendung und in spicy).&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Die Konfiguration des Gastes für SPICE (vdagent, Treiber) muss trotzdem erfolgen.&lt;br&gt;&lt;span style='color:#c62828;'&gt;✗&lt;/span&gt; Wie SPICE inkompatibel mit VirGL und Venus.</translation>
     </message>
     <message>
         <source>&lt;b&gt;Gráficos compatibles con VNC / SPICE / Híbrida:&lt;/b&gt; &lt;b&gt;Automático&lt;/b&gt;, &lt;b&gt;VirtIO-GPU 2D&lt;/b&gt; o &lt;b&gt;QXL&lt;/b&gt;.&lt;br&gt;Con &lt;b&gt;VirGL&lt;/b&gt; o &lt;b&gt;Venus&lt;/b&gt; seleccionados, QEMU abre su propia ventana y no expone VNC/SPICE; es el único modo compatible con esos gráficos 3D.</source>
@@ -3803,8 +3797,8 @@ Die VM muss mit diesem ausgewählten Protokoll laufen.</translation>
         <translation>Es wurden keine QEMU-/virtiofsd-Prozesse aus früheren Sitzungen gefunden.</translation>
     </message>
     <message>
-        <source>VMs con QEMU corriendo (no se tocan aquí, usa &apos;Detener VM&apos; si quieres apagarlas):</source>
-        <translation>VMs mit laufendem QEMU (werden hier nicht angetastet, verwende &apos;VM stoppen&apos;, um sie herunterzufahren):</translation>
+        <source>VMs con QEMU corriendo (no se tocan aquí, usa 'Detener VM' si quieres apagarlas):</source>
+        <translation>VMs mit laufendem QEMU (werden hier nicht angetastet, verwende 'VM stoppen', um sie herunterzufahren):</translation>
     </message>
     <message>
         <source>  - {0} (PID {1})</source>
@@ -3857,8 +3851,8 @@ Konnten nicht beendet werden:
         <translation>Virtualisierung: ungeprüft</translation>
     </message>
     <message>
-        <source>Pulsa &apos;Comprobar dependencias&apos; para realizar el diagnóstico completo del sistema.</source>
-        <translation>Drücke &apos;Abhängigkeiten prüfen&apos;, um die vollständige Systemdiagnose durchzuführen.</translation>
+        <source>Pulsa 'Comprobar dependencias' para realizar el diagnóstico completo del sistema.</source>
+        <translation>Drücke 'Abhängigkeiten prüfen', um die vollständige Systemdiagnose durchzuführen.</translation>
     </message>
     <message>
         <source>Distribución: {0}</source>
@@ -4285,8 +4279,8 @@ INSTALL-LINUX.SH (mit sudo) oder INSTALL-WINDOWS.CMD (als Administrator) ausfüh
         <translation>Zustand der virtuellen Maschine</translation>
     </message>
     <message>
-        <source>&lt;b style=&apos;font-size:15px;&apos;&gt;🚦 Semáforos de salud&lt;/b&gt;</source>
-        <translation>&lt;b style=&apos;font-size:15px;&apos;&gt;🚦 Zustandsampeln&lt;/b&gt;</translation>
+        <source>&lt;b style='font-size:15px;'&gt;🚦 Semáforos de salud&lt;/b&gt;</source>
+        <translation>&lt;b style='font-size:15px;'&gt;🚦 Zustandsampeln&lt;/b&gt;</translation>
     </message>
     <message>
         <source>Cada fila muestra el estado de un subsistema de la VM. Verde: funciona · Amarillo: parcial o sin confirmar · Rojo: no disponible · Gris: no aplica. Se refresca cada 4 s.</source>
@@ -4449,8 +4443,8 @@ INSTALL-LINUX.SH (mit sudo) oder INSTALL-WINDOWS.CMD (als Administrator) ausfüh
         <translation>QGA-Kanal vorhanden, keine Antwort: {0}</translation>
     </message>
     <message>
-        <source>&lt;b&gt;Biblioteca de Medios&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#666;font-size:11px;&apos;&gt;Todas las ISOs / IMGs / DMGs que usas con tus VMs, en un unico sitio. Viven en &lt;code&gt;MediaLibrary/&lt;/code&gt; (al mismo nivel que &lt;code&gt;VirtualMachines/&lt;/code&gt;) y se reutilizan entre maquinas.&lt;/span&gt;</source>
-        <translation>&lt;b&gt;Medienbibliothek&lt;/b&gt;&lt;br&gt;&lt;span style=&apos;color:#666;font-size:11px;&apos;&gt;Alle ISOs / IMGs / DMGs, die du mit deinen VMs verwendest, an einem einzigen Ort. Sie liegen in &lt;code&gt;MediaLibrary/&lt;/code&gt; (auf derselben Ebene wie &lt;code&gt;VirtualMachines/&lt;/code&gt;) und werden maschinenübergreifend genutzt.&lt;/span&gt;</translation>
+        <source>&lt;b&gt;Biblioteca de Medios&lt;/b&gt;&lt;br&gt;&lt;span style='color:#666;font-size:11px;'&gt;Todas las ISOs / IMGs / DMGs que usas con tus VMs, en un unico sitio. Viven en &lt;code&gt;MediaLibrary/&lt;/code&gt; (al mismo nivel que &lt;code&gt;VirtualMachines/&lt;/code&gt;) y se reutilizan entre maquinas.&lt;/span&gt;</source>
+        <translation>&lt;b&gt;Medienbibliothek&lt;/b&gt;&lt;br&gt;&lt;span style='color:#666;font-size:11px;'&gt;Alle ISOs / IMGs / DMGs, die du mit deinen VMs verwendest, an einem einzigen Ort. Sie liegen in &lt;code&gt;MediaLibrary/&lt;/code&gt; (auf derselben Ebene wie &lt;code&gt;VirtualMachines/&lt;/code&gt;) und werden maschinenübergreifend genutzt.&lt;/span&gt;</translation>
     </message>
     <message>
         <source>Buscar por nombre, distro, tag...</source>
@@ -4515,10 +4509,10 @@ INSTALL-LINUX.SH (mit sudo) oder INSTALL-WINDOWS.CMD (als Administrator) ausfüh
     <message>
         <source>Recorre todas las VMs en VirtualMachines/ y registra sus discos duros, ISOs y disquetes en la biblioteca.
 
-La misma ISO usada por varias VMs aparece UNA SOLA VEZ, con todas las VMs en la columna &apos;Usada por&apos;. Las entradas que ya no usa ninguna VM se marcan como huerfanas pero no se borran.</source>
+La misma ISO usada por varias VMs aparece UNA SOLA VEZ, con todas las VMs en la columna 'Usada por'. Las entradas que ya no usa ninguna VM se marcan como huerfanas pero no se borran.</source>
         <translation>Durchläuft alle VMs in VirtualMachines/ und registriert deren Festplatten, ISOs und Disketten in der Bibliothek.
 
-Dasselbe ISO, das von mehreren VMs verwendet wird, erscheint NUR EINMAL, mit allen VMs in der Spalte &apos;Verwendet von&apos;. Einträge, die von keiner VM mehr verwendet werden, werden als verwaist markiert, aber nicht gelöscht.</translation>
+Dasselbe ISO, das von mehreren VMs verwendet wird, erscheint NUR EINMAL, mit allen VMs in der Spalte 'Verwendet von'. Einträge, die von keiner VM mehr verwendet werden, werden als verwaist markiert, aber nicht gelöscht.</translation>
     </message>
     <message>
         <source>Tamaño real</source>
@@ -4701,8 +4695,8 @@ die das Gastsystem sieht.</translation>
         <translation>- {0} Eintrag/Einträge mit der Liste der VMs, die sie nutzen, aktualisiert.</translation>
     </message>
     <message>
-        <source>- {0} entrada(s) ya no las usa ninguna VM (siguen visibles; filtro Origen = &apos;Huerfanas de VM&apos;).</source>
-        <translation>- {0} Eintrag/Einträge werden von keiner VM mehr verwendet (weiterhin sichtbar; Filter Quelle = &apos;VM-Verwaiste&apos;).</translation>
+        <source>- {0} entrada(s) ya no las usa ninguna VM (siguen visibles; filtro Origen = 'Huerfanas de VM').</source>
+        <translation>- {0} Eintrag/Einträge werden von keiner VM mehr verwendet (weiterhin sichtbar; Filter Quelle = 'VM-Verwaiste').</translation>
     </message>
     <message>
         <source>Sin cambios: la biblioteca ya estaba al dia.</source>
@@ -4759,10 +4753,10 @@ die das Gastsystem sieht.</translation>
 {0}</translation>
     </message>
     <message>
-        <source>Este disco lo usa la VM &apos;{0}&apos;, que esta encendida.
+        <source>Este disco lo usa la VM '{0}', que esta encendida.
 
 Apagala antes de agrandarlo.</source>
-        <translation>Diese Festplatte wird von der VM &apos;{0}&apos; verwendet, die läuft.
+        <translation>Diese Festplatte wird von der VM '{0}' verwendet, die läuft.
 
 Fahre sie herunter, bevor du sie vergrößerst.</translation>
     </message>
@@ -4791,8 +4785,8 @@ die Partition im Gast: diese muss ebenfalls im Gastsystem erweitert
 werden, um den neuen Speicher zu nutzen.</translation>
     </message>
     <message>
-        <source>&apos;{0}&apos; no es un tamaño válido.</source>
-        <translation>&apos;{0}&apos; ist keine gültige Größe.</translation>
+        <source>'{0}' no es un tamaño válido.</source>
+        <translation>'{0}' ist keine gültige Größe.</translation>
     </message>
     <message>
         <source>No se puede encoger</source>
@@ -4835,11 +4829,11 @@ Denke daran, auch die Partition im Gastsystem zu erweitern.</translation>
         <translation>Nur QCOW2-Festplatten können komprimiert werden.</translation>
     </message>
     <message>
-        <source>Este disco lo usa la VM &apos;{0}&apos;, que esta encendida.
+        <source>Este disco lo usa la VM '{0}', que esta encendida.
 
 Apagala antes de compactarlo: QEMU mantiene un lock de
 escritura sobre el archivo y el compactado fallaria.</source>
-        <translation>Diese Festplatte wird von der VM &apos;{0}&apos; verwendet, die läuft.
+        <translation>Diese Festplatte wird von der VM '{0}' verwendet, die läuft.
 
 Fahre sie herunter, bevor du sie komprimierst: QEMU hält eine Schreibsperre
 auf der Datei und die Komprimierung würde fehlschlagen.</translation>
@@ -4859,14 +4853,14 @@ Ein Backup vor dem Komprimieren wird empfohlen.</translation>
         <translation>Komprimierung bestätigen</translation>
     </message>
     <message>
-        <source>¿Compactar &apos;{0}&apos;?
+        <source>¿Compactar '{0}'?
 
 Reescribe el QCOW2 eliminando bloques no usados: reduce el
 archivo en el host SIN cambiar el tamaño virtual que ve el
 invitado.{1}
 
 ¿Continuar?</source>
-        <translation>&apos;{0}&apos; komprimieren?
+        <translation>'{0}' komprimieren?
 
 Schreibt das QCOW2 neu, ohne unbenutzte Blöcke: reduziert
 die Datei auf dem Host OHNE die virtuelle Größe zu ändern, die der
@@ -4883,12 +4877,12 @@ Fortfahren?</translation>
         <translation>Festplatte komprimiert</translation>
     </message>
     <message>
-        <source>&apos;{0}&apos; compactado.
+        <source>'{0}' compactado.
 
 Antes: {1}
 Después: {2}
 Ahorro: {3}</source>
-        <translation>&apos;{0}&apos; komprimiert.
+        <translation>'{0}' komprimiert.
 
 Vorher: {1}
 Nachher: {2}
@@ -4903,8 +4897,8 @@ Ersparnis: {3}</translation>
 {0}</translation>
     </message>
     <message>
-        <source>Compactando &apos;{0}&apos;</source>
-        <translation>Komprimiere &apos;{0}&apos;</translation>
+        <source>Compactando '{0}'</source>
+        <translation>Komprimiere '{0}'</translation>
     </message>
     <message>
         <source>Reescribiendo el QCOW2 sin bloques no usados...</source>
@@ -4917,8 +4911,8 @@ Ersparnis: {3}</translation>
 {0}</translation>
     </message>
     <message>
-        <source>El archivo existe. No hay sha256 guardado para comparar; usa &apos;Calcular SHA256&apos; si quieres uno.</source>
-        <translation>Die Datei existiert. Es ist kein sha256 zum Vergleich gespeichert; verwende &apos;SHA256 berechnen&apos;, falls du eines möchtest.</translation>
+        <source>El archivo existe. No hay sha256 guardado para comparar; usa 'Calcular SHA256' si quieres uno.</source>
+        <translation>Die Datei existiert. Es ist kein sha256 zum Vergleich gespeichert; verwende 'SHA256 berechnen', falls du eines möchtest.</translation>
     </message>
     <message>
         <source>Archivo presente y sha256 coincide.</source>
@@ -4983,8 +4977,8 @@ Aktuell:   {1}</translation>
         <translation>Eintrag löschen</translation>
     </message>
     <message>
-        <source>Eliminar &apos;{0}&apos; de la biblioteca?</source>
-        <translation>&apos;{0}&apos; aus der Bibliothek löschen?</translation>
+        <source>Eliminar '{0}' de la biblioteca?</source>
+        <translation>'{0}' aus der Bibliothek löschen?</translation>
     </message>
     <message>
         <source>Quitar del indice</source>
@@ -5315,8 +5309,8 @@ Jetzt neu starten?</translation>
         <translation>Kein Lese-/Schreibzugriff auf {0}.</translation>
     </message>
     <message>
-        <source>No se encontró &apos;pkexec&apos;. No puedo solicitar permisos administrativos automáticamente.</source>
-        <translation>&apos;pkexec&apos; wurde nicht gefunden. Administrative Rechte können nicht automatisch angefordert werden.</translation>
+        <source>No se encontró 'pkexec'. No puedo solicitar permisos administrativos automáticamente.</source>
+        <translation>'pkexec' wurde nicht gefunden. Administrative Rechte können nicht automatisch angefordert werden.</translation>
     </message>
     <message>
         <source>No se pudo ejecutar la acción administrativa ({0}): {1}</source>
@@ -5389,12 +5383,12 @@ Zum Deinstallieren lösche:
         <translation>USB-Berechtigungen</translation>
     </message>
     <message>
-        <source>No se encontró &apos;pkexec&apos;. Instálalo (paquete &apos;polkit&apos;) para que la aplicación pueda solicitar permisos administrativos de forma gráfica.</source>
-        <translation>&apos;pkexec&apos; wurde nicht gefunden. Installiere es (Paket &apos;polkit&apos;), damit die Anwendung administrative Rechte grafisch anfordern kann.</translation>
+        <source>No se encontró 'pkexec'. Instálalo (paquete 'polkit') para que la aplicación pueda solicitar permisos administrativos de forma gráfica.</source>
+        <translation>'pkexec' wurde nicht gefunden. Installiere es (Paket 'polkit'), damit die Anwendung administrative Rechte grafisch anfordern kann.</translation>
     </message>
     <message>
-        <source>No se encontró &apos;udevadm&apos;. Este sistema parece no usar udev para gestionar dispositivos USB. Aplica los permisos manualmente según tu distribución.</source>
-        <translation>&apos;udevadm&apos; wurde nicht gefunden. Dieses System verwendet offenbar kein udev zur Verwaltung von USB-Geräten. Wende die Berechtigungen manuell gemäß deiner Distribution an.</translation>
+        <source>No se encontró 'udevadm'. Este sistema parece no usar udev para gestionar dispositivos USB. Aplica los permisos manualmente según tu distribución.</source>
+        <translation>'udevadm' wurde nicht gefunden. Dieses System verwendet offenbar kein udev zur Verwaltung von USB-Geräten. Wende die Berechtigungen manuell gemäß deiner Distribution an.</translation>
     </message>
     <message>
         <source>Configurar permisos USB</source>
@@ -5487,8 +5481,8 @@ Status: {5}
         <translation>(Zuerst eine VM auswählen)</translation>
     </message>
     <message>
-        <source>💿 Medios de &apos;{0}&apos;</source>
-        <translation>💿 Medien von &apos;{0}&apos;</translation>
+        <source>💿 Medios de '{0}'</source>
+        <translation>💿 Medien von '{0}'</translation>
     </message>
     <message>
         <source>🔄 Refrescar</source>
@@ -5583,12 +5577,12 @@ werden sofort übernommen, ohne Neustart.</translation>
     <message>
         <source>Cuando esta activo, la app crea snapshots de disco automaticamente en esta VM segun la frecuencia elegida.
 
-Los snapshots programados son SOLO DE DISCOS (no guardan RAM ni ventanas). Se crean con prefijo &apos;auto_&apos; y se eliminan por antiguedad al superar el limite de retencion.
+Los snapshots programados son SOLO DE DISCOS (no guardan RAM ni ventanas). Se crean con prefijo 'auto_' y se eliminan por antiguedad al superar el limite de retencion.
 
 No se ejecutan si la VM esta apagada.</source>
         <translation>Wenn aktiviert, erstellt die App automatisch Disk-Snapshots dieser VM gemäß der gewählten Häufigkeit.
 
-Geplante Snapshots sind NUR-DISK (sie speichern weder RAM noch Fensterzustand). Sie werden mit dem Präfix &apos;auto_&apos; erstellt und nach Überschreiten des Aufbewahrungslimits nach Alter gelöscht.
+Geplante Snapshots sind NUR-DISK (sie speichern weder RAM noch Fensterzustand). Sie werden mit dem Präfix 'auto_' erstellt und nach Überschreiten des Aufbewahrungslimits nach Alter gelöscht.
 
 Sie werden nicht ausgeführt, wenn die VM ausgeschaltet ist.</translation>
     </message>
@@ -5599,8 +5593,8 @@ El primer snapshot se crea pasada una frecuencia completa desde la activacion (o
 Der erste Snapshot wird nach einer vollständigen Periode seit der Aktivierung (oder seit dem letzten, falls bereits einer existierte) erstellt.</translation>
     </message>
     <message>
-        <source>Cuantos snapshots automaticos conservar. Al superar este numero se eliminan los mas antiguos (solo los que empiezan por &apos;auto_&apos;; los manuales nunca se tocan).</source>
-        <translation>Wie viele automatische Snapshots aufbewahrt werden. Bei Überschreitung dieser Anzahl werden die ältesten gelöscht (nur die mit &apos;auto_&apos; am Anfang; manuelle werden nie angetastet).</translation>
+        <source>Cuantos snapshots automaticos conservar. Al superar este numero se eliminan los mas antiguos (solo los que empiezan por 'auto_'; los manuales nunca se tocan).</source>
+        <translation>Wie viele automatische Snapshots aufbewahrt werden. Bei Überschreitung dieser Anzahl werden die ältesten gelöscht (nur die mit 'auto_' am Anfang; manuelle werden nie angetastet).</translation>
     </message>
     <message>
         <source>Los snapshots programados son &lt;b&gt;solo de discos&lt;/b&gt;: no guardan RAM ni estado de ventanas. No congelan la VM del usuario (el snapshot completo si puede hacerlo).</source>
@@ -5634,12 +5628,12 @@ Der erste Snapshot wird nach einer vollständigen Periode seit der Aktivierung (
         <source>La VM no se apagó dentro del tiempo máximo (90 s).
 
 Puede que el sistema invitado esté colgado. Usa el botón
-&apos;Forzar apagado&apos; de la lista lateral, luego vuelve a intentar
+'Forzar apagado' de la lista lateral, luego vuelve a intentar
 restaurar el snapshot con la VM ya apagada.</source>
         <translation>Die VM hat nicht innerhalb der maximalen Zeit (90 s) heruntergefahren.
 
 Möglicherweise ist das Gastsystem hängen geblieben. Verwende den
-Button &apos;Ausschalten erzwingen&apos; in der Seitenliste und versuche dann
+Button 'Ausschalten erzwingen' in der Seitenliste und versuche dann
 erneut, den Snapshot bei ausgeschalteter VM wiederherzustellen.</translation>
     </message>
     <message>
@@ -5647,17 +5641,17 @@ erneut, den Snapshot bei ausgeschalteter VM wiederherzustellen.</translation>
         <translation>Dieser Snapshot kann nicht wiederhergestellt werden</translation>
     </message>
     <message>
-        <source>La VM es un clon enlazado (backing file QCOW2) y el snapshot &apos;{0}&apos; fue creado en modo COMPLETO (RAM + dispositivos).
+        <source>La VM es un clon enlazado (backing file QCOW2) y el snapshot '{0}' fue creado en modo COMPLETO (RAM + dispositivos).
 
-QEMU no puede restaurar snapshots completos sobre un QCOW2 con backing file: al ejecutar loadvm aborta con una aserción interna (vmstate_load_next) y el proceso muere. De ahí el &apos;Conexión reinicializada&apos; que has visto.
+QEMU no puede restaurar snapshots completos sobre un QCOW2 con backing file: al ejecutar loadvm aborta con una aserción interna (vmstate_load_next) y el proceso muere. De ahí el 'Conexión reinicializada' que has visto.
 
 Qué hacer:
   • Los snapshots que crees A PARTIR DE AHORA en este clon serán solo de discos (la app ya lo fuerza) y se podrán restaurar.
   • Este snapshot antiguo no se puede restaurar. Elimínalo si ya no lo necesitas.
-  • Si necesitas snapshots completos, desenlaza el clon con &apos;🧬 Desenlazar&apos; (convierte el delta en un QCOW2 autónomo).</source>
-        <translation>Die VM ist ein verknüpfter Klon (QCOW2-Backing-Datei) und der Snapshot &apos;{0}&apos; wurde im VOLLSTÄNDIGEN Modus (RAM + Geräte) erstellt.
+  • Si necesitas snapshots completos, desenlaza el clon con '🧬 Desenlazar' (convierte el delta en un QCOW2 autónomo).</source>
+        <translation>Die VM ist ein verknüpfter Klon (QCOW2-Backing-Datei) und der Snapshot '{0}' wurde im VOLLSTÄNDIGEN Modus (RAM + Geräte) erstellt.
 
-QEMU kann vollständige Snapshots auf einem QCOW2 mit Backing-Datei nicht wiederherstellen: beim Ausführen von loadvm wird mit einer internen Zusicherung (vmstate_load_next) abgebrochen und der Prozess stirbt. Daher die &apos;Verbindung zurückgesetzt&apos;, die du gesehen hast.
+QEMU kann vollständige Snapshots auf einem QCOW2 mit Backing-Datei nicht wiederherstellen: beim Ausführen von loadvm wird mit einer internen Zusicherung (vmstate_load_next) abgebrochen und der Prozess stirbt. Daher die 'Verbindung zurückgesetzt', die du gesehen hast.
 
 Was zu tun ist:
   • Die Snapshots, die du AB JETZT in diesem Klon erstellst, sind
@@ -5665,7 +5659,7 @@ Was zu tun ist:
   • Dieser alte Snapshot kann nicht wiederhergestellt werden. Lösche ihn,
     wenn er nicht mehr gebraucht wird.
   • Wenn du vollständige Snapshots benötigst, löse den Klon mit
-    &apos;🧬 Entkoppeln&apos; (wandelt das Delta in ein eigenständiges QCOW2 um).</translation>
+    '🧬 Entkoppeln' (wandelt das Delta in ein eigenständiges QCOW2 um).</translation>
     </message>
     <message>
         <source>(solo disco)</source>
@@ -5692,8 +5686,8 @@ Was zu tun ist:
         <translation>Es gibt keinen aktuellen Snapshot zum Wiederherstellen.</translation>
     </message>
     <message>
-        <source>Existe una captura para &apos;{0}&apos;, pero ese snapshot ya no aparece en la lista de la VM (puede haber sido eliminado). Actualiza la pestaña Snapshots o elimínalo manualmente.</source>
-        <translation>Für &apos;{0}&apos; existiert ein Screenshot, aber dieser Snapshot erscheint nicht mehr in der VM-Liste (möglicherweise wurde er gelöscht). Aktualisiere den Reiter Snapshots oder lösche ihn manuell.</translation>
+        <source>Existe una captura para '{0}', pero ese snapshot ya no aparece en la lista de la VM (puede haber sido eliminado). Actualiza la pestaña Snapshots o elimínalo manualmente.</source>
+        <translation>Für '{0}' existiert ein Screenshot, aber dieser Snapshot erscheint nicht mehr in der VM-Liste (möglicherweise wurde er gelöscht). Aktualisiere den Reiter Snapshots oder lösche ihn manuell.</translation>
     </message>
     <message>
         <source>No hay otros snapshots para elegir como padre.</source>
@@ -5708,16 +5702,16 @@ Was zu tun ist:
         <translation>Übergeordneten festlegen</translation>
     </message>
     <message>
-        <source>Padre para &apos;{0}&apos;:</source>
-        <translation>Übergeordneter für &apos;{0}&apos;:</translation>
+        <source>Padre para '{0}':</source>
+        <translation>Übergeordneter für '{0}':</translation>
     </message>
     <message>
         <source>Nuevo snapshot hijo</source>
         <translation>Neuer untergeordneter Snapshot</translation>
     </message>
     <message>
-        <source>Nombre del snapshot (hijo de &apos;{0}&apos;):</source>
-        <translation>Name des Snapshots (Kind von &apos;{0}&apos;):</translation>
+        <source>Nombre del snapshot (hijo de '{0}'):</source>
+        <translation>Name des Snapshots (Kind von '{0}'):</translation>
     </message>
     <message>
         <source>No se pudo crear el snapshot.
@@ -5752,29 +5746,29 @@ Was zu tun ist:
         <translation>Snapshot mit VirtIO-GPU</translation>
     </message>
     <message>
-        <source>Esta VM está configurada con gráficos &apos;{0}&apos;, que no permiten
+        <source>Esta VM está configurada con gráficos '{0}', que no permiten
 RESTAURAR snapshots completos en QEMU (RAM + dispositivos).
 
 El snapshot se puede crear, pero al intentar restaurarlo QEMU
-fallará con: &apos;Failed to load element of type virtio for virtio&apos;.
+fallará con: 'Failed to load element of type virtio for virtio'.
 
 Opciones:
-  • Usar snapshot SOLO DE DISCOS (elegir &apos;No&apos; en el siguiente
+  • Usar snapshot SOLO DE DISCOS (elegir 'No' en el siguiente
     diálogo). No guarda RAM ni estado de ventanas, pero se
     restaura sin problema con la VM apagada.
-  • Cambiar Gráficos/GPU a &apos;Red Hat QXL 2D&apos; o &apos;VMware SVGA II&apos;,
+  • Cambiar Gráficos/GPU a 'Red Hat QXL 2D' o 'VMware SVGA II',
     reiniciar la VM y crear snapshots completos.
 
 ¿Crear el snapshot igualmente?</source>
-        <translation>Diese VM ist mit Grafik &apos;{0}&apos; konfiguriert, die das WIEDERHERSTELLEN vollständiger Snapshots in QEMU (RAM + Geräte) nicht erlaubt.
+        <translation>Diese VM ist mit Grafik '{0}' konfiguriert, die das WIEDERHERSTELLEN vollständiger Snapshots in QEMU (RAM + Geräte) nicht erlaubt.
 
-Der Snapshot kann erstellt werden, aber beim Versuch, ihn wiederherzustellen, schlägt QEMU fehl mit: &apos;Failed to load element of type virtio for virtio&apos;.
+Der Snapshot kann erstellt werden, aber beim Versuch, ihn wiederherzustellen, schlägt QEMU fehl mit: 'Failed to load element of type virtio for virtio'.
 
 Optionen:
-  • NUR-DISK-Snapshot verwenden (&apos;Nein&apos; im folgenden Dialog wählen).
+  • NUR-DISK-Snapshot verwenden ('Nein' im folgenden Dialog wählen).
     Speichert weder RAM noch Fensterzustand, kann aber bei ausgeschalteter
     VM problemlos wiederhergestellt werden.
-  • Grafik/GPU auf &apos;Red Hat QXL 2D&apos; oder &apos;VMware SVGA II&apos; umstellen,
+  • Grafik/GPU auf 'Red Hat QXL 2D' oder 'VMware SVGA II' umstellen,
     die VM neu starten und vollständige Snapshots erstellen.
 
 Snapshot trotzdem erstellen?</translation>
@@ -5839,7 +5833,7 @@ Aus Sicherheitsgründen wird ein NUR-DISK-Snapshot erstellt,
 der bei ausgeschalteter VM wiederhergestellt werden kann.
 
 Wenn du einen vollständigen Snapshot benötigst, löse zuerst den
-Klon mit &apos;🧬 Entkoppeln&apos;.</translation>
+Klon mit '🧬 Entkoppeln'.</translation>
     </message>
     <message>
         <source>Snapshot con la VM encendida</source>
@@ -5866,10 +5860,10 @@ Abbrechen = nichts tun.</translation>
         <translation>Disk-Snapshot erstellt</translation>
     </message>
     <message>
-        <source>Se creó &apos;{0}&apos; en {1} QCOW2.
+        <source>Se creó '{0}' en {1} QCOW2.
 
 Este snapshot no contiene la memoria RAM ni el estado de las ventanas. Para restaurarlo, la VM debe estar apagada.</source>
-        <translation>&apos;{0}&apos; wurde auf {1} QCOW2 erstellt.
+        <translation>'{0}' wurde auf {1} QCOW2 erstellt.
 
 Dieser Snapshot enthält weder RAM noch Fensterzustand. Zum Wiederherstellen muss die VM ausgeschaltet sein.</translation>
     </message>
@@ -5902,38 +5896,38 @@ Dieser Snapshot enthält weder RAM noch Fensterzustand. Zum Wiederherstellen mus
         <translation>Snapshot — {0}</translation>
     </message>
     <message>
-        <source>Estado &apos;{0}&apos; guardado y VM pausada.</source>
-        <translation>Zustand &apos;{0}&apos; gespeichert und VM pausiert.</translation>
+        <source>Estado '{0}' guardado y VM pausada.</source>
+        <translation>Zustand '{0}' gespeichert und VM pausiert.</translation>
     </message>
     <message>
-        <source>Snapshot &apos;{0}&apos; eliminado.</source>
-        <translation>Snapshot &apos;{0}&apos; gelöscht.</translation>
+        <source>Snapshot '{0}' eliminado.</source>
+        <translation>Snapshot '{0}' gelöscht.</translation>
     </message>
     <message>
-        <source>Snapshot &apos;{0}&apos; restaurado.</source>
-        <translation>Snapshot &apos;{0}&apos; wiederhergestellt.</translation>
+        <source>Snapshot '{0}' restaurado.</source>
+        <translation>Snapshot '{0}' wiederhergestellt.</translation>
     </message>
     <message>
-        <source>Snapshot &apos;{0}&apos; creado.</source>
-        <translation>Snapshot &apos;{0}&apos; erstellt.</translation>
+        <source>Snapshot '{0}' creado.</source>
+        <translation>Snapshot '{0}' erstellt.</translation>
     </message>
     <message>
         <source>Snapshot creado</source>
         <translation>Snapshot erstellt</translation>
     </message>
     <message>
-        <source>El snapshot &apos;{0}&apos; fue creado y confirmado por QEMU.</source>
-        <translation>Der Snapshot &apos;{0}&apos; wurde von QEMU erstellt und bestätigt.</translation>
+        <source>El snapshot '{0}' fue creado y confirmado por QEMU.</source>
+        <translation>Der Snapshot '{0}' wurde von QEMU erstellt und bestätigt.</translation>
     </message>
     <message>
         <source>VM pausada</source>
         <translation>VM pausiert</translation>
     </message>
     <message>
-        <source>Estado guardado como &apos;{0}&apos;.
+        <source>Estado guardado como '{0}'.
 
 La VM quedó pausada. Puedes reanudarla con el botón Pausar/Reanudar.</source>
-        <translation>Zustand als &apos;{0}&apos; gespeichert.
+        <translation>Zustand als '{0}' gespeichert.
 
 Die VM wurde pausiert. Du kannst sie mit dem Pausieren/Fortsetzen-Button wieder aufnehmen.</translation>
     </message>
@@ -5942,16 +5936,16 @@ Die VM wurde pausiert. Du kannst sie mit dem Pausieren/Fortsetzen-Button wieder 
         <translation>Snapshot gelöscht</translation>
     </message>
     <message>
-        <source>Se eliminó &apos;{0}&apos;.</source>
-        <translation>&apos;{0}&apos; wurde gelöscht.</translation>
+        <source>Se eliminó '{0}'.</source>
+        <translation>'{0}' wurde gelöscht.</translation>
     </message>
     <message>
         <source>Snapshot restaurado</source>
         <translation>Snapshot wiederhergestellt</translation>
     </message>
     <message>
-        <source>Se restauró &apos;{0}&apos;.</source>
-        <translation>&apos;{0}&apos; wurde wiederhergestellt.</translation>
+        <source>Se restauró '{0}'.</source>
+        <translation>'{0}' wurde wiederhergestellt.</translation>
     </message>
     <message>
         <source>CREACIÓN</source>
@@ -5970,18 +5964,18 @@ Die VM wurde pausiert. Du kannst sie mit dem Pausieren/Fortsetzen-Button wieder 
         <translation>WIEDERHERSTELLUNG</translation>
     </message>
     <message>
-        <source>No se pudo completar la operación de snapshot &apos;{0}&apos;.
+        <source>No se pudo completar la operación de snapshot '{0}'.
 
 {1}</source>
-        <translation>Der Snapshot-Vorgang &apos;{0}&apos; konnte nicht abgeschlossen werden.
+        <translation>Der Snapshot-Vorgang '{0}' konnte nicht abgeschlossen werden.
 
 {1}</translation>
     </message>
     <message>
-        <source>¿Restaurar &apos;{0}&apos;?
+        <source>¿Restaurar '{0}'?
 
 La VM volverá al estado del snapshot.</source>
-        <translation>&apos;{0}&apos; wiederherstellen?
+        <translation>'{0}' wiederherstellen?
 
 Die VM kehrt zum Zustand des Snapshots zurück.</translation>
     </message>
@@ -5990,13 +5984,13 @@ Die VM kehrt zum Zustand des Snapshots zurück.</translation>
         <translation>Nur-Disk-Snapshot</translation>
     </message>
     <message>
-        <source>El snapshot &apos;{0}&apos; es solo de discos (no contiene RAM).
+        <source>El snapshot '{0}' es solo de discos (no contiene RAM).
 
 Para restaurarlo hay que apagar la VM primero.
 La VM volverá al estado del snapshot.
 
 ¿Apagar la VM ahora y restaurar el snapshot?</source>
-        <translation>Der Snapshot &apos;{0}&apos; ist nur Disk (enthält kein RAM).
+        <translation>Der Snapshot '{0}' ist nur Disk (enthält kein RAM).
 
 Zum Wiederherstellen muss die VM zuerst heruntergefahren werden.
 Die VM kehrt zum Zustand des Snapshots zurück.
@@ -6016,8 +6010,8 @@ Die VM jetzt herunterfahren und den Snapshot wiederherstellen?</translation>
 {0}</translation>
     </message>
     <message>
-        <source>Se restauró &apos;{0}&apos; mediante snapshot-load.</source>
-        <translation>&apos;{0}&apos; wurde über snapshot-load wiederhergestellt.</translation>
+        <source>Se restauró '{0}' mediante snapshot-load.</source>
+        <translation>'{0}' wurde über snapshot-load wiederhergestellt.</translation>
     </message>
     <message>
         <source>Restauración parcial</source>
@@ -6036,18 +6030,18 @@ Die VM jetzt herunterfahren und den Snapshot wiederherstellen?</translation>
         <translation>Der Disk-Snapshot wurde auf den geeigneten QCOW2 wiederhergestellt. Bei ausgeschalteter VM wird der RAM-/CPU-Zustand nicht wiederhergestellt.</translation>
     </message>
     <message>
-        <source>El snapshot &apos;{0}&apos; es solo de discos (no contiene RAM).
+        <source>El snapshot '{0}' es solo de discos (no contiene RAM).
 
 Para restaurarlo hay que apagar la VM y volver a intentarlo. QEMU no puede restaurar snapshots sin vmstate con la VM encendida.</source>
-        <translation>Der Snapshot &apos;{0}&apos; ist nur Disk (enthält kein RAM).
+        <translation>Der Snapshot '{0}' ist nur Disk (enthält kein RAM).
 
 Zum Wiederherstellen muss die VM heruntergefahren und erneut versucht werden. QEMU kann Snapshots ohne vmstate bei laufender VM nicht wiederherstellen.</translation>
     </message>
     <message>
-        <source>La VM volvió a un estado operativo después de restaurar &apos;{0}&apos;.
+        <source>La VM volvió a un estado operativo después de restaurar '{0}'.
 
 QEMU no confirmó el fin del job dentro del tiempo de espera, pero la restauración se aplicó.</source>
-        <translation>Die VM kehrte nach dem Wiederherstellen von &apos;{0}&apos; in einen betriebsbereiten Zustand zurück.
+        <translation>Die VM kehrte nach dem Wiederherstellen von '{0}' in einen betriebsbereiten Zustand zurück.
 
 QEMU bestätigte das Ende des Jobs nicht innerhalb des Zeitlimits, aber die Wiederherstellung wurde angewendet.</translation>
     </message>
@@ -6071,7 +6065,7 @@ Detalle técnico:
 
 Cómo resolverlo:
   1. Abre Configuración → Pantalla.
-  2. Cambia &apos;Gráficos / GPU&apos; de &apos;{0}&apos; a &apos;Red Hat QXL 2D&apos;.
+  2. Cambia 'Gráficos / GPU' de '{0}' a 'Red Hat QXL 2D'.
   3. Reinicia la VM (apágala y vuelve a arrancarla).
   4. Crea snapshots nuevos a partir de ese momento: se podrán restaurar sin problemas.
 
@@ -6086,7 +6080,7 @@ Technisches Detail:
 
 Lösung:
   1. Öffne Konfiguration → Anzeige.
-  2. Ändere &apos;Grafik / GPU&apos; von &apos;{0}&apos; auf &apos;Red Hat QXL 2D&apos;.
+  2. Ändere 'Grafik / GPU' von '{0}' auf 'Red Hat QXL 2D'.
   3. Starte die VM neu (ausschalten und wieder einschalten).
   4. Erstelle ab dann neue Snapshots: sie können problemlos
      wiederhergestellt werden.
@@ -6096,8 +6090,8 @@ werden (QEMU kann ihren Zustand nicht rekonstruieren). Wenn sie
 nicht mehr gebraucht werden, lösche sie.</translation>
     </message>
     <message>
-        <source>¿Eliminar &apos;{0}&apos;?</source>
-        <translation>&apos;{0}&apos; löschen?</translation>
+        <source>¿Eliminar '{0}'?</source>
+        <translation>'{0}' löschen?</translation>
     </message>
     <message>
         <source>Eliminar snapshot</source>
@@ -6128,8 +6122,8 @@ nicht mehr gebraucht werden, lösche sie.</translation>
 {0}</translation>
     </message>
     <message>
-        <source>Nuevo nombre para &apos;{0}&apos;:</source>
-        <translation>Neuer Name für &apos;{0}&apos;:</translation>
+        <source>Nuevo nombre para '{0}':</source>
+        <translation>Neuer Name für '{0}':</translation>
     </message>
     <message>
         <source>Cambiar nombre</source>
@@ -6300,10 +6294,10 @@ Das Vergrößern der Datei vergrößert NICHT die Partition im Gast: nach der Ä
         <translation>QEMU-Befehl</translation>
     </message>
     <message>
-        <source>La VM &apos;{0}&apos; todavia no se ha arrancado.
+        <source>La VM '{0}' todavia no se ha arrancado.
 
 El comando QEMU se genera al pulsar Iniciar; vuelve a intentarlo despues del primer arranque.</source>
-        <translation>Die VM &apos;{0}&apos; wurde noch nicht gestartet.
+        <translation>Die VM '{0}' wurde noch nicht gestartet.
 
 Der QEMU-Befehl wird beim Drücken von Starten generiert; versuche es nach dem ersten Start erneut.</translation>
     </message>
@@ -6404,12 +6398,12 @@ Der QEMU-Befehl wird beim Drücken von Starten generiert; versuche es nach dem e
         <translation>Wähle zuerst eine virtuelle Maschine aus.</translation>
     </message>
     <message>
-        <source>La VM &apos;{0}&apos; está {1}.
+        <source>La VM '{0}' está {1}.
 
 Se recomienda apagarla antes de exportar: si está corriendo, los discos pueden estar en un estado inconsistente (cambios sin sincronizar a disco, locks activos…).
 
 ¿Continuar de todos modos?</source>
-        <translation>Die VM &apos;{0}&apos; ist {1}.
+        <translation>Die VM '{0}' ist {1}.
 
 Es wird empfohlen, sie vor dem Export herunterzufahren: Wenn sie läuft, können sich die Festplatten in einem inkonsistenten Zustand befinden (nicht synchronisierte Änderungen, aktive Sperren…).
 
@@ -6436,18 +6430,18 @@ Trotzdem fortfahren?</translation>
         <translation>.ovf-Deskriptor + lose Festplatten (Ordner)</translation>
     </message>
     <message>
-        <source>Formato para exportar &apos;{0}&apos;:</source>
-        <translation>Format zum Exportieren von &apos;{0}&apos;:</translation>
+        <source>Formato para exportar '{0}':</source>
+        <translation>Format zum Exportieren von '{0}':</translation>
     </message>
     <message>
         <source>Elige la carpeta donde crear la copia</source>
         <translation>Wähle den Ordner, in dem die Kopie erstellt werden soll</translation>
     </message>
     <message>
-        <source>En la carpeta destino ya existe &apos;{0}&apos;.
+        <source>En la carpeta destino ya existe '{0}'.
 
 ¿Sobrescribir? (se borrará la carpeta destino existente)</source>
-        <translation>Im Zielordner existiert bereits &apos;{0}&apos;.
+        <translation>Im Zielordner existiert bereits '{0}'.
 
 Überschreiben? (der vorhandene Zielordner wird gelöscht)</translation>
     </message>
@@ -6478,14 +6472,14 @@ Trotzdem fortfahren?</translation>
         <translation>Export bestätigen</translation>
     </message>
     <message>
-        <source>Exportar &apos;{0}&apos; como:
+        <source>Exportar '{0}' como:
 
   • Formato: {1}
   • Contenido: {2} archivo(s), {3}
   • Destino: {4}
 
 Los archivos de bloqueo (pids, sockets) y logs se omitirán.</source>
-        <translation>&apos;{0}&apos; exportieren als:
+        <translation>'{0}' exportieren als:
 
   • Format: {1}
   • Inhalt: {2} Datei(en), {3}
@@ -6518,10 +6512,10 @@ Sperrdateien (PIDs, Sockets) und Logs werden übersprungen.</translation>
         <translation>Export abgeschlossen ({0} Datei(en)).</translation>
     </message>
     <message>
-        <source>&apos;{0}&apos; exportada correctamente.
+        <source>'{0}' exportada correctamente.
 
 Destino: {1}</source>
-        <translation>&apos;{0}&apos; erfolgreich exportiert.
+        <translation>'{0}' erfolgreich exportiert.
 
 Ziel: {1}</translation>
     </message>
@@ -6588,10 +6582,10 @@ Stelle sicher, dass du den Stammordner der VM wählst, nicht einen Unterordner.<
         <translation>Ungültiger Name.</translation>
     </message>
     <message>
-        <source>Ya existe una VM llamada &apos;{0}&apos;.
+        <source>Ya existe una VM llamada '{0}'.
 
 ¿Reemplazarla? (se eliminará la existente)</source>
-        <translation>Eine VM mit dem Namen &apos;{0}&apos; existiert bereits.
+        <translation>Eine VM mit dem Namen '{0}' existiert bereits.
 
 Ersetzen? (die vorhandene wird gelöscht)</translation>
     </message>
@@ -6616,10 +6610,10 @@ Ersetzen? (die vorhandene wird gelöscht)</translation>
         <translation>Kopiere {0}</translation>
     </message>
     <message>
-        <source>VM &apos;{0}&apos; importada correctamente.
+        <source>VM '{0}' importada correctamente.
 
 Revisa su configuración en la pestaña Configuración antes de arrancarla, especialmente si la importaste desde otro host: puede referenciar rutas que no existan aquí (carpetas compartidas, ISOs externas, dispositivos de passthrough).</source>
-        <translation>VM &apos;{0}&apos; erfolgreich importiert.
+        <translation>VM '{0}' erfolgreich importiert.
 
 Überprüfe die Konfiguration im Reiter Konfiguration, bevor du sie startest, insbesondere wenn du sie von einem anderen Host importiert hast: sie kann Pfade referenzieren, die hier nicht existieren (gemeinsame Ordner, externe ISOs, Passthrough-Geräte).</translation>
     </message>
@@ -6628,8 +6622,8 @@ Revisa su configuración en la pestaña Configuración antes de arrancarla, espe
         <translation>Virtuelle Maschine klonen</translation>
     </message>
     <message>
-        <source>Nombre para el clon de &apos;{0}&apos;:</source>
-        <translation>Name für den Klon von &apos;{0}&apos;:</translation>
+        <source>Nombre para el clon de '{0}':</source>
+        <translation>Name für den Klon von '{0}':</translation>
     </message>
     <message>
         <source>Debes escribir un nombre para el clon.</source>
@@ -6640,10 +6634,10 @@ Revisa su configuración en la pestaña Configuración antes de arrancarla, espe
         <translation>Name existiert bereits</translation>
     </message>
     <message>
-        <source>La máquina virtual &apos;{0}&apos; ya existe en el listado.
+        <source>La máquina virtual '{0}' ya existe en el listado.
 
 Elige otro nombre para el clon.</source>
-        <translation>Die virtuelle Maschine &apos;{0}&apos; existiert bereits in der Liste.
+        <translation>Die virtuelle Maschine '{0}' existiert bereits in der Liste.
 
 Wähle einen anderen Namen für den Klon.</translation>
     </message>
@@ -6672,7 +6666,7 @@ Wähle einen anderen Namen für den Klon.</translation>
         <translation>Verknüpfter Klon mit laufendem Original</translation>
     </message>
     <message>
-        <source>El original de este clon (&apos;{0}&apos;) está corriendo.
+        <source>El original de este clon ('{0}') está corriendo.
 
 Arrancar original y clon a la vez puede dar resultados impredecibles:
 
@@ -6681,10 +6675,10 @@ Arrancar original y clon a la vez puede dar resultados impredecibles:
 
 Recomendaciones:
   • Apaga el original antes de arrancar el clon (o al revés).
-  • O desenlaza el clon con &apos;🧬 Desenlazar&apos; para que sea totalmente independiente.
+  • O desenlaza el clon con '🧬 Desenlazar' para que sea totalmente independiente.
 
 Este aviso no volverá a aparecer para esta VM en esta sesión.</source>
-        <translation>Das Original dieses Klons (&apos;{0}&apos;) läuft.
+        <translation>Das Original dieses Klons ('{0}') läuft.
 
 Original und Klon gleichzeitig laufen zu lassen, kann unvorhersehbare Ergebnisse liefern:
 
@@ -6693,7 +6687,7 @@ Original und Klon gleichzeitig laufen zu lassen, kann unvorhersehbare Ergebnisse
 
 Empfehlungen:
   • Fahre das Original herunter, bevor du den Klon startest (oder umgekehrt).
-  • Oder löse den Klon mit &apos;🧬 Entkoppeln&apos;, damit er vollständig eigenständig ist.
+  • Oder löse den Klon mit '🧬 Entkoppeln', damit er vollständig eigenständig ist.
 
 Dieser Hinweis erscheint für diese VM in dieser Sitzung nicht erneut.</translation>
     </message>
@@ -6710,16 +6704,16 @@ Resuelto contra su carpeta queda en:
 
     {1}
 
-Ese archivo no existe. La VM original (&apos;{2}&apos;) probablemente se movió o se borró.
+Ese archivo no existe. La VM original ('{2}') probablemente se movió o se borró.
 
 QEMU fallará al arrancar con:
     Could not open backing file: No such file or directory
 
 Opciones:
   • Mueve también la VM original de vuelta a su carpeta, o
-  • Copia la carpeta &apos;VirtualMachines/&apos; entera (con original
+  • Copia la carpeta 'VirtualMachines/' entera (con original
     y clon juntos) a la nueva ubicación, o
-  • Si aún puedes, usa &apos;🧬 Desenlazar&apos; en la pestaña Resumen
+  • Si aún puedes, usa '🧬 Desenlazar' en la pestaña Resumen
     para independizar este clon (puede fallar si el backing
     ya no está disponible).
 
@@ -6732,16 +6726,16 @@ Aufgelöst relativ zu seinem Ordner ist es:
 
     {1}
 
-Diese Datei existiert nicht. Die Original-VM (&apos;{2}&apos;) wurde vermutlich verschoben oder gelöscht.
+Diese Datei existiert nicht. Die Original-VM ('{2}') wurde vermutlich verschoben oder gelöscht.
 
 QEMU wird beim Start fehlschlagen mit:
     Could not open backing file: No such file or directory
 
 Optionen:
   • Verschiebe auch die Original-VM zurück in ihren Ordner, oder
-  • Kopiere den gesamten &apos;VirtualMachines/&apos;-Ordner (mit Original
+  • Kopiere den gesamten 'VirtualMachines/'-Ordner (mit Original
     und Klon zusammen) an den neuen Speicherort, oder
-  • Wenn noch möglich, verwende &apos;🧬 Entkoppeln&apos; im Reiter Übersicht,
+  • Wenn noch möglich, verwende '🧬 Entkoppeln' im Reiter Übersicht,
     um diesen Klon eigenständig zu machen (kann fehlschlagen,
     wenn das Backing nicht mehr verfügbar ist).
 
@@ -6768,10 +6762,10 @@ Dieser Hinweis erscheint für diese VM in dieser Sitzung nicht erneut.</translat
         <translation>Klon erstellt</translation>
     </message>
     <message>
-        <source>La máquina virtual &apos;{0}&apos; fue clonada correctamente (clon completo).
+        <source>La máquina virtual '{0}' fue clonada correctamente (clon completo).
 
 Se han regenerado las direcciones MAC y los IDs internos de los discos para que no choquen con la VM original.</source>
-        <translation>Die virtuelle Maschine &apos;{0}&apos; wurde erfolgreich geklont (vollständiger Klon).
+        <translation>Die virtuelle Maschine '{0}' wurde erfolgreich geklont (vollständiger Klon).
 
 Die MAC-Adressen und internen IDs der Festplatten wurden neu generiert, um Konflikte mit der Original-VM zu vermeiden.</translation>
     </message>
@@ -6780,12 +6774,12 @@ Die MAC-Adressen und internen IDs der Festplatten wurden neu generiert, um Konfl
 
 El clon enlazado necesita un disco base QCOW2 sobre el que
 crear el backing file. Si la VM no tiene discos, usa
-&apos;Clon completo&apos;.</source>
+'Clon completo'.</source>
         <translation>Die Hauptfestplatte der Original-VM konnte nicht ermittelt werden.
 
 Der verknüpfte Klon benötigt eine QCOW2-Basisfestplatte, auf der
 das Backing-File erstellt wird. Wenn die VM keine Festplatten hat,
-verwende &apos;Vollständiger Klon&apos;.</translation>
+verwende 'Vollständiger Klon'.</translation>
     </message>
     <message>
         <source>No se pudo inspeccionar el disco original.
@@ -6799,11 +6793,11 @@ verwende &apos;Vollständiger Klon&apos;.</translation>
         <source>El disco principal de la VM original está en formato {0}.
 
 El clon enlazado solo funciona con QCOW2 (necesita backing
-file). Usa &apos;Clon completo&apos; si quieres copiar el disco tal cual.</source>
+file). Usa 'Clon completo' si quieres copiar el disco tal cual.</source>
         <translation>Die Hauptfestplatte der Original-VM hat das Format {0}.
 
 Der verknüpfte Klon funktioniert nur mit QCOW2 (er benötigt ein
-Backing-File). Verwende &apos;Vollständiger Klon&apos;, wenn du die Festplatte
+Backing-File). Verwende 'Vollständiger Klon', wenn du die Festplatte
 unverändert kopieren möchtest.</translation>
     </message>
     <message>
@@ -6859,7 +6853,7 @@ Revisa manualmente el archivo antes de usar la VM.</source>
 Überprüfe die Datei manuell, bevor du die VM verwendest.</translation>
     </message>
     <message>
-        <source>La máquina virtual &apos;{0}&apos; fue clonada correctamente (clon enlazado).
+        <source>La máquina virtual '{0}' fue clonada correctamente (clon enlazado).
 
 El disco base se comparte con el original mediante un backing
 file QCOW2 con ruta relativa. El clon ocupa muy poco espacio,
@@ -6877,12 +6871,12 @@ pero DEPENDE del original:
   • Los snapshots del clon no son reproducibles mientras el
     original pueda cambiar: al restaurar, se mezcla el delta
     guardado con el estado ACTUAL del backing.
-  • Si quieres independizarlo, usa &apos;🧬 Desenlazar&apos; cuando esté
+  • Si quieres independizarlo, usa '🧬 Desenlazar' cuando esté
     apagado.
 
 Para mover o copiar la estructura completa a otro host,
-llévate la carpeta &apos;VirtualMachines/&apos; entera.</source>
-        <translation>Die virtuelle Maschine &apos;{0}&apos; wurde erfolgreich geklont (verknüpfter Klon).
+llévate la carpeta 'VirtualMachines/' entera.</source>
+        <translation>Die virtuelle Maschine '{0}' wurde erfolgreich geklont (verknüpfter Klon).
 
 Die Basisfestplatte wird über eine QCOW2-Backing-Datei mit relativem
 Pfad mit dem Original geteilt. Der Klon belegt sehr wenig Speicher,
@@ -6900,11 +6894,11 @@ HÄNGT aber vom Original ab:
   • Die Snapshots des Klons sind nicht reproduzierbar, solange
     das Original sich ändern kann: Beim Wiederherstellen wird das
     gespeicherte Delta mit dem AKTUELLEN Zustand des Backings gemischt.
-  • Wenn du ihn eigenständig machen möchtest, verwende &apos;🧬 Entkoppeln&apos;,
+  • Wenn du ihn eigenständig machen möchtest, verwende '🧬 Entkoppeln',
     wenn er ausgeschaltet ist.
 
 Um die gesamte Struktur auf einen anderen Host zu verschieben oder zu kopieren,
-imm den gesamten &apos;VirtualMachines/&apos;-Ordner mit.</translation>
+imm den gesamten 'VirtualMachines/'-Ordner mit.</translation>
     </message>
     <message>
         <source>Desenlazar clon</source>
@@ -6915,11 +6909,11 @@ imm den gesamten &apos;VirtualMachines/&apos;-Ordner mit.</translation>
         <translation>Diese VM ist kein verknüpfter Klon; es gibt nichts zu entkoppeln.</translation>
     </message>
     <message>
-        <source>La VM &apos;{0}&apos; está encendida.
+        <source>La VM '{0}' está encendida.
 
 Apágala antes de desenlazarla: con QEMU activo el archivo
 está bloqueado y el convert no puede reemplazarlo.</source>
-        <translation>Die VM &apos;{0}&apos; läuft.
+        <translation>Die VM '{0}' läuft.
 
 Fahre sie herunter, bevor du sie entkoppelst: Bei laufendem QEMU ist die Datei
 gesperrt und der Convert-Vorgang kann sie nicht ersetzen.</translation>
@@ -6941,13 +6935,13 @@ gesperrt und der Convert-Vorgang kann sie nicht ersetzen.</translation>
         <translation>Entkoppelt</translation>
     </message>
     <message>
-        <source>El clon &apos;{0}&apos; ya es autónomo.
+        <source>El clon '{0}' ya es autónomo.
 
 Tamaño antes: {1}
 Tamaño después: {2}
 
 Puedes mover la VM sin llevarte la original.</source>
-        <translation>Der Klon &apos;{0}&apos; ist nun eigenständig.
+        <translation>Der Klon '{0}' ist nun eigenständig.
 
 Größe vorher: {1}
 Größe nachher: {2}
@@ -6999,14 +6993,14 @@ Du kannst die VM verschieben, ohne das Original mitzunehmen.</translation>
 
 Si continúas, esos clones quedarán inutilizables (su backing file ya no existirá).
 
-Se recomienda desenlazarlos primero: selecciona cada clon y pulsa &apos;🧬 Desenlazar&apos; en su pestaña Resumen.
+Se recomienda desenlazarlos primero: selecciona cada clon y pulsa '🧬 Desenlazar' en su pestaña Resumen.
 
 </source>
         <translation>
 
 Wenn du fortfährst, werden diese Klone unbrauchbar (ihre Backing-Datei existiert dann nicht mehr).
 
-Es wird empfohlen, sie zuerst zu entkoppeln: Wähle jeden Klon und drücke &apos;🧬 Entkoppeln&apos; in seinem Reiter Übersicht.
+Es wird empfohlen, sie zuerst zu entkoppeln: Wähle jeden Klon und drücke '🧬 Entkoppeln' in seinem Reiter Übersicht.
 
 </translation>
     </message>
@@ -7019,10 +7013,10 @@ Es wird empfohlen, sie zuerst zu entkoppeln: Wähle jeden Klon und drücke &apos
         <translation>Virtuelle Maschine löschen</translation>
     </message>
     <message>
-        <source>No se pudo eliminar &apos;{0}&apos;.
+        <source>No se pudo eliminar '{0}'.
 
 {1}</source>
-        <translation>&apos;{0}&apos; konnte nicht gelöscht werden.
+        <translation>'{0}' konnte nicht gelöscht werden.
 
 {1}</translation>
     </message>
@@ -7105,13 +7099,13 @@ Es wird empfohlen, sie zuerst zu entkoppeln: Wähle jeden Klon und drücke &apos
     <message>
         <source>Muestra el visor EMBEBIDO (VNC dentro de la app) a pantalla
 completa en una ventana propia. NO afecta al visor externo:
-para ese, usa el checkbox &apos;Externos en pantalla completa&apos;
+para ese, usa el checkbox 'Externos en pantalla completa'
 de la fila de estado.
 
 Pulsa {0} para salir.</source>
         <translation>Zeigt den EINGEBETTETEN Viewer (VNC in der Anwendung) im Vollbild
 in einem eigenen Fenster. Betrifft NICHT den externen Viewer:
-Verwende dafür das Kontrollkästchen &apos;Externe im Vollbild&apos; in der
+Verwende dafür das Kontrollkästchen 'Externe im Vollbild' in der
 Statuszeile.
 
 Drücke {0} zum Verlassen.</translation>
@@ -7325,8 +7319,8 @@ Fortfahren?</translation>
         <translation>Host-GPU: konnte nicht automatisch ermittelt werden.&lt;br&gt;Automatisch: Der verfügbare kompatible Grafikmodus wird ausgewählt.</translation>
     </message>
     <message>
-        <source>⚠️ Android-x86 9.0 (kernel 4.9) no incluye driver VirtIO-GPU y cae a un shell de rescate con &apos;Detecting Android-x86…&apos;. Usa &apos;Automático&apos; o &apos;Red Hat QXL 2D&apos;. Las ISOs con kernel 5.10+ o Bliss OS 15+ sí soportan VirtIO-GPU.</source>
-        <translation>⚠️ Android-x86 9.0 (Kernel 4.9) enthält keinen VirtIO-GPU-Treiber und fällt in eine Rettungs-Shell mit &apos;Detecting Android-x86…&apos;. Verwende &apos;Automatisch&apos; oder &apos;Red Hat QXL 2D&apos;. ISOs mit Kernel 5.10+ oder Bliss OS 15+ unterstützen VirtIO-GPU.</translation>
+        <source>⚠️ Android-x86 9.0 (kernel 4.9) no incluye driver VirtIO-GPU y cae a un shell de rescate con 'Detecting Android-x86…'. Usa 'Automático' o 'Red Hat QXL 2D'. Las ISOs con kernel 5.10+ o Bliss OS 15+ sí soportan VirtIO-GPU.</source>
+        <translation>⚠️ Android-x86 9.0 (Kernel 4.9) enthält keinen VirtIO-GPU-Treiber und fällt in eine Rettungs-Shell mit 'Detecting Android-x86…'. Verwende 'Automatisch' oder 'Red Hat QXL 2D'. ISOs mit Kernel 5.10+ oder Bliss OS 15+ unterstützen VirtIO-GPU.</translation>
     </message>
     <message>
         <source>VM macOS: no se encuentra mac_hdd_ng.qcow2 en la carpeta de la VM ({0}). Sin este archivo la VM no tiene sistema operativo que exportar.</source>
@@ -7337,12 +7331,12 @@ Fortfahren?</translation>
         <translation>Die VM hat keine angehängten Festplatten zum Exportieren. Füge mindestens eine Festplatte in Konfiguration → Speicher hinzu.</translation>
     </message>
     <message>
-        <source>qemu-img convert -c falló para &apos;{0}&apos;: {1}</source>
-        <translation>qemu-img convert -c ist für &apos;{0}&apos; fehlgeschlagen: {1}</translation>
+        <source>qemu-img convert -c falló para '{0}': {1}</source>
+        <translation>qemu-img convert -c ist für '{0}' fehlgeschlagen: {1}</translation>
     </message>
     <message>
-        <source>El aplanado+compresión de &apos;{0}&apos; no produjo un archivo válido.</source>
-        <translation>Das Vereinfachen + Komprimieren von &apos;{0}&apos; ergab keine gültige Datei.</translation>
+        <source>El aplanado+compresión de '{0}' no produjo un archivo válido.</source>
+        <translation>Das Vereinfachen + Komprimieren von '{0}' ergab keine gültige Datei.</translation>
     </message>
     <message>
         <source>Importar OVA</source>
@@ -7409,10 +7403,10 @@ Configúrala y guárdala primero.</source>
 Konfiguriere und speichere sie zuerst.</translation>
     </message>
     <message>
-        <source>Ya existe la plantilla &apos;{0}&apos;.
+        <source>Ya existe la plantilla '{0}'.
 
 ¿Sobrescribirla?</source>
-        <translation>Die Vorlage &apos;{0}&apos; existiert bereits.
+        <translation>Die Vorlage '{0}' existiert bereits.
 
 Überschreiben?</translation>
     </message>
@@ -7429,12 +7423,12 @@ Konfiguriere und speichere sie zuerst.</translation>
         <translation>Vorlage gespeichert</translation>
     </message>
     <message>
-        <source>Plantilla &apos;{0}&apos; creada correctamente.
+        <source>Plantilla '{0}' creada correctamente.
 
-Aparecerá en el menú del botón &apos;➕ Nueva VM&apos;.</source>
-        <translation>Vorlage &apos;{0}&apos; erfolgreich erstellt.
+Aparecerá en el menú del botón '➕ Nueva VM'.</source>
+        <translation>Vorlage '{0}' erfolgreich erstellt.
 
-Sie erscheint im Menü des Buttons &apos;➕ Neue VM&apos;.</translation>
+Sie erscheint im Menü des Buttons '➕ Neue VM'.</translation>
     </message>
     <message>
         <source>🆕 Nueva VM en blanco</source>
@@ -7449,14 +7443,14 @@ Sie erscheint im Menü des Buttons &apos;➕ Neue VM&apos;.</translation>
         <translation>Aus Vorlage erstellen</translation>
     </message>
     <message>
-        <source>No encuentro la plantilla &apos;{0}&apos;.</source>
-        <translation>Vorlage &apos;{0}&apos; nicht gefunden.</translation>
+        <source>No encuentro la plantilla '{0}'.</source>
+        <translation>Vorlage '{0}' nicht gefunden.</translation>
     </message>
     <message>
-        <source>Ya existe una carpeta para &apos;{0}&apos;.
+        <source>Ya existe una carpeta para '{0}'.
 
 ¿Reemplazarla? (se eliminará la existente)</source>
-        <translation>Ein Ordner für &apos;{0}&apos; existiert bereits.
+        <translation>Ein Ordner für '{0}' existiert bereits.
 
 Ersetzen? (der vorhandene wird gelöscht)</translation>
     </message>
@@ -7481,203 +7475,164 @@ Ersetzen? (der vorhandene wird gelöscht)</translation>
         <translation>VM erstellt</translation>
     </message>
     <message>
-        <source>VM &apos;{0}&apos; creada desde la plantilla &apos;{1}&apos;.
+        <source>VM '{0}' creada desde la plantilla '{1}'.
 
 Se ha abierto en Configuración → Almacenamiento para que
 añadas el disco y el medio de instalación. La MAC de red se
 ha regenerado para evitar conflictos con otras VMs.</source>
-        <translation>VM &apos;{0}&apos; aus der Vorlage &apos;{1}&apos; erstellt.
+        <translation>VM '{0}' aus der Vorlage '{1}' erstellt.
 
 Sie wurde in Konfiguration → Speicher geöffnet, damit du die
 Festplatte und das Installationsmedium hinzufügen kannst. Die
 Netzwerk-MAC wurde neu generiert, um Konflikte mit anderen VMs zu vermeiden.</translation>
     </message>
     <message>
-        <location filename="../appearance_mixin.py" line="277"/>
         <source>No hay ninguna máquina virtual seleccionada.</source>
         <translation>Es ist keine virtuelle Maschine ausgewählt.</translation>
     </message>
     <message>
-        <location filename="../appearance_mixin.py" line="282"/>
-        <source>La VM &apos;{0}&apos; no está corriendo. Enciéndela antes de entrar en modo presentación.</source>
-        <translation>Die VM &apos;{0}&apos; läuft nicht. Starte sie, bevor du den Präsentationsmodus betrittst.</translation>
+        <source>La VM '{0}' no está corriendo. Enciéndela antes de entrar en modo presentación.</source>
+        <translation>Die VM '{0}' läuft nicht. Starte sie, bevor du den Präsentationsmodus betrittst.</translation>
     </message>
     <message>
-        <location filename="../appearance_mixin.py" line="286"/>
         <source>La Consola Gráfica no está disponible en este sistema (falta el widget VNC embebido).</source>
         <translation>Die Grafische Konsole ist auf diesem System nicht verfügbar (das eingebettete VNC-Widget fehlt).</translation>
     </message>
     <message>
-        <location filename="../appearance_mixin.py" line="290"/>
         <source>No se pudo comprobar el estado de la VM: {0}</source>
         <translation>Der VM-Status konnte nicht überprüft werden: {0}</translation>
     </message>
     <message>
-        <location filename="../appearance_mixin.py" line="299"/>
         <source>Modo presentación</source>
         <translation>Präsentationsmodus</translation>
     </message>
     <message>
-        <location filename="../appearance_mixin.py" line="447"/>
         <source>🎬 Salir de presentación</source>
         <translation>🎬 Präsentation beenden</translation>
     </message>
     <message>
-        <location filename="../appearance_mixin.py" line="448"/>
         <source>Salir del modo presentación y restaurar la vista normal.
 También puedes pulsar F11 o Escape.</source>
         <translation>Den Präsentationsmodus verlassen und die normale Ansicht wiederherstellen.
 Du kannst auch F11 oder Escape drücken.</translation>
     </message>
     <message>
-        <location filename="../async_ui_mixin.py" line="63"/>
         <source>Completado.</source>
         <translation>Abgeschlossen.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="30"/>
-        <source>Para macOS utiliza &apos;Descargar System Recovery&apos;. Apple distribuye el instalador completo como una aplicación; el flujo de Recovery de OSX-KVM es el método integrado en este gestor.</source>
-        <translation>Verwende für macOS &apos;System Recovery herunterladen&apos;. Apple liefert den vollständigen Installer als Anwendung; der OSX-KVM-Recovery-Workflow ist die in diesem Manager integrierte Methode.</translation>
+        <source>Para macOS utiliza 'Descargar System Recovery'. Apple distribuye el instalador completo como una aplicación; el flujo de Recovery de OSX-KVM es el método integrado en este gestor.</source>
+        <translation>Verwende für macOS 'System Recovery herunterladen'. Apple liefert den vollständigen Installer als Anwendung; der OSX-KVM-Recovery-Workflow ist die in diesem Manager integrierte Methode.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="36"/>
         <source>Android-x86 / Bliss OS no tienen descarga automática. Descarga la ISO desde https://www.android-x86.org/download.html o https://blissos.org/ y selecciónala en Plataforma → Android.</source>
         <translation>Android-x86 / Bliss OS unterstützen keinen automatischen Download. Lade das ISO von https://www.android-x86.org/download.html oder https://blissos.org/ herunter und wähle es in Plattform → Android aus.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="200"/>
         <source>System Recovery de macOS — {0}</source>
         <translation>macOS System Recovery — {0}</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="204"/>
         <source>La imagen se descarga y verifica directamente en la carpeta de la VM.</source>
         <translation>Das Image wird direkt im VM-Ordner heruntergeladen und überprüft.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="206"/>
         <source>Iniciando descarga…</source>
         <translation>Download wird gestartet…</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="231"/>
         <source>Recovery preparado.</source>
         <translation>Recovery bereit.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="282"/>
         <source>No se encontró qemu-system-x86_64 en PATH. Ejecuta ./run.sh (instala las dependencias de sistema) o instala qemu-system-x86 / qemu-kvm.</source>
         <translation>qemu-system-x86_64 wurde nicht in PATH gefunden. Führe ./run.sh aus (installiert die Systemabhängigkeiten) oder installiere qemu-system-x86 / qemu-kvm.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="284"/>
         <source>/dev/kvm no está disponible; QEMU podría funcionar sin aceleración KVM.</source>
         <translation>/dev/kvm ist nicht verfügbar; QEMU könnte ohne KVM-Beschleunigung funktionieren.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="286"/>
         <source>El usuario no tiene permisos de lectura/escritura sobre /dev/kvm.</source>
         <translation>Der Benutzer hat keine Lese-/Schreibberechtigung auf /dev/kvm.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="293"/>
         <source>No se detectó un firmware OVMF conocido para Secure Boot.</source>
         <translation>Es wurde keine bekannte OVMF-Firmware für Secure Boot erkannt.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="304"/>
-        <source>El dispositivo de almacenamiento &apos;{0}&apos; apunta a un archivo que ya no existe: {1}</source>
-        <translation>Das Speichergerät &apos;{0}&apos; verweist auf eine Datei, die nicht mehr existiert: {1}</translation>
+        <source>El dispositivo de almacenamiento '{0}' apunta a un archivo que ya no existe: {1}</source>
+        <translation>Das Speichergerät '{0}' verweist auf eine Datei, die nicht mehr existiert: {1}</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="316"/>
-        <source>La carpeta compartida &apos;{0}&apos; apunta a una ruta del host que ya no existe: {1}</source>
-        <translation>Der gemeinsame Ordner &apos;{0}&apos; verweist auf einen Host-Pfad, der nicht mehr existiert: {1}</translation>
+        <source>La carpeta compartida '{0}' apunta a una ruta del host que ya no existe: {1}</source>
+        <translation>Der gemeinsame Ordner '{0}' verweist auf einen Host-Pfad, der nicht mehr existiert: {1}</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="322"/>
         <source>Solo quedan {0} GB libres donde vive esta VM; puede fallar durante el uso.</source>
         <translation>Nur noch {0} GB frei, wo diese VM liegt; kann während der Nutzung fehlschlagen.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="343"/>
-        <source>El orden de arranque prioriza el CD/DVD, pero el disco &apos;{0}&apos; ya tiene datos (~{1} GB). Si el sistema ya está instalado, esto puede intentar reinstalar en vez de arrancarlo.</source>
-        <translation>Die Startreihenfolge priorisiert das CD/DVD, aber die Festplatte &apos;{0}&apos; enthält bereits Daten (~{1} GB). Wenn das System bereits installiert ist, könnte dies eine Neuinstallation statt eines Starts versuchen.</translation>
+        <source>El orden de arranque prioriza el CD/DVD, pero el disco '{0}' ya tiene datos (~{1} GB). Si el sistema ya está instalado, esto puede intentar reinstalar en vez de arrancarlo.</source>
+        <translation>Die Startreihenfolge priorisiert das CD/DVD, aber die Festplatte '{0}' enthält bereits Daten (~{1} GB). Wenn das System bereits installiert ist, könnte dies eine Neuinstallation statt eines Starts versuchen.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="681"/>
-        <location filename="../install_flow_mixin.py" line="358"/>
-        <location filename="../install_flow_mixin.py" line="355"/>
         <source>Advertencia</source>
         <translation>Warnung</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="355"/>
         <source>Debe indicar un nombre para la máquina virtual.</source>
         <translation>Du musst einen Namen für die virtuelle Maschine angeben.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="358"/>
-        <source>El nombre no puede contener: \ / : * ? &quot; &lt; &gt; |</source>
-        <translation>Der Name darf nicht enthalten: \ / : * ? &quot; &lt; &gt; |</translation>
+        <source>El nombre no puede contener: \ / : * ? " &lt; &gt; |</source>
+        <translation>Der Name darf nicht enthalten: \ / : * ? " &lt; &gt; |</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="362"/>
         <source>La VM ya está corriendo</source>
         <translation>Die VM läuft bereits</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="363"/>
-        <source>&apos;{0}&apos; ya tiene un proceso QEMU activo. Iniciarla de nuevo puede corromper el disco (dos procesos escribiendo el mismo archivo) o chocar con los sockets ya en uso.
+        <source>'{0}' ya tiene un proceso QEMU activo. Iniciarla de nuevo puede corromper el disco (dos procesos escribiendo el mismo archivo) o chocar con los sockets ya en uso.
 
 Detén la VM actual antes de volver a iniciarla.</source>
-        <translation>&apos;{0}&apos; hat bereits einen aktiven QEMU-Prozess. Ein erneuter Start kann die Festplatte beschädigen (zwei Prozesse schreiben dieselbe Datei) oder mit den belegten Sockets kollidieren.
+        <translation>'{0}' hat bereits einen aktiven QEMU-Prozess. Ein erneuter Start kann die Festplatte beschädigen (zwei Prozesse schreiben dieselbe Datei) oder mit den belegten Sockets kollidieren.
 
 Stoppe die aktuelle VM, bevor du sie neu startest.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="372"/>
         <source>No se puede iniciar la VM</source>
         <translation>VM kann nicht gestartet werden</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="372"/>
         <source>Falta QEMU en el sistema. Instala qemu-system-x86 y vuelve a intentarlo.</source>
         <translation>QEMU fehlt auf dem System. Installiere qemu-system-x86 und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="376"/>
         <source>Revisión previa</source>
         <translation>Vorabprüfung</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="376"/>
         <source>¿Deseas continuar de todos modos?</source>
         <translation>Trotzdem fortfahren?</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="432"/>
-        <location filename="../install_flow_mixin.py" line="429"/>
         <source>Configuración incompatible</source>
         <translation>Inkompatible Konfiguration</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="429"/>
         <source>Secure Boot requiere UEFI (OVMF).</source>
         <translation>Secure Boot erfordert UEFI (OVMF).</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="432"/>
         <source>El TPM 2.0 no se aplica al flujo actual de macOS/OSX-KVM.</source>
         <translation>TPM 2.0 gilt nicht für den aktuellen macOS/OSX-KVM-Workflow.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="451"/>
         <source>Dependencias faltantes</source>
         <translation>Fehlende Abhängigkeiten</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="452"/>
         <source>No se pudieron preparar automáticamente las dependencias necesarias.
 
 {0}</source>
@@ -7686,12 +7641,10 @@ Stoppe die aktuelle VM, bevor du sie neu startest.</translation>
 {0}</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="487"/>
         <source>System Recovery de macOS</source>
         <translation>macOS System Recovery</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="488"/>
         <source>No se pudo preparar System Recovery antes de iniciar la VM.
 
 {0}</source>
@@ -7700,43 +7653,36 @@ Stoppe die aktuelle VM, bevor du sie neu startest.</translation>
 {0}</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="567"/>
         <source>Disco existente con otra configuración</source>
         <translation>Vorhandene Festplatte mit anderer Konfiguration</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="568"/>
-        <source>Ya existe un disco para &apos;{0}&apos; con {1} / {2} / {3}, distinto a lo solicitado ({4} / {5} / {6}).
+        <source>Ya existe un disco para '{0}' con {1} / {2} / {3}, distinto a lo solicitado ({4} / {5} / {6}).
 
 ¿Desea eliminarlo y crear uno nuevo con los parámetros actuales?
-(&quot;No&quot; conserva el disco existente tal como está.)</source>
-        <translation>Es existiert bereits eine Festplatte für &apos;{0}&apos; mit {1} / {2} / {3}, abweichend von der angeforderten ({4} / {5} / {6}).
+("No" conserva el disco existente tal como está.)</source>
+        <translation>Es existiert bereits eine Festplatte für '{0}' mit {1} / {2} / {3}, abweichend von der angeforderten ({4} / {5} / {6}).
 
 Möchtest du sie löschen und eine neue mit den aktuellen Parametern erstellen?
-(&quot;Nein&quot; behält die vorhandene Festplatte unverändert.)</translation>
+("Nein" behält die vorhandene Festplatte unverändert.)</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="638"/>
         <source>Error</source>
         <translation>Fehler</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="638"/>
-        <source>No se encuentra la carpeta &apos;OSX-KVM&apos;.</source>
-        <translation>Der Ordner &apos;OSX-KVM&apos; wurde nicht gefunden.</translation>
+        <source>No se encuentra la carpeta 'OSX-KVM'.</source>
+        <translation>Der Ordner 'OSX-KVM' wurde nicht gefunden.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="681"/>
-        <source>Debe indicar una ruta de archivo ISO de Windows válida o seleccionar &apos;Descargar instalador de Windows automáticamente&apos; en CD/DVD.</source>
-        <translation>Du musst einen gültigen Windows-ISO-Dateipfad angeben oder &apos;Windows-Installer automatisch herunterladen&apos; im CD/DVD auswählen.</translation>
+        <source>Debe indicar una ruta de archivo ISO de Windows válida o seleccionar 'Descargar instalador de Windows automáticamente' en CD/DVD.</source>
+        <translation>Du musst einen gültigen Windows-ISO-Dateipfad angeben oder 'Windows-Installer automatisch herunterladen' im CD/DVD auswählen.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="704"/>
         <source>Android</source>
         <translation>Android</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="705"/>
         <source>Debes configurar la ISO de Android-x86 o Bliss OS en Configuración → Almacenamiento → CD / DVD.
 
 Descárgala de:
@@ -7753,22 +7699,18 @@ Lade es herunter von:
 Füge ein CD/DVD-Laufwerk hinzu und wähle «Vorhandenes ISO/IMG/DMG verwenden».</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="749"/>
         <source>Error al guardar configuración</source>
         <translation>Fehler beim Speichern der Konfiguration</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="750"/>
-        <source>No se pudo guardar vm_config.ini para &apos;{0}&apos;: {1}</source>
-        <translation>vm_config.ini konnte für &apos;{0}&apos; nicht gespeichert werden: {1}</translation>
+        <source>No se pudo guardar vm_config.ini para '{0}': {1}</source>
+        <translation>vm_config.ini konnte für '{0}' nicht gespeichert werden: {1}</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="765"/>
         <source>No se puede preparar el passthrough USB</source>
         <translation>USB-Passthrough kann nicht vorbereitet werden</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="766"/>
         <source>La VM no se iniciará hasta resolver el acceso al USB.
 
 {0}
@@ -7781,354 +7723,359 @@ No se debe seleccionar un Root Hub. La memoria USB debe estar desmontada del anf
 Ein Root Hub darf nicht ausgewählt werden. Der USB-Stick muss vom Host ausgehängt werden.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="817"/>
         <source>Cancelando…</source>
         <translation>Wird abgebrochen…</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="823"/>
         <source>Instalador del sistema operativo</source>
         <translation>Betriebssystem-Installer</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="827"/>
         <source>La descarga se realiza dentro de la carpeta de la VM.</source>
         <translation>Der Download erfolgt im VM-Ordner.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="846"/>
         <source>Máquina virtual iniciada.</source>
         <translation>Virtuelle Maschine gestartet.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="848"/>
         <source>Descarga cancelada por el usuario.</source>
         <translation>Download vom Benutzer abgebrochen.</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="850"/>
         <source>QEMU terminó con error. Revisa la consola de progreso.</source>
         <translation>QEMU wurde mit Fehler beendet. Überprüfe die Fortschrittskonsole.</translation>
     </message>
     <message>
-        <location filename="../snapshots_mixin.py" line="876"/>
         <source>Organigrama</source>
         <translation>Baum</translation>
     </message>
     <message>
-        <location filename="../storage_mixin.py" line="985"/>
         <source>Disco</source>
         <translation>Festplatte</translation>
     </message>
     <message>
-        <location filename="../storage_mixin.py" line="987"/>
         <source>FDC</source>
         <translation>FDC</translation>
     </message>
-</context>
-<context>
+<message>
+        <location filename="../install_flow_mixin.py" line="287" />
+        <source>/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.
+
+{0}</source>
+        <translation>/dev/kvm ist nicht verfügbar. Die VM startet mit Software-Emulation (TCG), die 10-100× langsamer als KVM ist.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../install_flow_mixin.py" line="293" />
+        <source>Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).
+
+{0}</source>
+        <translation>Dein Benutzer kann /dev/kvm nicht verwenden (nicht in der Gruppe 'kvm'). Die VM startet mit Software-Emulation (sehr langsam).
+
+{0}</translation>
+    </message>
+    </context><context>
     <name>_CreateMediumDialog</name>
     <message>
-        <location filename="../dialogs.py" line="575"/>
+        <location filename="../dialogs.py" line="575" />
         <source>Crear medio nuevo</source>
         <translation>Neues Medium erstellen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="583"/>
+        <location filename="../dialogs.py" line="583" />
         <source>Ej: disco_ubuntu_datos</source>
         <translation>z. B.: ubuntu_datenplatte</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="584"/>
+        <location filename="../dialogs.py" line="584" />
         <source>Nombre:</source>
         <translation>Name:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="587"/>
+        <location filename="../dialogs.py" line="587" />
         <source>Disco duro QCOW2 (recomendado)</source>
         <translation>QCOW2-Festplatte (empfohlen)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="588"/>
+        <location filename="../dialogs.py" line="588" />
         <source>Disco duro RAW</source>
         <translation>RAW-Festplatte</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="589"/>
+        <location filename="../dialogs.py" line="589" />
         <source>Disquete IMG (RAW)</source>
         <translation>IMG-Diskette (RAW)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="594"/>
+        <location filename="../dialogs.py" line="594" />
         <source>Tipo:</source>
         <translation>Typ:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="599"/>
+        <location filename="../dialogs.py" line="599" />
         <source>Tamaño:</source>
         <translation>Größe:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="611"/>
+        <location filename="../dialogs.py" line="611" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="613"/>
+        <location filename="../dialogs.py" line="613" />
         <source>Crear</source>
         <translation>Erstellen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="630"/>
-        <source>Disquete formateado como RAW. Se registra como tipo &apos;Disquete&apos; en la biblioteca. Tamaños típicos: 720 KB, 1.44 MB, 2.88 MB.</source>
-        <translation>Als RAW formatierte Diskette. Wird als Typ &apos;Diskette&apos; in der Bibliothek registriert. Typische Größen: 720 KB, 1,44 MB, 2,88 MB.</translation>
+        <location filename="../dialogs.py" line="630" />
+        <source>Disquete formateado como RAW. Se registra como tipo 'Disquete' en la biblioteca. Tamaños típicos: 720 KB, 1.44 MB, 2.88 MB.</source>
+        <translation>Als RAW formatierte Diskette. Wird als Typ 'Diskette' in der Bibliothek registriert. Typische Größen: 720 KB, 1,44 MB, 2,88 MB.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="641"/>
+        <location filename="../dialogs.py" line="641" />
         <source>Disco virtual expandible (recomendado). El archivo en el host crece solo según se usa en el guest.</source>
         <translation>Erweiterbare virtuelle Festplatte (empfohlen). Die Datei auf dem Host wächst nur bei Nutzung im Gast.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="646"/>
+        <location filename="../dialogs.py" line="646" />
         <source>Disco RAW (imagen plana). Ocupa el tamaño completo en el host desde el momento de su creación.</source>
         <translation>RAW-Festplatte (flaches Abbild). Belegt die volle Größe auf dem Host ab dem Zeitpunkt der Erstellung.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="655"/>
+        <location filename="../dialogs.py" line="655" />
         <source>Nombre requerido</source>
         <translation>Name erforderlich</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="656"/>
+        <location filename="../dialogs.py" line="656" />
         <source>Escribe un nombre para el medio.</source>
         <translation>Gib einen Namen für das Medium ein.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="660"/>
+        <location filename="../dialogs.py" line="660" />
         <source>Nombre inválido</source>
         <translation>Ungültiger Name</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="661"/>
-        <source>El nombre no puede contener \ / : * ? &quot; &lt; &gt; |</source>
-        <translation>Der Name darf folgende Zeichen nicht enthalten: \ / : * ? &quot; &lt; &gt; |</translation>
+        <location filename="../dialogs.py" line="661" />
+        <source>El nombre no puede contener \ / : * ? " &lt; &gt; |</source>
+        <translation>Der Name darf folgende Zeichen nicht enthalten: \ / : * ? " &lt; &gt; |</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="670"/>
+        <location filename="../dialogs.py" line="670" />
         <source>Tamaño inválido</source>
         <translation>Ungültige Größe</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="671"/>
+        <location filename="../dialogs.py" line="671" />
         <source>Usa un tamaño como 40G, 512M o 1T.</source>
         <translation>Verwende eine Größe wie 40G, 512M oder 1T.</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>_ExportOvfDialog</name>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="57"/>
+        <location filename="../vm_lifecycle_mixin.py" line="57" />
         <source>Exportar como OVF/OVA - {0}</source>
         <translation>Als OVF/OVA exportieren - {0}</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="73"/>
+        <location filename="../vm_lifecycle_mixin.py" line="73" />
         <source>Exporta &lt;b&gt;{0}&lt;/b&gt; como OVA (un solo archivo) o como OVF (carpeta con descriptor + discos sueltos).</source>
         <translation>Exportiert &lt;b&gt;{0}&lt;/b&gt; als OVA (einzelne Datei) oder als OVF (Ordner mit Deskriptor + losen Festplatten).</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="80"/>
+        <location filename="../vm_lifecycle_mixin.py" line="80" />
         <source>Formato del disco</source>
         <translation>Festplattenformat</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="84"/>
+        <location filename="../vm_lifecycle_mixin.py" line="84" />
         <source>QCOW2 (recomendado) - instantaneo y comprimido</source>
         <translation>QCOW2 (empfohlen) - sofort und komprimiert</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="87"/>
+        <location filename="../vm_lifecycle_mixin.py" line="87" />
         <source>El disco se aplana (descartando snapshots internos) y se comprime con zlib. Ideal para reimportar en esta misma app.</source>
         <translation>Die Festplatte wird vereinfacht (interne Snapshots werden verworfen) und mit zlib komprimiert. Ideal zur Reimportierung in dieselbe App.</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="94"/>
+        <location filename="../vm_lifecycle_mixin.py" line="94" />
         <source>VMDK stream-optimized - maxima compatibilidad con VirtualBox/VMware</source>
         <translation>VMDK stream-optimized - maximale Kompatibilität mit VirtualBox/VMware</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="96"/>
+        <location filename="../vm_lifecycle_mixin.py" line="96" />
         <source>Requiere conversion previa con qemu-img. Tarda mas y necesita espacio temporal. VMDK stream-optimized ya descarta snapshots.</source>
         <translation>Erfordert vorherige Konvertierung mit qemu-img. Dauert länger und benötigt temporären Speicher. VMDK stream-optimized verwirft Snapshots ohnehin.</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="118"/>
+        <location filename="../vm_lifecycle_mixin.py" line="118" />
         <source>Opciones adicionales</source>
         <translation>Zusätzliche Optionen</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="123"/>
+        <location filename="../vm_lifecycle_mixin.py" line="123" />
         <source>Incluir medio de instalacion (BaseSystem.img)</source>
         <translation>Installationsmedium einschließen (BaseSystem.img)</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="126"/>
+        <location filename="../vm_lifecycle_mixin.py" line="126" />
         <source>Incluir archivos ISO en el OVA</source>
         <translation>ISO-Dateien in das OVA einschließen</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="139"/>
+        <location filename="../vm_lifecycle_mixin.py" line="139" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="142"/>
+        <location filename="../vm_lifecycle_mixin.py" line="142" />
         <source>Exportar</source>
         <translation>Exportieren</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="150"/>
+        <location filename="../vm_lifecycle_mixin.py" line="150" />
         <source>El disco se convertira a &lt;b&gt;VMDK stream-optimized&lt;/b&gt;. Este formato ya descarta los snapshots internos.</source>
         <translation>Die Festplatte wird in &lt;b&gt;VMDK stream-optimized&lt;/b&gt; konvertiert. Dieses Format verwirft interne Snapshots ohnehin.</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="155"/>
+        <location filename="../vm_lifecycle_mixin.py" line="155" />
         <source>Los discos QCOW2 se &lt;b&gt;aplanan y comprimen&lt;/b&gt; automaticamente al exportar: se descartan los snapshots internos y se aplica compresion zlib. Reduce el OVA entre un 40% y un 60%.</source>
         <translation>QCOW2-Festplatten werden beim Export automatisch &lt;b&gt;vereinfacht und komprimiert&lt;/b&gt;: interne Snapshots werden verworfen und zlib-Kompression wird angewendet. Reduziert das OVA um 40% bis 60%.</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>_OvfImportPreviewDialog</name>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="183"/>
+        <location filename="../vm_lifecycle_mixin.py" line="183" />
         <source>Importar OVF/OVA</source>
         <translation>OVF/OVA importieren</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="197"/>
+        <location filename="../vm_lifecycle_mixin.py" line="197" />
         <source>Se ha leído el descriptor OVF. Revisa los datos detectados y corrige lo que haga falta antes de importar.&lt;br&gt;&lt;br&gt;&lt;i&gt;El sistema operativo detectado puede ser ambiguo: ajústalo si el original no coincide.&lt;/i&gt;</source>
         <translation>Der OVF-Deskriptor wurde gelesen. Überprüfe die erkannten Daten und korrigiere, was nötig ist, bevor du importierst.&lt;br&gt;&lt;br&gt;&lt;i&gt;Das erkannte Betriebssystem kann mehrdeutig sein: Passe es an, wenn das Original nicht übereinstimmt.&lt;/i&gt;</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="213"/>
+        <location filename="../vm_lifecycle_mixin.py" line="213" />
         <source>(desconocido)</source>
         <translation>(unbekannt)</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="221"/>
+        <location filename="../vm_lifecycle_mixin.py" line="221" />
         <source>(sin nombre)</source>
         <translation>(ohne Namen)</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="224"/>
+        <location filename="../vm_lifecycle_mixin.py" line="224" />
         <source>(sin discos)</source>
         <translation>(ohne Festplatten)</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="226"/>
+        <location filename="../vm_lifecycle_mixin.py" line="226" />
         <source>&lt;b&gt;Detectado en el OVF:&lt;/b&gt;&lt;br&gt;SO: {0} {1}&lt;br&gt;CPUs: {2} &amp;nbsp; RAM: {3} MB&lt;br&gt;Discos: {4} — {5}</source>
         <translation>&lt;b&gt;Im OVF erkannt:&lt;/b&gt;&lt;br&gt;OS: {0} {1}&lt;br&gt;CPUs: {2} &amp;nbsp; RAM: {3} MB&lt;br&gt;Festplatten: {4} — {5}</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="240"/>
+        <location filename="../vm_lifecycle_mixin.py" line="240" />
         <source>Nombre de la VM:</source>
         <translation>VM-Name:</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="243"/>
+        <location filename="../vm_lifecycle_mixin.py" line="243" />
         <source>GNU / Linux</source>
         <translation>GNU / Linux</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="244"/>
+        <location filename="../vm_lifecycle_mixin.py" line="244" />
         <source>Microsoft Windows</source>
         <translation>Microsoft Windows</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="245"/>
+        <location filename="../vm_lifecycle_mixin.py" line="245" />
         <source>macOS</source>
         <translation>macOS</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="246"/>
+        <location filename="../vm_lifecycle_mixin.py" line="246" />
         <source>Android (Android-x86 / Bliss OS)</source>
         <translation>Android (Android-x86 / Bliss OS)</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="251"/>
+        <location filename="../vm_lifecycle_mixin.py" line="251" />
         <source>Plataforma:</source>
         <translation>Plattform:</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="253"/>
+        <location filename="../vm_lifecycle_mixin.py" line="253" />
         <source>Distribución / versión:</source>
         <translation>Distribution / Version:</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="259"/>
+        <location filename="../vm_lifecycle_mixin.py" line="259" />
         <source>Importar solo la configuración (sin copiar los discos)</source>
         <translation>Nur die Konfiguration importieren (ohne Festplatten zu kopieren)</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="261"/>
+        <location filename="../vm_lifecycle_mixin.py" line="261" />
         <source>Si está marcado, se importan solo los datos del descriptor (CPU, RAM, red, sistema operativo) y NO se convierten ni copian los discos. Útil para reutilizar una configuración sin duplicar gigabytes de disco.</source>
         <translation>Wenn aktiviert, werden nur die Daten des Deskriptors importiert (CPU, RAM, Netzwerk, Betriebssystem) und die Festplatten werden NICHT konvertiert oder kopiert. Nützlich, um eine Konfiguration wiederzuverwenden, ohne Gigabytes an Festplatte zu duplizieren.</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="274"/>
+        <location filename="../vm_lifecycle_mixin.py" line="274" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="276"/>
+        <location filename="../vm_lifecycle_mixin.py" line="276" />
         <source>Importar</source>
         <translation>Importieren</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="290"/>
+        <location filename="../vm_lifecycle_mixin.py" line="290" />
         <source>Distribución:</source>
         <translation>Distribution:</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="306"/>
+        <location filename="../vm_lifecycle_mixin.py" line="306" />
         <source>Versión de Windows:</source>
         <translation>Windows-Version:</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="315"/>
+        <location filename="../vm_lifecycle_mixin.py" line="315" />
         <source>Versión de macOS:</source>
         <translation>macOS-Version:</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="327"/>
+        <location filename="../vm_lifecycle_mixin.py" line="327" />
         <source>Distribución Android:</source>
         <translation>Android-Distribution:</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="335"/>
+        <location filename="../vm_lifecycle_mixin.py" line="335" />
         <source>Nombre inválido</source>
         <translation>Ungültiger Name</translation>
     </message>
     <message>
-        <location filename="../vm_lifecycle_mixin.py" line="336"/>
+        <location filename="../vm_lifecycle_mixin.py" line="336" />
         <source>Debes escribir un nombre para la VM importada.</source>
         <translation>Du musst einen Namen für die importierte VM eingeben.</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>_ShortcutCaptureDialog</name>
     <message>
-        <location filename="../shortcuts_mixin.py" line="335"/>
+        <location filename="../shortcuts_mixin.py" line="335" />
         <source>Pulsa la nueva combinacion</source>
         <translation>Neue Kombination drücken</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="342"/>
+        <location filename="../shortcuts_mixin.py" line="342" />
         <source>&lt;b&gt;Pulsa la combinacion de teclas que quieras asignar.&lt;/b&gt;</source>
         <translation>&lt;b&gt;Drücke die Tastenkombination, die du zuweisen möchtest.&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="348"/>
+        <location filename="../shortcuts_mixin.py" line="348" />
         <source>Esperando pulsacion...
 
 Escape cancela. Supr o Retroceso deshabilita el atajo.</source>
@@ -8137,17 +8084,17 @@ Escape cancela. Supr o Retroceso deshabilita el atajo.</source>
 Escape bricht ab. Entf oder Rücktaste deaktiviert das Tastenkürzel.</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="362"/>
+        <location filename="../shortcuts_mixin.py" line="362" />
         <source>Atajo actual: &lt;b&gt;{0}&lt;/b&gt;</source>
         <translation>Aktuelles Tastenkürzel: &lt;b&gt;{0}&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="362"/>
+        <location filename="../shortcuts_mixin.py" line="362" />
         <source>(sin atajo)</source>
         <translation>(kein Tastenkürzel)</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="394"/>
+        <location filename="../shortcuts_mixin.py" line="394" />
         <source>Solo has pulsado un modificador. Anade una tecla normal.
 
 Escape cancela. Supr o Retroceso deshabilita el atajo.</source>
@@ -8155,16 +8102,15 @@ Escape cancela. Supr o Retroceso deshabilita el atajo.</source>
 
 Escape bricht ab. Entf oder Rücktaste deaktiviert das Tastenkürzel.</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>_ShortcutsDialog</name>
     <message>
-        <location filename="../shortcuts_mixin.py" line="209"/>
+        <location filename="../shortcuts_mixin.py" line="209" />
         <source>Configurar atajos de teclado</source>
         <translation>Tastenkürzel konfigurieren</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="219"/>
+        <location filename="../shortcuts_mixin.py" line="219" />
         <source>Haz clic en &lt;b&gt;Cambiar...&lt;/b&gt; para capturar una nueva
 combinacion de teclas. Pulsa &lt;b&gt;Escape&lt;/b&gt; durante la
 captura para cancelarla. Usa &lt;b&gt;Supr&lt;/b&gt; o &lt;b&gt;Retroceso&lt;/b&gt;
@@ -8175,37 +8121,37 @@ um sie abzubrechen. Verwende &lt;b&gt;Entf&lt;/b&gt; oder &lt;b&gt;Rücktaste&lt
 um ein Tastenkürzel zu deaktivieren.</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="229"/>
+        <location filename="../shortcuts_mixin.py" line="229" />
         <source>Accion</source>
         <translation>Aktion</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="229"/>
+        <location filename="../shortcuts_mixin.py" line="229" />
         <source>Atajo</source>
         <translation>Tastenkürzel</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="248"/>
+        <location filename="../shortcuts_mixin.py" line="248" />
         <source>Cambiar...</source>
         <translation>Ändern...</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="255"/>
+        <location filename="../shortcuts_mixin.py" line="255" />
         <source>Restaurar todos por defecto</source>
         <translation>Alle auf Standard zurücksetzen</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="272"/>
+        <location filename="../shortcuts_mixin.py" line="272" />
         <source>(sin atajo)</source>
         <translation>(kein Tastenkürzel)</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="301"/>
+        <location filename="../shortcuts_mixin.py" line="301" />
         <source>Conflicto de atajos</source>
         <translation>Tastenkürzel-Konflikt</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="302"/>
+        <location filename="../shortcuts_mixin.py" line="302" />
         <source>El atajo {0} ya esta asignado a:
 
   {1}
@@ -8218,14 +8164,13 @@ Elige otro o cambia primero el otro atajo.</source>
 Wähle ein anderes oder ändere zuerst das andere Tastenkürzel.</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="314"/>
+        <location filename="../shortcuts_mixin.py" line="314" />
         <source>Restaurar atajos</source>
         <translation>Tastenkürzel zurücksetzen</translation>
     </message>
     <message>
-        <location filename="../shortcuts_mixin.py" line="315"/>
+        <location filename="../shortcuts_mixin.py" line="315" />
         <source>¿Restaurar los cuatro atajos a sus valores por defecto?</source>
         <translation>Alle vier Tastenkürzel auf ihre Standardwerte zurücksetzen?</translation>
     </message>
-</context>
-</TS>
+</context></TS>

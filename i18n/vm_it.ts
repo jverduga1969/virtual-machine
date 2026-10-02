@@ -7750,6 +7750,22 @@ Nota: l'host deve consentire l'accesso a /dev/bus/usb e il dispositivo non dovre
         <source>⚠️ Android-x86 9.0 (kernel 4.9) no incluye driver VirtIO-GPU y cae a un shell de rescate con 'Detecting Android-x86…'. Usa 'Automático' o 'Red Hat QXL 2D'. Las ISOs con kernel 5.10+ o Bliss OS 15+ sí soportan VirtIO-GPU.</source>
         <translation>⚠️ Android-x86 9.0 (kernel 4.9) non include il driver VirtIO-GPU e cade in una shell di ripristino con 'Detecting Android-x86…'. Usa 'Automatico' o 'Red Hat QXL 2D'. Le ISO con kernel 5.10+ o Bliss OS 15+ supportano VirtIO-GPU.</translation>
     </message>
+    <message>
+        <source>/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.
+
+{0}</source>
+        <translation>/dev/kvm non è disponibile. La VM si avvierà con emulazione software (TCG), 10-100× più lenta di KVM.
+
+{0}</translation>
+    </message>
+    <message>
+        <source>Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).
+
+{0}</source>
+        <translation>Il tuo utente non può usare /dev/kvm (non è nel gruppo 'kvm'). La VM si avvierà con emulazione software (molto lenta).
+
+{0}</translation>
+    </message>
 </context><context>
     <name>_CreateMediumDialog</name>
     <message>

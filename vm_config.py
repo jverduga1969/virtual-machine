@@ -81,6 +81,59 @@ def _resolve_osx_kvm_dir() -> str:
 OSX_KVM_DIR = _resolve_osx_kvm_dir()
 
 
+def get_kvm_status() -> dict:
+    """Devuelve el estado de KVM en el host.
+
+    Marcador: kvm_preflight_v1.
+
+    Devuelve un dict:
+      - device_exists     : /dev/kvm existe
+      - device_accessible : el usuario puede leer y escribir en /dev/kvm
+      - user_in_group     : el usuario pertenece al grupo 'kvm'
+      - reason            : "ok" | "no_device" | "no_permission"
+      - hint              : texto de ayuda a mostrar al usuario
+    """
+    import grp
+
+    status = {
+        "device_exists": os.path.exists("/dev/kvm"),
+        "device_accessible": False,
+        "user_in_group": False,
+        "reason": "ok",
+        "hint": "",
+    }
+
+    if not status["device_exists"]:
+        status["reason"] = "no_device"
+        status["hint"] = (
+            "El modulo del kernel KVM no esta cargado. Prueba:\n"
+            "  sudo modprobe kvm_intel    # CPUs Intel\n"
+            "  sudo modprobe kvm_amd      # CPUs AMD\n"
+            "\n"
+            "Si falla, revisa que VT-x/AMD-V este activado en la BIOS/UEFI."
+        )
+        return status
+
+    if os.access("/dev/kvm", os.R_OK | os.W_OK):
+        status["device_accessible"] = True
+
+    try:
+        kvm_gid = grp.getgrnam("kvm").gr_gid
+        status["user_in_group"] = kvm_gid in os.getgroups()
+    except KeyError:
+        pass
+
+    if not status["device_accessible"]:
+        status["reason"] = "no_permission"
+        status["hint"] = (
+            "Tu usuario no esta en el grupo 'kvm'. Arreglo (requiere cerrar "
+            "sesion despues):\n"
+            "  sudo usermod -aG kvm $USER"
+        )
+
+    return status
+
+
 def legacy_base_vm_dir_warning():
     """Aviso si detectamos VMs en un VirtualMachines/ heredado del cwd.
 

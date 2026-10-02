@@ -280,10 +280,20 @@ class InstallFlowMixin:
         qemu = shutil.which("qemu-system-x86_64")
         if not qemu:
             problems.append(self.tr("No se encontró qemu-system-x86_64 en PATH. Ejecuta ./run.sh (instala las dependencias de sistema) o instala qemu-system-x86 / qemu-kvm."))
-        if not os.path.exists("/dev/kvm"):
-            problems.append(self.tr("/dev/kvm no está disponible; QEMU podría funcionar sin aceleración KVM."))
-        elif not os.access("/dev/kvm", os.R_OK | os.W_OK):
-            problems.append(self.tr("El usuario no tiene permisos de lectura/escritura sobre /dev/kvm."))
+        # kvm_preflight_v1: aviso claro con la solucion concreta.
+        _kvm = vm_config.get_kvm_status()
+        if _kvm["reason"] == "no_device":
+            problems.append(
+                self.tr("/dev/kvm no está disponible. La VM arrancará con "
+                        "emulación por software (TCG), que es 10-100× más lenta "
+                        "que KVM.\n\n{0}").format(_kvm["hint"])
+            )
+        elif _kvm["reason"] == "no_permission":
+            problems.append(
+                self.tr("Tu usuario no puede usar /dev/kvm (no está en el "
+                        "grupo 'kvm'). La VM arrancará con emulación por "
+                        "software (muy lenta).\n\n{0}").format(_kvm["hint"])
+            )
         if os_type != "macos" and getattr(self, "check_secure_boot", None) and self.check_secure_boot.isChecked():
             try:
                 _sb_code, _sb_vars = find_ovmf_files(secure_boot=True)

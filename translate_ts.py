@@ -3001,6 +3001,16 @@ TRANSLATIONS = {
         "Configuration saved. It will be applied on the next boot.",
 
     # i18n_tanda4a6_v1
+
+    # kvm_preflight_v1
+    '/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.\n\n{0}':
+        '/dev/kvm is not available. The VM will boot with software emulation (TCG), which is 10-100× slower than KVM.\n\n{0}',
+    "Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).\n\n{0}":
+        "Your user cannot use /dev/kvm (not in the 'kvm' group). The VM will boot with software emulation (very slow).\n\n{0}",
+
+    # kvm_preflight_v1_fix1
+    'Idioma de la interfaz.':
+        'Interface language.',
 }
 # --------------------------------------------------------------------
 

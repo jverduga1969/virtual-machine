@@ -2729,7 +2729,7 @@ use Escape or F11 inside the guest, do not use it here).</translation>
     <message>
         <location filename="../virtual_machine.py" line="3344" />
         <source>Idioma de la interfaz.</source>
-        <translation type="unfinished" />
+        <translation>Interface language.</translation>
     </message>
     <message>
         <location filename="../virtual_machine.py" line="3399" />
@@ -7748,6 +7748,22 @@ INSTALL-LINUX.SH (with sudo) or INSTALL-WINDOWS.CMD (as Administrator).</transla
     <message>
         <source>Configuración guardada. Se aplicará en el próximo arranque.</source>
         <translation>Configuration saved. It will be applied on the next boot.</translation>
+    </message>
+    <message>
+        <source>/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.
+
+{0}</source>
+        <translation>/dev/kvm is not available. The VM will boot with software emulation (TCG), which is 10-100× slower than KVM.
+
+{0}</translation>
+    </message>
+    <message>
+        <source>Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).
+
+{0}</source>
+        <translation>Your user cannot use /dev/kvm (not in the 'kvm' group). The VM will boot with software emulation (very slow).
+
+{0}</translation>
     </message>
 </context><context>
     <name>_CreateMediumDialog</name>

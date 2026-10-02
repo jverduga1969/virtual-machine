@@ -708,4 +708,14 @@ TRANSLATIONS = {
     # api_mixin.py
     # ================================================================
     "Peticiones recientes": "Richieste recenti",
+
+    # kvm_preflight_v1
+    '/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.\n\n{0}':
+        '/dev/kvm non è disponibile. La VM si avvierà con emulazione software (TCG), 10-100× più lenta di KVM.\n\n{0}',
+    "Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).\n\n{0}":
+        "Il tuo utente non può usare /dev/kvm (non è nel gruppo 'kvm'). La VM si avvierà con emulazione software (molto lenta).\n\n{0}",
+
+    # kvm_preflight_v1_fix1
+    'Idioma de la interfaz.':
+        "Lingua dell'interfaccia.",
 }

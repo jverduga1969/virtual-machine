@@ -307,4 +307,10 @@ TRANSLATIONS = {
     'desde el momento de su creación.':
         'RAW-Festplatte (flaches Abbild). Belegt die volle Größe auf dem Host '
         'ab dem Zeitpunkt der Erstellung.',
+
+    # kvm_preflight_v1
+    '/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.\n\n{0}':
+        '/dev/kvm ist nicht verfügbar. Die VM startet mit Software-Emulation (TCG), die 10-100× langsamer als KVM ist.\n\n{0}',
+    "Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).\n\n{0}":
+        "Dein Benutzer kann /dev/kvm nicht verwenden (nicht in der Gruppe 'kvm'). Die VM startet mit Software-Emulation (sehr langsam).\n\n{0}",
 }
