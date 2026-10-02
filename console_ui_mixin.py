@@ -98,12 +98,12 @@ class ConsoleUiMixin:
 
         # --- Estado de la sesión, con lo que se puede y no se puede hacer ---
         if is_x11:
-            session_line = (
+            session_line = self.tr(
                 "<b>Sesión actual: X11.</b> Tanto VNC como SPICE se pueden "
                 "embeber dentro de la app."
             )
         else:
-            session_line = (
+            session_line = self.tr(
                 "<b>Sesión actual: Wayland.</b> Solo VNC se puede embeber "
                 "dentro de la app. SPICE embebido requeriría X11 (XEmbed no "
                 "existe en Wayland); si eliges SPICE con modo embebido, "
@@ -111,12 +111,12 @@ class ConsoleUiMixin:
             )
 
         if spice_gtk_ok:
-            spice_line = (
+            spice_line = self.tr(
                 "<b>spice-gtk con binding Python: sí.</b> El embed de SPICE "
                 "funcionará cuando estés en X11."
             )
         else:
-            spice_line = (
+            spice_line = self.tr(
                 "<b>spice-gtk con binding Python: no.</b> Aunque estés en "
                 "X11, SPICE no podrá incrustarse; siempre caerá a visor "
                 "externo. Instálalo con:<br>"
@@ -125,7 +125,7 @@ class ConsoleUiMixin:
             )
 
         # --- Pros y contras por protocolo/modo ---
-        vnc_block = (
+        vnc_block = self.tr(
             "<b>VNC</b><br>"
             "<span style='color:#2e7d32;'>✓</span> Compatible con cualquier "
             "gráfico virtual (VirtIO-GPU 2D, QXL, std).<br>"
@@ -144,7 +144,7 @@ class ConsoleUiMixin:
             "intensivo (vídeo, animaciones, 3D)."
         )
 
-        spice_block = (
+        spice_block = self.tr(
             "<b>SPICE</b><br>"
             "<span style='color:#2e7d32;'>✓</span> Mejor rendimiento y "
             "fluidez en local (compresión + streaming de video).<br>"
@@ -163,7 +163,7 @@ class ConsoleUiMixin:
             "Venus (usan OpenGL y obligan a la ventana nativa de QEMU)."
         )
 
-        hybrid_block = (
+        hybrid_block = self.tr(
             "<b>Híbrida (VNC embebido + SPICE externo)</b><br>"
             "<span style='color:#2e7d32;'>✓</span> Lo mejor de ambos: VNC "
             "siempre visible dentro de la app, SPICE para rendimiento y "
@@ -186,7 +186,7 @@ class ConsoleUiMixin:
         )
 
         # --- Nota sobre gráficos (común a todos los modos por socket) ---
-        graphics_block = (
+        graphics_block = self.tr(
             "<b>Gráficos compatibles con VNC / SPICE / Híbrida:</b> "
             "<b>Automático</b>, <b>VirtIO-GPU 2D</b> o <b>QXL</b>.<br>"
             "Con <b>VirGL</b> o <b>Venus</b> seleccionados, QEMU abre su "
@@ -263,18 +263,18 @@ class ConsoleUiMixin:
     def _launch_external_console(self):
         """Lanza el visor externo del protocolo actual (aunque el modo sea embedded)."""
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Consola externa",
-                                    "Selecciona primero una máquina virtual.")
+            QMessageBox.information(self, self.tr("Consola externa"),
+                                    self.tr("Selecciona primero una máquina virtual."))
             return
         protocol, _mode = self._current_console_choice()
         viewer, template = find_viewer(protocol)
         if not viewer:
             QMessageBox.warning(
-                self, "Consola externa",
-                f"No se encontró ningún visor {protocol.upper()} instalado.\n\n"
-                + ("Instala gvncviewer o tigervnc (vncviewer)."
+                self, self.tr("Consola externa"),
+                self.tr("No se encontró ningún visor {0} instalado.\n\n").format(protocol.upper())
+                + (self.tr("Instala gvncviewer o tigervnc (vncviewer).")
                    if protocol == PROTOCOL_VNC
-                   else "Instala spicy (spice-gtk) o remote-viewer (virt-viewer).")
+                   else self.tr("Instala spicy (spice-gtk) o remote-viewer (virt-viewer)."))
             )
             return
 
@@ -286,10 +286,10 @@ class ConsoleUiMixin:
                 spice_port = self._spice_port_from_runtime()
             if spice_port is None:
                 QMessageBox.information(
-                    self, "Consola externa",
-                    "Todavía no puedo determinar el puerto SPICE de esta VM.\n\n"
-                    "La VM debe estar corriendo para que QEMU haya elegido un\n"
-                    "puerto."
+                    self, self.tr("Consola externa"),
+                    self.tr("Todavía no puedo determinar el puerto SPICE de esta VM.\n\n"
+                            "La VM debe estar corriendo para que QEMU haya elegido un\n"
+                            "puerto.")
                 )
                 return
             sock = f"spice://127.0.0.1:{spice_port}"
@@ -297,9 +297,9 @@ class ConsoleUiMixin:
             sock = _cb_socket_path(self.current_vm_dir, protocol)
             if not os.path.exists(sock):
                 QMessageBox.information(
-                    self, "Consola externa",
-                    f"El socket {protocol.upper()} todavía no existe.\n\n"
-                    "La VM debe estar corriendo con ese protocolo seleccionado."
+                    self, self.tr("Consola externa"),
+                    self.tr("El socket {0} todavía no existe.\n\n"
+                            "La VM debe estar corriendo con ese protocolo seleccionado.").format(protocol.upper())
                 )
                 return
 
@@ -316,5 +316,5 @@ class ConsoleUiMixin:
                       start_new_session=True)
             self.log_message(f"==> Visor externo lanzado: {' '.join(args)}")
         except Exception as e:
-            QMessageBox.warning(self, "Consola externa",
+            QMessageBox.warning(self, self.tr("Consola externa"),
                                 f"No se pudo lanzar el visor:\n\n{e}")

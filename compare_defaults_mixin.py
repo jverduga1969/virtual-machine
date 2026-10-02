@@ -31,8 +31,8 @@ class CompareDefaultsMixin:
         """Abre el diálogo comparativo para la VM seleccionada."""
         if not self._vm_is_selected():
             QMessageBox.information(
-                self, "Comparar con defaults",
-                "Selecciona primero una máquina virtual.",
+                self, self.tr("Comparar con defaults"),
+                self.tr("Selecciona primero una máquina virtual."),
             )
             return
 
@@ -40,8 +40,8 @@ class CompareDefaultsMixin:
         rows = self._compare_rows(profile)
         if not rows:
             QMessageBox.information(
-                self, "Comparar con defaults",
-                "No se pudo determinar el perfil del SO seleccionado.",
+                self, self.tr("Comparar con defaults"),
+                self.tr("No se pudo determinar el perfil del SO seleccionado."),
             )
             return
         self._show_compare_dialog(rows)
@@ -153,8 +153,8 @@ class CompareDefaultsMixin:
                 "widget": w,
                 "kind": "bool",
                 "default": bool(default_val),
-                "current_text": "Sí" if cur else "No",
-                "default_text": "Sí" if bool(default_val) else "No",
+                "current_text": self.tr("Sí") if cur else self.tr("No"),
+                "default_text": self.tr("Sí") if bool(default_val) else self.tr("No"),
                 "differs": (cur != bool(default_val)),
             })
 
@@ -169,27 +169,27 @@ class CompareDefaultsMixin:
         )
 
         # --- Filas, en orden lógico ---
-        _add_combo("Firmware", "combo_firmware",
+        _add_combo(self.tr("Firmware"), "combo_firmware",
                    profile.get("firmware", "bios"))
-        _add_combo("Chipset", "combo_chipset",
+        _add_combo(self.tr("Chipset"), "combo_chipset",
                    profile.get("chipset", "q35"))
-        _add_combo("CPU (modelo)", "combo_cpu_model", "auto")
-        _add_int("Núcleos", "slider_cores",
-                 self._default_cores(), "núcleos")
+        _add_combo(self.tr("CPU (modelo)"), "combo_cpu_model", "auto")
+        _add_int(self.tr("Núcleos"), "slider_cores",
+                 self._default_cores(), self.tr("núcleos"))
         _add_int("RAM", "slider_ram",
                  self._default_ram_gb(), "GB")
-        _add_bool("Secure Boot", "check_secure_boot",
+        _add_bool(self.tr("Secure Boot"), "check_secure_boot",
                   bool(profile.get("secure_boot", False) or is_win11))
-        _add_bool("TPM 2.0", "check_tpm",
+        _add_bool(self.tr("TPM 2.0"), "check_tpm",
                   bool(profile.get("tpm", False) or is_win11))
-        _add_combo("Gráficos", "combo_graphics", "auto")
-        _add_combo("VRAM", "combo_graphics_vram", "256M")
-        _add_combo("Audio", "combo_audio", "intel-hda")
-        _add_combo("Señalización (ratón/teclado)",
+        _add_combo(self.tr("Gráficos"), "combo_graphics", "auto")
+        _add_combo(self.tr("VRAM"), "combo_graphics_vram", "256M")
+        _add_combo(self.tr("Audio"), "combo_audio", "intel-hda")
+        _add_combo(self.tr("Señalización (ratón/teclado)"),
                    "combo_pointer", "auto")
-        _add_combo("Consola: protocolo",
+        _add_combo(self.tr("Consola: protocolo"),
                    "combo_console_protocol", "vnc")
-        _add_combo("Consola: modo",
+        _add_combo(self.tr("Consola: modo"),
                    "combo_console_mode", "embedded")
         return rows
 
@@ -230,7 +230,7 @@ class CompareDefaultsMixin:
                 unit = row.get("unit", "")
                 return f"{int(w.value())} {unit}".strip()
             if kind == "bool":
-                return "Sí" if w.isChecked() else "No"
+                return self.tr("Sí") if w.isChecked() else self.tr("No")
         except Exception:
             pass
         return ""
@@ -261,24 +261,24 @@ class CompareDefaultsMixin:
             vm_name = "—"
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("Comparar con defaults")
+        dlg.setWindowTitle(self.tr("Comparar con defaults"))
         dlg.resize(820, 580)
         layout = QVBoxLayout(dlg)
 
         info = QLabel(
-            f"Comparación de <b>{vm_name}</b> con los valores por defecto "
-            "del perfil del SO seleccionado. Las filas con fondo amarillo "
-            "difieren del default.<br><br>"
-            "Aplicar un default <b>no</b> guarda la VM: solo cambia el "
-            "widget. Persiste con <b>Guardar</b> (en Configuración) o al "
-            "iniciar la VM."
+            self.tr("Comparación de <b>{0}</b> con los valores por defecto "
+                    "del perfil del SO seleccionado. Las filas con fondo amarillo "
+                    "difieren del default.<br><br>"
+                    "Aplicar un default <b>no</b> guarda la VM: solo cambia el "
+                    "widget. Persiste con <b>Guardar</b> (en Configuración) o al "
+                    "iniciar la VM.").format(vm_name)
         )
         info.setWordWrap(True)
         info.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(info)
 
         tree = QTreeWidget()
-        tree.setHeaderLabels(["Campo", "Actual", "Por defecto"])
+        tree.setHeaderLabels([self.tr("Campo"), self.tr("Actual"), self.tr("Por defecto")])
         tree.setRootIsDecorated(False)
         tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         tree.setAlternatingRowColors(False)
@@ -327,22 +327,22 @@ class CompareDefaultsMixin:
                     it.setFont(2, QFont())
             n = sum(1 for _, r in items if r["differs"])
             summary.setText(
-                f"<b>{n}</b> diferencia(s) de <b>{len(items)}</b> campo(s)."
+                self.tr("<b>{0}</b> diferencia(s) de <b>{1}</b> campo(s).").format(n, len(items))
             )
 
         _refresh()
 
         btns = QHBoxLayout()
-        btn_apply_sel = QPushButton("Aplicar al campo seleccionado")
-        btn_apply_all = QPushButton("Aplicar todos los defaults")
-        btn_close = QPushButton("Cerrar")
+        btn_apply_sel = QPushButton(self.tr("Aplicar al campo seleccionado"))
+        btn_apply_all = QPushButton(self.tr("Aplicar todos los defaults"))
+        btn_close = QPushButton(self.tr("Cerrar"))
 
         def _apply_selected():
             sel = tree.selectedItems()
             if not sel:
                 QMessageBox.information(
-                    dlg, "Aplicar",
-                    "Selecciona primero una fila.",
+                    dlg, self.tr("Aplicar"),
+                    self.tr("Selecciona primero una fila."),
                 )
                 return
             for it, row in items:
@@ -360,8 +360,7 @@ class CompareDefaultsMixin:
             _refresh()
             try:
                 self.log_message(
-                    f"==> Comparar defaults: aplicados {n} campo(s) a "
-                    f"'{vm_name}'."
+                    self.tr("==> Comparar defaults: aplicados {0} campo(s) a '{1}'.").format(n, vm_name)
                 )
             except Exception:
                 pass

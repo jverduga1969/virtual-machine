@@ -126,7 +126,7 @@ class MediaLibraryMixin:
         parent_layout.setSpacing(10)
 
         # --- Cabecera: titulo + resumen ---
-        hdr = QLabel(
+        hdr = QLabel(self.tr(
             "<b>Biblioteca de Medios</b><br>"
             "<span style='color:#666;font-size:11px;'>"
             "Todas las ISOs / IMGs / DMGs que usas con tus VMs, en un "
@@ -134,7 +134,7 @@ class MediaLibraryMixin:
             "nivel que <code>VirtualMachines/</code>) y se reutilizan "
             "entre maquinas."
             "</span>"
-        )
+        ))
         hdr.setWordWrap(True)
         parent_layout.addWidget(hdr)
 
@@ -143,50 +143,64 @@ class MediaLibraryMixin:
         filt.setSpacing(6)
 
         self.media_search = QLineEdit()
-        self.media_search.setPlaceholderText("Buscar por nombre, distro, tag...")
+        self.media_search.setPlaceholderText(self.tr("Buscar por nombre, distro, tag..."))
         self.media_search.setMinimumWidth(220)
         self.media_search.textChanged.connect(self._on_media_search_changed)
         filt.addWidget(self.media_search, 1)
 
-        filt.addWidget(QLabel("SO:"))
+        filt.addWidget(QLabel(self.tr("SO:")))
         self.media_filter_os = QComboBox()
+        _os_labels_tr = {
+            "Todos": self.tr("Todos"),
+            "Guest Tools": self.tr("Guest Tools"),
+            "Otros": self.tr("Otros"),
+        }
         for label, value in _MEDIA_OS_LABELS:
-            self.media_filter_os.addItem(label, value)
+            self.media_filter_os.addItem(_os_labels_tr.get(label, label), value)
         self.media_filter_os.currentIndexChanged.connect(self._on_media_filter_changed)
         filt.addWidget(self.media_filter_os)
 
-        filt.addWidget(QLabel("Arq.:"))
+        filt.addWidget(QLabel(self.tr("Arq.:")))
         self.media_filter_arch = QComboBox()
+        _arch_labels_tr = {
+            "Todas": self.tr("Todas"),
+            "Universal": self.tr("Universal"),
+            "Sin especificar": self.tr("Sin especificar"),
+        }
         for label, value in _MEDIA_ARCH_LABELS:
-            self.media_filter_arch.addItem(label, value)
+            self.media_filter_arch.addItem(_arch_labels_tr.get(label, label), value)
         self.media_filter_arch.currentIndexChanged.connect(self._on_media_filter_changed)
         filt.addWidget(self.media_filter_arch)
 
-        filt.addWidget(QLabel("Formato:"))
+        filt.addWidget(QLabel(self.tr("Formato:")))
         self.media_filter_kind = QComboBox()
+        _kind_labels_tr = {
+            "Todos": self.tr("Todos"),
+            "Otros": self.tr("Otros"),
+        }
         for label, value in _MEDIA_KIND_LABELS:
-            self.media_filter_kind.addItem(label, value)
+            self.media_filter_kind.addItem(_kind_labels_tr.get(label, label), value)
         self.media_filter_kind.currentIndexChanged.connect(self._on_media_filter_changed)
         filt.addWidget(self.media_filter_kind)
 
         # media_library_type_column_v1: filtro por tipo de medio.
-        filt.addWidget(QLabel("Tipo:"))
+        filt.addWidget(QLabel(self.tr("Tipo:")))
         self.media_filter_type = QComboBox()
-        self.media_filter_type.addItem("Todos", "")
-        self.media_filter_type.addItem("Disco duro", "disk")
-        self.media_filter_type.addItem("ISO", "iso")
-        self.media_filter_type.addItem("Disquete", "floppy")
-        self.media_filter_type.addItem("Otro", "other")
+        self.media_filter_type.addItem(self.tr("Todos"), "")
+        self.media_filter_type.addItem(self.tr("Disco duro"), "disk")
+        self.media_filter_type.addItem(self.tr("ISO"), "iso")
+        self.media_filter_type.addItem(self.tr("Disquete"), "floppy")
+        self.media_filter_type.addItem(self.tr("Otro"), "other")
         self.media_filter_type.currentIndexChanged.connect(self._on_media_filter_changed)
         filt.addWidget(self.media_filter_type)
 
         # media_library_ui_vm_scan_v1: filtro por origen.
-        filt.addWidget(QLabel("Origen:"))
+        filt.addWidget(QLabel(self.tr("Origen:")))
         self.media_filter_origin = QComboBox()
-        self.media_filter_origin.addItem("Todos", "")
-        self.media_filter_origin.addItem("Manuales", "manual")
-        self.media_filter_origin.addItem("De VMs", "vm")
-        self.media_filter_origin.addItem("Huerfanas de VM", "vm_orphan")
+        self.media_filter_origin.addItem(self.tr("Todos"), "")
+        self.media_filter_origin.addItem(self.tr("Manuales"), "manual")
+        self.media_filter_origin.addItem(self.tr("De VMs"), "vm")
+        self.media_filter_origin.addItem(self.tr("Huerfanas de VM"), "vm_orphan")
         self.media_filter_origin.currentIndexChanged.connect(
             self._on_media_filter_changed
         )
@@ -198,31 +212,31 @@ class MediaLibraryMixin:
         acts = QHBoxLayout()
         acts.setSpacing(6)
 
-        self.btn_media_add = QPushButton("Anadir archivo(s)")
+        self.btn_media_add = QPushButton(self.tr("Anadir archivo(s)"))
         self.btn_media_add.setMinimumHeight(30)
         self.btn_media_add.clicked.connect(self.add_media_from_files)
         acts.addWidget(self.btn_media_add)
 
-        self.btn_media_scan = QPushButton("Escanear carpeta")
+        self.btn_media_scan = QPushButton(self.tr("Escanear carpeta"))
         self.btn_media_scan.setMinimumHeight(30)
-        self.btn_media_scan.setToolTip(
+        self.btn_media_scan.setToolTip(self.tr(
             "Busca archivos de medios dentro de MediaLibrary/ que aun no "
             "esten registrados, y detecta entradas huerfanas (archivo "
             "desaparecido del disco)."
-        )
+        ))
         self.btn_media_scan.clicked.connect(self.scan_media_library)
         acts.addWidget(self.btn_media_scan)
 
         # media_library_ui_vm_scan_v1: escaneo de VMs.
-        self.btn_media_scan_vms = QPushButton("\U0001f50e Escanear VMs")
+        self.btn_media_scan_vms = QPushButton(self.tr("\U0001f50e Escanear VMs"))
         self.btn_media_scan_vms.setMinimumHeight(30)
-        self.btn_media_scan_vms.setToolTip(
+        self.btn_media_scan_vms.setToolTip(self.tr(
             "Recorre todas las VMs en VirtualMachines/ y registra sus "
             "discos duros, ISOs y disquetes en la biblioteca.\n\n"
             "La misma ISO usada por varias VMs aparece UNA SOLA VEZ, con "
             "todas las VMs en la columna 'Usada por'. Las entradas que ya "
             "no usa ninguna VM se marcan como huerfanas pero no se borran."
-        )
+        ))
         self.btn_media_scan_vms.clicked.connect(self.scan_media_vms)
         acts.addWidget(self.btn_media_scan_vms)
 
@@ -239,11 +253,13 @@ class MediaLibraryMixin:
         # media_library_sort_v1: "Ruta" pasa al final; la columna
         # "Tamano" sigue en el indice 4 (usado por _MediaTreeItem
         # para ordenar numericamente).
-        self.media_table.setHeaderLabels(
-            ["Nombre", "Tipo", "SO", "Version", "Arq.",
-             "Tamaño real", "Tamaño VM",
-             "Usada por", "Estado", "Ultimo uso", "Ruta"]
-        )
+        self.media_table.setHeaderLabels([
+            self.tr("Nombre"), self.tr("Tipo"), self.tr("SO"),
+            self.tr("Version"), self.tr("Arq."),
+            self.tr("Tamaño real"), self.tr("Tamaño VM"),
+            self.tr("Usada por"), self.tr("Estado"),
+            self.tr("Ultimo uso"), self.tr("Ruta"),
+        ])
         self.media_table.setColumnWidth(0, 200)
         self.media_table.setColumnWidth(1, 100)
         self.media_table.setColumnWidth(2, 65)
@@ -276,29 +292,29 @@ class MediaLibraryMixin:
         acts2.setSpacing(6)
 
         for label, slot, tip in (
-            ("↗ Agrandar", self.enlarge_media_entry,
-             "Aumentar el tamaño virtual de un disco QCOW2/RAW de la\n"
-             "biblioteca. Requiere que ninguna VM lo esté usando en\n"
-             "ese momento. El disco solo puede crecer."),
-            ("🗜 Compactar", self.compact_media_entry,
-             "Reescribe el QCOW2 sin bloques no usados, reduciendo el\n"
-             "archivo en el host. No cambia el tamaño virtual que ve el\n"
-             "sistema invitado."),
-            ("Verificar", self.verify_media_entry,
-             "Comprueba que el archivo exista en disco y, si hay sha256 "
-             "calculado, que coincida."),
-            ("Calcular SHA256", self.compute_media_sha256,
-             "Calcula el sha256 del archivo (tarda segun el tamano). "
-             "Util para detectar duplicados o descargas corruptas."),
-            ("Editar", self.edit_media_metadata,
-             "Edita los metadatos de la entrada: nombre, distro, version, "
-             "arquitectura, notas, tags y color."),
-            ("Eliminar", self.delete_media_entry,
-             "Elimina la entrada del indice. Opcionalmente borra tambien "
-             "el archivo del disco (solo si vive dentro de MediaLibrary/)."),
-            ("Abrir carpeta", self.open_media_folder,
-             "Abre la carpeta que contiene el archivo en el explorador "
-             "del sistema."),
+            (self.tr("↗ Agrandar"), self.enlarge_media_entry,
+             self.tr("Aumentar el tamaño virtual de un disco QCOW2/RAW de la\n"
+                     "biblioteca. Requiere que ninguna VM lo esté usando en\n"
+                     "ese momento. El disco solo puede crecer.")),
+            (self.tr("🗜 Compactar"), self.compact_media_entry,
+             self.tr("Reescribe el QCOW2 sin bloques no usados, reduciendo el\n"
+                     "archivo en el host. No cambia el tamaño virtual que ve el\n"
+                     "sistema invitado.")),
+            (self.tr("Verificar"), self.verify_media_entry,
+             self.tr("Comprueba que el archivo exista en disco y, si hay sha256 "
+                     "calculado, que coincida.")),
+            (self.tr("Calcular SHA256"), self.compute_media_sha256,
+             self.tr("Calcula el sha256 del archivo (tarda segun el tamano). "
+                     "Util para detectar duplicados o descargas corruptas.")),
+            (self.tr("Editar"), self.edit_media_metadata,
+             self.tr("Edita los metadatos de la entrada: nombre, distro, version, "
+                     "arquitectura, notas, tags y color.")),
+            (self.tr("Eliminar"), self.delete_media_entry,
+             self.tr("Elimina la entrada del indice. Opcionalmente borra tambien "
+                     "el archivo del disco (solo si vive dentro de MediaLibrary/).")),
+            (self.tr("Abrir carpeta"), self.open_media_folder,
+             self.tr("Abre la carpeta que contiene el archivo en el explorador "
+                     "del sistema.")),
         ):
             b = QPushButton(label)
             b.setMinimumHeight(28)
@@ -321,29 +337,41 @@ class MediaLibraryMixin:
         meta_lay.setHorizontalSpacing(10)
         meta_lay.setVerticalSpacing(6)
 
-        meta_lay.addWidget(QLabel("<b>Notas:</b>"), 0, 0, Qt.AlignmentFlag.AlignTop)
+        meta_lay.addWidget(QLabel(self.tr("<b>Notas:</b>")), 0, 0, Qt.AlignmentFlag.AlignTop)
         self.media_notes_edit = QPlainTextEdit()
-        self.media_notes_edit.setPlaceholderText(
+        self.media_notes_edit.setPlaceholderText(self.tr(
             "Notas libres sobre esta entrada (uso previsto, si dio "
             "problemas, driver necesario, etc.)"
-        )
+        ))
         self.media_notes_edit.setMaximumHeight(70)
         self.media_notes_edit.textChanged.connect(self._on_media_notes_changed)
         meta_lay.addWidget(self.media_notes_edit, 0, 1, 1, 3)
 
-        meta_lay.addWidget(QLabel("<b>Tags:</b>"), 1, 0)
+        meta_lay.addWidget(QLabel(self.tr("<b>Tags:</b>")), 1, 0)
         self.media_tags_edit = QLineEdit()
-        self.media_tags_edit.setPlaceholderText(
+        self.media_tags_edit.setPlaceholderText(self.tr(
             "Separados por coma (ej.: probado, servidor, rapiro)"
-        )
+        ))
         self.media_tags_edit.editingFinished.connect(self._on_media_tags_changed)
         meta_lay.addWidget(self.media_tags_edit, 1, 1, 1, 3)
 
-        meta_lay.addWidget(QLabel("<b>Color:</b>"), 2, 0)
+        meta_lay.addWidget(QLabel(self.tr("<b>Color:</b>")), 2, 0)
         self.media_color_combo = QComboBox()
-        self.media_color_combo.addItem("(Sin color)", "")
+        self.media_color_combo.addItem(self.tr("(Sin color)"), "")
+        _color_labels_tr = {
+            "Rojo": self.tr("Rojo"),
+            "Naranja": self.tr("Naranja"),
+            "Ambar": self.tr("Ambar"),
+            "Verde": self.tr("Verde"),
+            "Verde azul": self.tr("Verde azul"),
+            "Azul": self.tr("Azul"),
+            "Indigo": self.tr("Indigo"),
+            "Violeta": self.tr("Violeta"),
+            "Rosa": self.tr("Rosa"),
+            "Gris": self.tr("Gris"),
+        }
         for label, hex_c in _MEDIA_COLOR_PALETTE:
-            self.media_color_combo.addItem(label, hex_c)
+            self.media_color_combo.addItem(_color_labels_tr.get(label, label), hex_c)
         self.media_color_combo.currentIndexChanged.connect(
             self._on_media_color_changed
         )
@@ -372,7 +400,9 @@ class MediaLibraryMixin:
         lib = self._media_library_instance()
         if lib is None:
             self.media_table.clear()
-            self.media_count_label.setText("Biblioteca no disponible.")
+            self.media_count_label.setText(
+                self.tr("Biblioteca no disponible.")
+            )
             return
 
         query = (self.media_search.text() or "").strip()
@@ -464,7 +494,13 @@ class MediaLibraryMixin:
             # ("Ruta" al final) + sort key numerico para "Tamano".
             try:
                 import media_library as _ml_mod
-                tipo_txt = _ml_mod.media_type_label(e)
+                _tk = _ml_mod.media_type_key(e)
+                tipo_txt = {
+                    "disk": self.tr("Disco duro"),
+                    "iso": self.tr("ISO"),
+                    "floppy": self.tr("Disquete"),
+                    "other": self.tr("Otro"),
+                }.get(_tk, self.tr("Otro"))
             except Exception:
                 tipo_txt = ""
             # library_sizes_v1: dos columnas de tamaño.
@@ -524,10 +560,12 @@ class MediaLibraryMixin:
             pass
 
         stats = lib.stats()
-        self.media_count_label.setText(
-            f"{len(entries)} entrada(s) mostradas de {stats.get('total', 0)} "
-            f"| Tamano total: {stats.get('size_total_human', '-')}"
-        )
+        self.media_count_label.setText(self.tr(
+            "{0} entrada(s) mostradas de {1} | Tamano total: {2}"
+        ).format(
+            len(entries), stats.get('total', 0),
+            stats.get('size_total_human', '-'),
+        ))
 
         # Restaurar la seleccion si seguia estando.
         if current_id:
@@ -545,9 +583,9 @@ class MediaLibraryMixin:
         except Exception:
             path_abs = ""
         if not path_abs or not os.path.isfile(path_abs):
-            return "huerfano"
+            return self.tr("huerfano")
         if str(entry.get("sha256") or "").strip():
-            return "verificado?"
+            return self.tr("verificado?")
         return "OK"
 
     # ------------------------------------------------------------------
@@ -662,13 +700,14 @@ class MediaLibraryMixin:
     def add_media_from_files(self):
         lib = self._media_library_instance()
         if lib is None:
-            QMessageBox.warning(self, "Biblioteca de Medios",
-                                "La biblioteca no esta disponible.")
+            QMessageBox.warning(self, self.tr("Biblioteca de Medios"),
+                                self.tr("La biblioteca no esta disponible."))
             return
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Anadir archivos a la biblioteca", os.path.expanduser("~"),
-            "Imagenes de disco (*.iso *.img *.dmg *.raw *.qcow2 *.qcow);;"
-            "Todos los archivos (*)",
+            self, self.tr("Anadir archivos a la biblioteca"),
+            os.path.expanduser("~"),
+            self.tr("Imagenes de disco (*.iso *.img *.dmg *.raw *.qcow2 *.qcow);;"
+                    "Todos los archivos (*)"),
         )
         if not paths:
             return
@@ -711,15 +750,15 @@ class MediaLibraryMixin:
         """Recorre VirtualMachines/ y cataloga los medios de cada VM."""
         lib = self._media_library_instance()
         if lib is None:
-            QMessageBox.warning(self, "Biblioteca de Medios",
-                                "La biblioteca no esta disponible.")
+            QMessageBox.warning(self, self.tr("Biblioteca de Medios"),
+                                self.tr("La biblioteca no esta disponible."))
             return
         try:
             res = lib.scan_vms()
         except Exception as e:
             QMessageBox.warning(
-                self, "Escanear VMs",
-                f"No se pudieron escanear las VMs.\n\n{e}"
+                self, self.tr("Escanear VMs"),
+                self.tr("No se pudieron escanear las VMs.\n\n{0}").format(e)
             )
             return
         self.refresh_media_library_table()
@@ -729,30 +768,34 @@ class MediaLibraryMixin:
         huerfanas = res.get("huerfanas_de_vm") or []
         total = int(res.get("total_paths") or 0)
 
-        lines = [f"Archivos unicos encontrados en VMs: {total}."]
+        lines = [self.tr(
+            "Archivos unicos encontrados en VMs: {0}."
+        ).format(total)]
         if nuevas:
-            lines.append(
-                f"- {nuevas} medio(s) nuevo(s) anadido(s) a la biblioteca."
-            )
+            lines.append(self.tr(
+                "- {0} medio(s) nuevo(s) anadido(s) a la biblioteca."
+            ).format(nuevas))
         if actualizadas:
-            lines.append(
-                f"- {actualizadas} entrada(s) actualizada(s) con la "
+            lines.append(self.tr(
+                "- {0} entrada(s) actualizada(s) con la "
                 "lista de VMs que las usan."
-            )
+            ).format(actualizadas))
         if huerfanas:
-            lines.append(
-                f"- {len(huerfanas)} entrada(s) ya no las usa ninguna VM "
+            lines.append(self.tr(
+                "- {0} entrada(s) ya no las usa ninguna VM "
                 "(siguen visibles; filtro Origen = 'Huerfanas de VM')."
-            )
+            ).format(len(huerfanas)))
         if not (nuevas or actualizadas or huerfanas):
-            lines.append("Sin cambios: la biblioteca ya estaba al dia.")
+            lines.append(self.tr(
+                "Sin cambios: la biblioteca ya estaba al dia."
+            ))
 
         try:
             self.log_message("==> Biblioteca: " + " ".join(lines))
         except Exception:
             pass
         QMessageBox.information(
-            self, "Escanear VMs", "\n".join(lines)
+            self, self.tr("Escanear VMs"), "\n".join(lines)
         )
 
     def scan_media_library(self):
@@ -762,36 +805,43 @@ class MediaLibraryMixin:
         try:
             res = lib.scan()
         except Exception as e:
-            QMessageBox.warning(self, "Escanear", f"No se pudo escanear.\n\n{e}")
+            QMessageBox.warning(self, self.tr("Escanear"),
+                self.tr("No se pudo escanear.\n\n{0}").format(e))
             return
         nuevos = res.get("nuevos") or []
         huerfanos = res.get("huerfanos") or []
         if not nuevos and not huerfanos:
             QMessageBox.information(
-                self, "Escanear",
-                "No hay archivos nuevos ni entradas huerfanas."
+                self, self.tr("Escanear"),
+                self.tr("No hay archivos nuevos ni entradas huerfanas.")
             )
             return
         msg = []
         if nuevos:
-            msg.append(f"{len(nuevos)} archivo(s) nuevos encontrados:")
+            msg.append(self.tr(
+                "{0} archivo(s) nuevos encontrados:"
+            ).format(len(nuevos)))
             for n in nuevos[:8]:
                 msg.append(f"  - {os.path.basename(n.get('path_abs',''))} "
                            f"[{n.get('os_type','?')}]")
             if len(nuevos) > 8:
-                msg.append(f"  ... y {len(nuevos) - 8} mas")
+                msg.append(self.tr("  ... y {0} mas").format(
+                    len(nuevos) - 8))
         if huerfanos:
             msg.append("")
-            msg.append(f"{len(huerfanos)} entrada(s) huerfanas (archivo ya no existe):")
+            msg.append(self.tr(
+                "{0} entrada(s) huerfanas (archivo ya no existe):"
+            ).format(len(huerfanos)))
             for h in huerfanos[:8]:
                 msg.append(f"  - {h.get('name') or h.get('filename','?')}")
             if len(huerfanos) > 8:
-                msg.append(f"  ... y {len(huerfanos) - 8} mas")
+                msg.append(self.tr("  ... y {0} mas").format(
+                    len(huerfanos) - 8))
         msg.append("")
         if nuevos:
-            msg.append("Anadir los archivos nuevos a la biblioteca?")
+            msg.append(self.tr("Anadir los archivos nuevos a la biblioteca?"))
             r = QMessageBox.question(
-                self, "Escanear",
+                self, self.tr("Escanear"),
                 "\n".join(msg),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes,
@@ -806,7 +856,7 @@ class MediaLibraryMixin:
             else:
                 self.refresh_media_library_table()
         else:
-            QMessageBox.information(self, "Escanear", "\n".join(msg))
+            QMessageBox.information(self, self.tr("Escanear"), "\n".join(msg))
             self.refresh_media_library_table()
 
     # ------------------------------------------------------------------
@@ -846,8 +896,8 @@ class MediaLibraryMixin:
         lib = self._media_library_instance()
         eid = self._media_selected_id()
         if lib is None or not eid:
-            QMessageBox.information(self, "Agrandar",
-                                    "Selecciona una entrada primero.")
+            QMessageBox.information(self, self.tr("Agrandar"),
+                                    self.tr("Selecciona una entrada primero."))
             return
         e = lib.get(eid)
         if not e:
@@ -857,8 +907,8 @@ class MediaLibraryMixin:
             import media_library as _ml_mod
             if _ml_mod.media_type_key(e) != "disk":
                 QMessageBox.information(
-                    self, "Agrandar",
-                    "Solo se pueden agrandar discos duros (QCOW2/RAW)."
+                    self, self.tr("Agrandar"),
+                    self.tr("Solo se pueden agrandar discos duros (QCOW2/RAW).")
                 )
                 return
         except Exception:
@@ -866,16 +916,16 @@ class MediaLibraryMixin:
 
         path = lib.resolve_path(e)
         if not path or not os.path.isfile(path):
-            QMessageBox.warning(self, "Agrandar",
-                                f"El archivo no existe:\n{path}")
+            QMessageBox.warning(self, self.tr("Agrandar"),
+                self.tr("El archivo no existe:\n{0}").format(path))
             return
 
         running = self._media_entry_in_use_by_running_vm(e)
         if running:
             QMessageBox.warning(
-                self, "Agrandar",
-                f"Este disco lo usa la VM '{running}', que esta encendida.\n\n"
-                "Apagala antes de agrandarlo."
+                self, self.tr("Agrandar"),
+                self.tr("Este disco lo usa la VM '{0}', que esta encendida."
+                        "\n\nApagala antes de agrandarlo.").format(running)
             )
             return
 
@@ -915,22 +965,23 @@ class MediaLibraryMixin:
         cur_txt = _fmt(_cur) if _cur else "—"
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("↗ Agrandar disco")
+        dlg.setWindowTitle(self.tr("↗ Agrandar disco"))
         dlg.resize(520, 260)
         lay = QVBoxLayout(dlg)
         form = QFormLayout()
-        form.addRow("Archivo:", QLabel(os.path.basename(path)))
-        form.addRow("Tamaño actual:", QLabel(cur_txt))
+        form.addRow(self.tr("Archivo:"), QLabel(os.path.basename(path)))
+        form.addRow(self.tr("Tamaño actual:"), QLabel(cur_txt))
         size_edit = QLineEdit(cur_qemu)
-        size_edit.setPlaceholderText("Ejemplo: 120G (solo crecer)")
-        form.addRow("Nuevo tamaño:", size_edit)
+        size_edit.setPlaceholderText(
+            self.tr("Ejemplo: 120G (solo crecer)"))
+        form.addRow(self.tr("Nuevo tamaño:"), size_edit)
         lay.addLayout(form)
 
-        hint = QLabel(
+        hint = QLabel(self.tr(
             "El disco solo puede CRECER. Agrandar el archivo NO agranda\n"
             "la partición dentro del guest: hay que ampliarla también desde\n"
             "el sistema invitado para aprovechar el nuevo espacio."
-        )
+        ))
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#666; font-size:11px;")
         lay.addWidget(hint)
@@ -945,15 +996,16 @@ class MediaLibraryMixin:
             except Exception:
                 new_b = None
             if new_b is None:
-                QMessageBox.warning(dlg, "Tamaño inválido",
-                                    f"'{txt}' no es un tamaño válido.")
+                QMessageBox.warning(dlg, self.tr("Tamaño inválido"),
+                    self.tr("'{0}' no es un tamaño válido.").format(txt))
                 size_edit.setText(cur_qemu)
                 return
             if new_b < _cur:
                 QMessageBox.warning(
-                    dlg, "No se puede encoger",
-                    f"Actual: {cur_txt}, indicado {txt}.\n\n"
-                    "El valor se ha restaurado al tamaño actual."
+                    dlg, self.tr("No se puede encoger"),
+                    self.tr("Actual: {0}, indicado {1}.\n\n"
+                            "El valor se ha restaurado al tamaño actual."
+                            ).format(cur_txt, txt)
                 )
                 size_edit.setText(cur_qemu)
                 return
@@ -961,8 +1013,8 @@ class MediaLibraryMixin:
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        cancel_b = QPushButton("Cancelar")
-        ok_b = QPushButton("Aplicar")
+        cancel_b = QPushButton(self.tr("Cancelar"))
+        ok_b = QPushButton(self.tr("Aplicar"))
         cancel_b.clicked.connect(dlg.reject)
         ok_b.clicked.connect(_on_accept)
         btn_row.addWidget(cancel_b)
@@ -980,8 +1032,8 @@ class MediaLibraryMixin:
                 check=True, capture_output=True, text=True, timeout=600,
             )
         except Exception as ex:
-            QMessageBox.critical(self, "Agrandar",
-                                 f"No se pudo agrandar el disco.\n\n{ex}")
+            QMessageBox.critical(self, self.tr("Agrandar"),
+                self.tr("No se pudo agrandar el disco.\n\n{0}").format(ex))
             return
         try:
             lib.update_virtual_size(eid)
@@ -989,9 +1041,10 @@ class MediaLibraryMixin:
             pass
         self.refresh_media_library_table()
         QMessageBox.information(
-            self, "Disco agrandado",
-            f"Se agrandó correctamente a {new_txt}.\n\n"
-            "Recuerda ampliar también la partición dentro del sistema invitado."
+            self, self.tr("Disco agrandado"),
+            self.tr("Se agrandó correctamente a {0}.\n\n"
+                    "Recuerda ampliar también la partición dentro del "
+                    "sistema invitado.").format(new_txt)
         )
 
     def compact_media_entry(self):
@@ -999,48 +1052,51 @@ class MediaLibraryMixin:
         lib = self._media_library_instance()
         eid = self._media_selected_id()
         if lib is None or not eid:
-            QMessageBox.information(self, "Compactar",
-                                    "Selecciona una entrada primero.")
+            QMessageBox.information(self, self.tr("Compactar"),
+                                    self.tr("Selecciona una entrada primero."))
             return
         e = lib.get(eid)
         if not e:
             return
         if not self._is_qcow2_disk(e):
             QMessageBox.information(
-                self, "Compactar",
-                "Solo se pueden compactar discos en formato QCOW2."
+                self, self.tr("Compactar"),
+                self.tr("Solo se pueden compactar discos en formato QCOW2.")
             )
             return
         path = lib.resolve_path(e)
         if not path or not os.path.isfile(path):
-            QMessageBox.warning(self, "Compactar",
-                                f"El archivo no existe:\n{path}")
+            QMessageBox.warning(self, self.tr("Compactar"),
+                self.tr("El archivo no existe:\n{0}").format(path))
             return
         name = os.path.basename(path)
 
         running = self._media_entry_in_use_by_running_vm(e)
         if running:
             QMessageBox.warning(
-                self, "Compactar",
-                f"Este disco lo usa la VM '{running}', que esta encendida.\n\n"
-                "Apagala antes de compactarlo: QEMU mantiene un lock de\n"
-                "escritura sobre el archivo y el compactado fallaria."
+                self, self.tr("Compactar"),
+                self.tr("Este disco lo usa la VM '{0}', que esta encendida."
+                        "\n\nApagala antes de compactarlo: QEMU mantiene "
+                        "un lock de\nescritura sobre el archivo y el "
+                        "compactado fallaria.").format(running)
             )
             return
 
         used_by = e.get("used_by") or []
         warn = ""
         if used_by:
-            warn = ("\n\n⚠ Este disco lo usan VMs apagadas: "
-                    + ", ".join(used_by) + ".\nSe recomienda hacer un "
-                    "backup antes de compactar.")
+            warn = self.tr(
+                "\n\n⚠ Este disco lo usan VMs apagadas: {0}.\n"
+                "Se recomienda hacer un backup antes de compactar."
+            ).format(", ".join(used_by))
 
         ans = QMessageBox.warning(
-            self, "Confirmar compactado",
-            f"¿Compactar '{name}'?\n\n"
-            "Reescribe el QCOW2 eliminando bloques no usados: reduce el\n"
-            "archivo en el host SIN cambiar el tamaño virtual que ve el\n"
-            "invitado." + warn + "\n\n¿Continuar?",
+            self, self.tr("Confirmar compactado"),
+            self.tr("¿Compactar '{0}'?\n\n"
+                    "Reescribe el QCOW2 eliminando bloques no usados: "
+                    "reduce el\narchivo en el host SIN cambiar el tamaño "
+                    "virtual que ve el\ninvitado.{1}\n\n¿Continuar?"
+                    ).format(name, warn),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1092,7 +1148,8 @@ class MediaLibraryMixin:
                         pct = int(float(m.group(1)))
                         if pct != last_pct:
                             last_pct = pct
-                            progress_emit(pct, f"Compactando... {pct}%")
+                            progress_emit(pct, self.tr("Compactando... {0}%"
+                                                       ).format(pct))
             proc.wait()
             if proc.returncode != 0:
                 if os.path.exists(tmp_path):
@@ -1126,58 +1183,62 @@ class MediaLibraryMixin:
             except Exception:
                 fo, fn, fs = str(res["orig"]), str(res["new"]), "?"
             QMessageBox.information(
-                self, "Disco compactado",
-                f"'{name}' compactado.\n\n"
-                f"Antes: {fo}\nDespués: {fn}\nAhorro: {fs}"
+                self, self.tr("Disco compactado"),
+                self.tr("'{0}' compactado.\n\n"
+                        "Antes: {1}\nDespués: {2}\nAhorro: {3}"
+                        ).format(name, fo, fn, fs)
             )
 
         def _on_error(err):
-            QMessageBox.critical(self, "Compactar",
-                                 f"No se pudo compactar.\n\n{err}")
+            QMessageBox.critical(self, self.tr("Compactar"),
+                self.tr("No se pudo compactar.\n\n{0}").format(err))
 
         self.run_async(
             _work,
-            f"Compactando '{name}'",
+            self.tr("Compactando '{0}'").format(name),
             on_success=_on_success,
             on_error=_on_error,
             cancelable=True,
             show_log=True,
-            subtitle="Reescribiendo el QCOW2 sin bloques no usados...",
+            subtitle=self.tr(
+                "Reescribiendo el QCOW2 sin bloques no usados..."),
         )
 
     def verify_media_entry(self):
         lib = self._media_library_instance()
         eid = self._media_selected_id()
         if lib is None or not eid:
-            QMessageBox.information(self, "Verificar",
-                                    "Selecciona una entrada primero.")
+            QMessageBox.information(self, self.tr("Verificar"),
+                                    self.tr("Selecciona una entrada primero."))
             return
         try:
             r = lib.verify(eid)
         except Exception as e:
-            QMessageBox.warning(self, "Verificar", str(e))
+            QMessageBox.warning(self, self.tr("Verificar"), str(e))
             return
         if not r.get("exists"):
             QMessageBox.warning(
-                self, "Verificar",
-                f"El archivo ya no existe:\n{r.get('path')}"
+                self, self.tr("Verificar"),
+                self.tr("El archivo ya no existe:\n{0}"
+                        ).format(r.get('path'))
             )
         elif not r.get("expected"):
             QMessageBox.information(
-                self, "Verificar",
-                "El archivo existe. No hay sha256 guardado para comparar; "
-                "usa 'Calcular SHA256' si quieres uno."
+                self, self.tr("Verificar"),
+                self.tr("El archivo existe. No hay sha256 guardado para "
+                        "comparar; usa 'Calcular SHA256' si quieres uno.")
             )
         elif r.get("hash_ok"):
             QMessageBox.information(
-                self, "Verificar",
-                "Archivo presente y sha256 coincide."
+                self, self.tr("Verificar"),
+                self.tr("Archivo presente y sha256 coincide.")
             )
         else:
             QMessageBox.warning(
-                self, "Verificar",
-                f"sha256 NO coincide.\n\nEsperado: {r.get('expected')}\n"
-                f"Actual:   {r.get('actual')}"
+                self, self.tr("Verificar"),
+                self.tr("sha256 NO coincide.\n\nEsperado: {0}\n"
+                        "Actual:   {1}").format(r.get('expected'),
+                                                r.get('actual'))
             )
         self.refresh_media_library_table()
 
@@ -1185,16 +1246,16 @@ class MediaLibraryMixin:
         lib = self._media_library_instance()
         eid = self._media_selected_id()
         if lib is None or not eid:
-            QMessageBox.information(self, "SHA256",
-                                    "Selecciona una entrada primero.")
+            QMessageBox.information(self, self.tr("SHA256"),
+                                    self.tr("Selecciona una entrada primero."))
             return
         e = lib.get(eid)
         if not e:
             return
         path = lib.resolve_path(e)
         if not path or not os.path.isfile(path):
-            QMessageBox.warning(self, "SHA256",
-                                f"El archivo no existe:\n{path}")
+            QMessageBox.warning(self, self.tr("SHA256"),
+                self.tr("El archivo no existe:\n{0}").format(path))
             return
 
         def _work(log_emit, is_cancelled, progress_emit):
@@ -1220,17 +1281,20 @@ class MediaLibraryMixin:
                 pass
             self.refresh_media_library_table()
             QMessageBox.information(
-                self, "SHA256",
-                f"sha256 calculado y guardado:\n\n{digest}"
+                self, self.tr("SHA256"),
+                self.tr("sha256 calculado y guardado:\n\n{0}"
+                        ).format(digest)
             )
 
         def _on_error(err):
-            QMessageBox.warning(self, "SHA256", f"Error: {err}")
+            QMessageBox.warning(self, self.tr("SHA256"),
+                self.tr("Error: {0}").format(err))
 
         try:
             self.run_async(
                 _work,
-                f"Calculando sha256 — {os.path.basename(path)}",
+                self.tr("Calculando sha256 — {0}").format(
+                    os.path.basename(path)),
                 on_success=_on_success,
                 on_error=_on_error,
                 cancelable=True,
@@ -1241,7 +1305,7 @@ class MediaLibraryMixin:
             digest = _ml.compute_sha256(path)
             lib.update(eid, sha256=digest)
             self.refresh_media_library_table()
-            QMessageBox.information(self, "SHA256", digest)
+            QMessageBox.information(self, self.tr("SHA256"), digest)
 
     # ------------------------------------------------------------------
     # Editar / eliminar / abrir carpeta
@@ -1254,48 +1318,58 @@ class MediaLibraryMixin:
         lib = self._media_library_instance()
         eid = self._media_selected_id()
         if lib is None or not eid:
-            QMessageBox.information(self, "Editar",
-                                    "Selecciona una entrada primero.")
+            QMessageBox.information(self, self.tr("Editar"),
+                                    self.tr("Selecciona una entrada primero."))
             return
         e = lib.get(eid)
         if not e:
             return
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Editar — {e.get('name','')}")
+        dlg.setWindowTitle(self.tr("Editar — {0}").format(e.get('name','')))
         dlg.resize(520, 420)
         lay = QVBoxLayout(dlg)
         form = QFormLayout()
 
         name_edit = QLineEdit(str(e.get("name") or ""))
-        form.addRow("Nombre:", name_edit)
+        form.addRow(self.tr("Nombre:"), name_edit)
 
         os_combo = QComboBox()
+        _os_labels_tr = {
+            "Todos": self.tr("Todos"),
+            "Guest Tools": self.tr("Guest Tools"),
+            "Otros": self.tr("Otros"),
+        }
         for label, value in _MEDIA_OS_LABELS[1:]:
-            os_combo.addItem(label, value)
+            os_combo.addItem(_os_labels_tr.get(label, label), value)
         idx = os_combo.findData(str(e.get("os_type") or "other"))
         os_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        form.addRow("SO:", os_combo)
+        form.addRow(self.tr("SO:"), os_combo)
 
         distro_edit = QLineEdit(str(e.get("distro") or ""))
-        form.addRow("Distro:", distro_edit)
+        form.addRow(self.tr("Distro:"), distro_edit)
 
         version_edit = QLineEdit(str(e.get("version") or ""))
-        form.addRow("Version:", version_edit)
+        form.addRow(self.tr("Version:"), version_edit)
 
         arch_combo = QComboBox()
+        _arch_labels_tr = {
+            "Todas": self.tr("Todas"),
+            "Universal": self.tr("Universal"),
+            "Sin especificar": self.tr("Sin especificar"),
+        }
         for label, value in _MEDIA_ARCH_LABELS[1:]:
-            arch_combo.addItem(label, value)
+            arch_combo.addItem(_arch_labels_tr.get(label, label), value)
         idx = arch_combo.findData(str(e.get("arch") or ""))
         arch_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        form.addRow("Arquitectura:", arch_combo)
+        form.addRow(self.tr("Arquitectura:"), arch_combo)
 
         notes_edit = QPlainTextEdit(str(e.get("notes") or ""))
         notes_edit.setMaximumHeight(80)
-        form.addRow("Notas:", notes_edit)
+        form.addRow(self.tr("Notas:"), notes_edit)
 
         source_edit = QLineEdit(str(e.get("source_url") or ""))
-        form.addRow("URL origen:", source_edit)
+        form.addRow(self.tr("URL origen:"), source_edit)
 
         lay.addLayout(form)
 
@@ -1323,14 +1397,15 @@ class MediaLibraryMixin:
             )
             self.refresh_media_library_table()
         except Exception as ex:
-            QMessageBox.warning(self, "Editar", f"No se pudo guardar: {ex}")
+            QMessageBox.warning(self, self.tr("Editar"),
+                self.tr("No se pudo guardar: {0}").format(ex))
 
     def delete_media_entry(self):
         lib = self._media_library_instance()
         eid = self._media_selected_id()
         if lib is None or not eid:
-            QMessageBox.information(self, "Eliminar",
-                                    "Selecciona una entrada primero.")
+            QMessageBox.information(self, self.tr("Eliminar"),
+                                    self.tr("Selecciona una entrada primero."))
             return
         e = lib.get(eid)
         if not e:
@@ -1339,23 +1414,27 @@ class MediaLibraryMixin:
         is_external = bool(e.get("external"))
 
         box = QMessageBox(self)
-        box.setWindowTitle("Eliminar entrada")
-        box.setText(f"Eliminar '{filename}' de la biblioteca?")
-        box.addButton("Quitar del indice", QMessageBox.ButtonRole.AcceptRole)
+        box.setWindowTitle(self.tr("Eliminar entrada"))
+        box.setText(self.tr(
+            "Eliminar '{0}' de la biblioteca?").format(filename))
+        _btn_idx = self.tr("Quitar del indice")
+        _btn_file = self.tr("Eliminar tambien el archivo")
+        _btn_cancel = self.tr("Cancelar")
+        box.addButton(_btn_idx, QMessageBox.ButtonRole.AcceptRole)
         if not is_external:
-            box.addButton("Eliminar tambien el archivo",
+            box.addButton(_btn_file,
                           QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.addButton(_btn_cancel, QMessageBox.ButtonRole.RejectRole)
         box.exec()
         clicked = box.clickedButton()
-        if clicked is None or clicked.text() == "Cancelar":
+        if clicked is None or clicked.text() == _btn_cancel:
             return
-        delete_file = (clicked.text() == "Eliminar tambien el archivo")
+        delete_file = (clicked.text() == _btn_file)
         try:
             lib.remove(eid, delete_file=delete_file)
             self.refresh_media_library_table()
         except Exception as ex:
-            QMessageBox.warning(self, "Eliminar", str(ex))
+            QMessageBox.warning(self, self.tr("Eliminar"), str(ex))
 
     def open_media_folder(self):
         lib = self._media_library_instance()
@@ -1368,8 +1447,8 @@ class MediaLibraryMixin:
         path = lib.resolve_path(e)
         folder = os.path.dirname(path) if path else lib.base_dir
         if not os.path.isdir(folder):
-            QMessageBox.warning(self, "Abrir carpeta",
-                                f"La carpeta no existe:\n{folder}")
+            QMessageBox.warning(self, self.tr("Abrir carpeta"),
+                self.tr("La carpeta no existe:\n{0}").format(folder))
             return
         try:
             if shutil.which("xdg-open"):
@@ -1377,4 +1456,8 @@ class MediaLibraryMixin:
                                  stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
         except Exception as e:
-            QMessageBox.information(self, "Abrir carpeta", folder)
+            QMessageBox.information(self, self.tr("Abrir carpeta"), folder)
+
+# i18n_tanda2f4_media_library_ui_v1
+
+# i18n_tanda2f4_media_library_handlers_v1

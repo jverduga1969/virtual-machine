@@ -26,6 +26,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer, QSettings, QSize, QObject
 from PyQt6.QtCore import Qt as _Qt_ShortcutContext
+from i18n import (
+    LANGUAGE_NAMES, LANGUAGE_FLAGS, language_flag,
+    normalize_language, load_language, current_language,
+)
 from PyQt6.QtGui import QFont, QPainter, QPen, QBrush, QPixmap, QAction, QIcon
 
 # Combinaciones ofrecidas para salir de la pantalla completa de la consola VNC.
@@ -260,7 +264,24 @@ class _LinVersionsBridge(QObject):
 class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, AppearanceMixin, ShortcutsMixin, ApiMixin, ConsoleUiMixin, QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Virtual.Machine 38.1 • Administrador QEMU/KVM")
+
+        # i18n_context_override_v1: forzar el contexto de self.tr() a
+        # "VirtualMachineManagerApp" en toda la jerarquia. Motivo: PyQt6
+        # resuelve el contexto de self.tr() por el nombre de la clase
+        # DONDE ESTA ESCRITO el metodo (inspeccion de frame), no por la
+        # clase real del objeto. Como este proyecto usa mixins, self.tr()
+        # dentro de un mixin usa el contexto del mixin y no encuentra las
+        # traducciones (que tras el merge de contextos viven bajo
+        # VirtualMachineManagerApp).
+        def _i18n_tr(text, disambiguation=None, n=-1):
+            from PyQt6.QtCore import QCoreApplication as _QCA
+            return _QCA.translate("VirtualMachineManagerApp", text,
+                                   disambiguation, n)
+        self.tr = _i18n_tr
+
+        self.setWindowTitle(
+            "Virtual Machine 57 • " + self.tr("Administrador QEMU/KVM")
+        )
         # Ventana redimensionable: tamaño inicial cómodo, sin bloquear al usuario.
         self.current_vm_dir = None
         self.disk_size_setting = "128G"
@@ -353,7 +374,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
     def _setup_window_state(self):
         """Configura estado inicial de la ventana y atributos de la clase.
         Este método debe ejecutarse ANTES que cualquier _build_*."""
-        self.setWindowTitle("Virtual.Machine 38.1 • Administrador QEMU/KVM")
+        # i18n_v1: el idioma se lee a traves de la fachada i18n,
+        # que envuelve QSettings y valida el codigo.
+        self._ui_language = current_language()
+        self.setWindowTitle(
+            "Virtual Machine 57 • " + self.tr("Administrador QEMU/KVM")
+        )
         self.setMinimumSize(760, 600)
         self.resize(1080, 760)
         self.current_vm_dir = None
@@ -621,7 +647,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         _aw_lay.setContentsMargins(14, 12, 14, 12)
         _aw_lay.setSpacing(6)
 
-        _aw_title = QLabel("<b>ℹ️ Notas sobre Android en QEMU/KVM</b>")
+        _aw_title = QLabel(self.tr("<b>ℹ️ Notas sobre Android en QEMU/KVM</b>"))
         _aw_title.setStyleSheet("font-size: 13px;")
         _aw_lay.addWidget(_aw_title)
 
@@ -703,16 +729,32 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # sidebar_icons_v2: iconos del tema del sistema (Breeze en
         # KDE) con reserva al SP_* clasico de Qt si el tema activo no
         # tiene el nombre pedido.
+        # i18n_tanda2e1: cada entrada lleva (nombre_icono_tema,
+        # SP_fallback, clave_interna_es, display_traducido). La CLAVE
+        # interna se queda en espanol porque se usa como clave de
+        # _config_page_layouts y en comparaciones tipo
+        # "if label == 'Passthrough'". El display se muestra en el
+        # sidebar y SI se traduce con self.tr(<literal>) para que
+        # pylupdate6 lo extraiga.
         _sections = [
-            ("computer",       _QStyle.StandardPixmap.SP_ComputerIcon, "Sistema"),
-            ("cpu",            _QStyle.StandardPixmap.SP_ComputerIcon, "Procesador"),
-            ("memory",         _QStyle.StandardPixmap.SP_DriveHDIcon,  "Memoria"),
-            ("video-display",  _QStyle.StandardPixmap.SP_DesktopIcon,  "Pantalla"),
-            ("drive-harddisk", _QStyle.StandardPixmap.SP_DriveHDIcon,  "Almacenamiento"),
-            ("network-wired",  _QStyle.StandardPixmap.SP_DriveNetIcon, "Red"),
-            ("audio-card",     _QStyle.StandardPixmap.SP_MediaVolume,  "Dispositivos"),
-            ("plug",           _QStyle.StandardPixmap.SP_ArrowForward, "Passthrough"),
-            ("folder-open",    _QStyle.StandardPixmap.SP_DirOpenIcon,  "Compartición"),
+            ("computer",       _QStyle.StandardPixmap.SP_ComputerIcon, "Sistema",
+             self.tr("Sistema")),
+            ("cpu",            _QStyle.StandardPixmap.SP_ComputerIcon, "Procesador",
+             self.tr("Procesador")),
+            ("memory",         _QStyle.StandardPixmap.SP_DriveHDIcon,  "Memoria",
+             self.tr("Memoria")),
+            ("video-display",  _QStyle.StandardPixmap.SP_DesktopIcon,  "Pantalla",
+             self.tr("Pantalla")),
+            ("drive-harddisk", _QStyle.StandardPixmap.SP_DriveHDIcon,  "Almacenamiento",
+             self.tr("Almacenamiento")),
+            ("network-wired",  _QStyle.StandardPixmap.SP_DriveNetIcon, "Red",
+             self.tr("Red")),
+            ("audio-card",     _QStyle.StandardPixmap.SP_MediaVolume,  "Dispositivos",
+             self.tr("Dispositivos")),
+            ("plug",           _QStyle.StandardPixmap.SP_ArrowForward, "Passthrough",
+             self.tr("Passthrough")),
+            ("folder-open",    _QStyle.StandardPixmap.SP_DirOpenIcon,  "Compartición",
+             self.tr("Compartición")),
         ]
         _style = self.style()
 
@@ -728,8 +770,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         self._passthrough_sidebar_row = None
         self._comparticion_sidebar_row = None
-        for _idx, (theme_name, sp_fb, label) in enumerate(_sections):
-            it = QListWidgetItem("  " + label)
+        for _idx, (theme_name, sp_fb, label, display) in enumerate(_sections):
+            it = QListWidgetItem("  " + display)
             it.setIcon(_resolve_icon(theme_name, sp_fb))
             it.setData(Qt.ItemDataRole.UserRole, label)
             self.config_sidebar.addItem(it)
@@ -756,7 +798,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # sidebar_icons_v2_fix1: cada tupla tiene ahora 3 campos
         # (nombre_icono_tema, SP_fallback, label).
         self._config_page_layouts = {}
-        for _, _, label in _sections:
+        for _, _, label, _display in _sections:
             page = QWidget()
             lay = QVBoxLayout(page)
             lay.setContentsMargins(22, 18, 22, 18)
@@ -818,8 +860,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
     def _populate_config_sistema(self):
         lay = self._config_page_layouts["Sistema"]
         lay.addWidget(self._config_section_title(
-            "Sistema",
-            "Plataforma, firmware y opciones de bajo nivel del hardware virtual.",
+            self.tr("Sistema"),
+            self.tr("Plataforma, firmware y opciones de bajo nivel del hardware virtual."),
         ))
 
         grid = QGridLayout()
@@ -829,41 +871,41 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # Firmware (antes se llamaba 'Plataforma' aquí dentro; se renombra
         # para no confundirlo con la 'Plataforma' de la fila superior, que
         # es en realidad el tipo de SO: macOS / Windows / Linux).
-        grid.addWidget(QLabel("<b>Firmware</b>"), 0, 0)
+        grid.addWidget(QLabel(self.tr("<b>Firmware</b>")), 0, 0)
         self.combo_firmware = QComboBox()
-        self.combo_firmware.addItem("BIOS (tradicional)", "bios")
-        self.combo_firmware.addItem("UEFI (OVMF)", "uefi")
+        self.combo_firmware.addItem(self.tr("BIOS (tradicional)"), "bios")
+        self.combo_firmware.addItem(self.tr("UEFI (OVMF)"), "uefi")
         self.combo_firmware.setMinimumWidth(180)
         self.combo_firmware.currentIndexChanged.connect(self.update_firmware_options_visibility)
         self.combo_firmware.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         grid.addWidget(self.combo_firmware, 1, 0)
 
         # Chipset (sube a la columna derecha, antes ocupada por 'Versión').
-        grid.addWidget(QLabel("<b>Chipset</b>"), 0, 1)
+        grid.addWidget(QLabel(self.tr("<b>Chipset</b>")), 0, 1)
         self.combo_chipset = QComboBox()
-        self.combo_chipset.addItem("i440FX (clásico)", "pc")
-        self.combo_chipset.addItem("Q35 (moderno, PCIe)", "q35")
-        self.combo_chipset.setToolTip(
+        self.combo_chipset.addItem(self.tr("i440FX (clásico)"), "pc")
+        self.combo_chipset.addItem(self.tr("Q35 (moderno, PCIe)"), "q35")
+        self.combo_chipset.setToolTip(self.tr(
             "i440FX: chipset clásico, PCI legado. Compatible con SO muy antiguos.\n"
             "Q35: chipset moderno con PCIe nativo, AHCI/SATA y mejor soporte para\n"
             "passthrough de dispositivos PCIe. Recomendado salvo compatibilidad específica."
-        )
+        ))
         self.combo_chipset.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         grid.addWidget(self.combo_chipset, 1, 1)
 
         # Secure Boot / TPM como toggles (checkboxes estilizadas)
-        grid.addWidget(QLabel("<b>Seguridad</b>"), 4, 0, 1, 2)
+        grid.addWidget(QLabel(self.tr("<b>Seguridad</b>")), 4, 0, 1, 2)
         self.security_options_widget = QWidget()
         sec_layout = QHBoxLayout(self.security_options_widget)
         sec_layout.setContentsMargins(0, 0, 0, 0)
         sec_layout.setSpacing(24)
 
-        self.check_secure_boot = QCheckBox("Secure Boot")
+        self.check_secure_boot = QCheckBox(self.tr("Secure Boot"))
         self.check_secure_boot.setProperty("toggleSwitch", True)
         self.check_secure_boot.stateChanged.connect(lambda *_: self._update_vm_summary())
         sec_layout.addWidget(self.check_secure_boot)
 
-        self.check_tpm = QCheckBox("TPM 2.0")
+        self.check_tpm = QCheckBox(self.tr("TPM 2.0"))
         self.check_tpm.setProperty("toggleSwitch", True)
         self.check_tpm.stateChanged.connect(lambda *_: self._update_vm_summary())
         sec_layout.addWidget(self.check_tpm)
@@ -878,18 +920,18 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         profile_lay = QVBoxLayout(profile_box)
         profile_lay.setContentsMargins(14, 12, 14, 12)
         profile_lay.setSpacing(4)
-        ptitle = QLabel("<b>Perfiles del sistema</b>")
+        ptitle = QLabel(self.tr("<b>Perfiles del sistema</b>"))
         profile_lay.addWidget(ptitle)
-        self.profile_hint_label = QLabel(
+        self.profile_hint_label = QLabel(self.tr(
             "Configuración optimizada para el sistema operativo seleccionado. "
             "Puede modificar los valores según sus necesidades."
-        )
+        ))
         self.profile_hint_label.setWordWrap(True)
         profile_lay.addWidget(self.profile_hint_label)
         lay.addWidget(profile_box)
 
         # Opciones avanzadas
-        adv_title = QLabel("<b>Opciones avanzadas</b>")
+        adv_title = QLabel(self.tr("<b>Opciones avanzadas</b>"))
         lay.addWidget(adv_title)
         adv_grid = QGridLayout()
         adv_grid.setHorizontalSpacing(20)
@@ -901,12 +943,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # no existe ningun caso de uso real donde desactivarlos
         # aporte algo, asi que se OCULTAN de la UI. Se siguen
         # creando por si otro codigo los referencia.
-        self.check_acpi = QCheckBox("Habilitar ACPI")
+        self.check_acpi = QCheckBox(self.tr("Habilitar ACPI"))
         self.check_acpi.setChecked(True)
-        self.check_apic = QCheckBox("Habilitar APIC")
+        self.check_apic = QCheckBox(self.tr("Habilitar APIC"))
         self.check_apic.setChecked(True)
-        self.check_iommu = QCheckBox("Habilitar IOMMU")
-        self.check_pcie_root = QCheckBox("PCIe Root Port")
+        self.check_iommu = QCheckBox(self.tr("Habilitar IOMMU"))
+        self.check_pcie_root = QCheckBox(self.tr("PCIe Root Port"))
         for _w in (self.check_acpi, self.check_apic,
                    self.check_iommu, self.check_pcie_root):
             _w.setVisible(False)
@@ -920,9 +962,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # guarda en extra["autostart_on_launch"] (vm_config.ini) y lo
         # consume _auto_start_marked_vms() en el arranque.
         self.check_autostart_on_launch = QCheckBox(
-            "Arrancar esta VM al abrir la aplicación"
+            self.tr("Arrancar esta VM al abrir la aplicación")
         )
-        self.check_autostart_on_launch.setToolTip(
+        self.check_autostart_on_launch.setToolTip(self.tr(
             "Si está marcado, esta VM se arranca automáticamente al\n"
             "abrir la aplicación, tras un par de segundos.\n\n"
             "Las VMs marcadas se arrancan en cola, separadas por 4 s\n"
@@ -930,7 +972,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             "corriendo se saltan.\n\n"
             "Nota: al auto-arrancar, la selección de la lista cambia a\n"
             "cada VM que se inicia."
-        )
+        ))
         self.check_autostart_on_launch.stateChanged.connect(
             self._on_autostart_changed
         )
@@ -941,8 +983,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # sin VirGL/Venus y sin passthrough PCI/USB. La UI de Pantalla
         # y Passthrough se ajusta automáticamente.
         self.check_snapshot_compat = QCheckBox(
-            "Modo compatibilidad de snapshots "
-            "(fuerza hardware snapshoteable)"
+            self.tr("Modo compatibilidad de snapshots "
+                    "(fuerza hardware snapshoteable)")
         )
         self.check_snapshot_compat.setToolTip("")
         self.check_snapshot_compat.stateChanged.connect(
@@ -1247,25 +1289,25 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
     def _populate_config_procesador(self):
         lay = self._config_page_layouts["Procesador"]
         lay.addWidget(self._config_section_title(
-            "Procesador",
-            "Modelo de CPU y número de núcleos asignados a la máquina virtual.",
+            self.tr("Procesador"),
+            self.tr("Modelo de CPU y número de núcleos asignados a la máquina virtual."),
         ))
 
-        lay.addWidget(QLabel("<b>Tipo de procesador</b>"))
+        lay.addWidget(QLabel(self.tr("<b>Tipo de procesador</b>")))
         self.combo_cpu_model = QComboBox()
-        self.combo_cpu_model.addItem("Automático (recomendado)", "auto")
-        self.combo_cpu_model.addItem("Host (máximo rendimiento)", "host")
-        self.combo_cpu_model.addItem("QEMU x86-64 (compatibilidad)", "qemu64")
+        self.combo_cpu_model.addItem(self.tr("Automático (recomendado)"), "auto")
+        self.combo_cpu_model.addItem(self.tr("Host (máximo rendimiento)"), "host")
+        self.combo_cpu_model.addItem(self.tr("QEMU x86-64 (compatibilidad)"), "qemu64")
         for m in ("Skylake-Client", "Haswell", "Broadwell", "SandyBridge", "Penryn"):
             self.combo_cpu_model.addItem(m, m)
-        self.combo_cpu_model.setToolTip(
+        self.combo_cpu_model.setToolTip(self.tr(
             "Automático usa el perfil del SO. Host ofrece el máximo rendimiento "
             "pero reduce la portabilidad de la VM."
-        )
+        ))
         self.combo_cpu_model.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         lay.addWidget(self.combo_cpu_model)
 
-        lay.addWidget(QLabel("<b>Núcleos</b>"))
+        lay.addWidget(QLabel(self.tr("<b>Núcleos</b>")))
         h = QHBoxLayout()
         self.slider_cores = QSlider(Qt.Orientation.Horizontal)
         max_cores_even = max(2, (int(self.physical_cores) // 2) * 2)
@@ -1279,20 +1321,22 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         if def_cores % 2:
             def_cores -= 1
         self.slider_cores.setValue(max(2, def_cores))
-        self.label_cores_value = QLabel(f"{self.slider_cores.value()} núcleos")
+        self.label_cores_value = QLabel(
+            self.tr("{0} núcleos").format(self.slider_cores.value()))
         self.label_cores_value.setStyleSheet("font-weight:bold;")
         self.label_cores_value.setMinimumWidth(90)
         h.addWidget(self.slider_cores, 1)
         h.addWidget(self.label_cores_value)
         lay.addLayout(h)
         self.slider_cores.valueChanged.connect(
-            lambda v: (self.label_cores_value.setText(f"{v} núcleos"), self._update_vm_summary())
+            lambda v: (self.label_cores_value.setText(
+                self.tr("{0} núcleos").format(v)), self._update_vm_summary())
         )
 
-        hint = QLabel(
+        hint = QLabel(self.tr(
             "El número de núcleos se ajusta al par más cercano al valor "
             "elegido, hasta la mitad de los hilos del host."
-        )
+        ))
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#888; font-size:11px;")
         lay.addWidget(hint)
@@ -1301,11 +1345,11 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
     def _populate_config_memoria(self):
         lay = self._config_page_layouts["Memoria"]
         lay.addWidget(self._config_section_title(
-            "Memoria",
-            "Cantidad de memoria RAM asignada a la máquina virtual.",
+            self.tr("Memoria"),
+            self.tr("Cantidad de memoria RAM asignada a la máquina virtual."),
         ))
 
-        lay.addWidget(QLabel("<b>RAM asignada</b>"))
+        lay.addWidget(QLabel(self.tr("<b>RAM asignada</b>")))
         h = QHBoxLayout()
         self.slider_ram = QSlider(Qt.Orientation.Horizontal)
         max_ram_even = max(2, (int(self.physical_ram_gb) // 2) * 2)
@@ -1327,15 +1371,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             lambda v: (self.label_ram_value.setText(f"{v} GB"), self._update_vm_summary())
         )
 
-        free_lbl = QLabel(f"RAM del host: {self.mem_total_gb} GB (libre: {self.mem_free_gb} GB)")
+        free_lbl = QLabel(self.tr("RAM del host: {0} GB (libre: {1} GB)").format(
+            self.mem_total_gb, self.mem_free_gb))
         free_lbl.setStyleSheet("color:#888; font-size:11px;")
         lay.addWidget(free_lbl)
 
-        hint = QLabel(
+        hint = QLabel(self.tr(
             "Asignar más de la mitad de la RAM del host puede provocar uso "
             "intensivo de swap. La sugerencia es dejar al menos "
             "2 GB para el sistema anfitrión."
-        )
+        ))
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#888; font-size:11px;")
         lay.addWidget(hint)
@@ -1344,32 +1389,32 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
     def _populate_config_pantalla(self):
         lay = self._config_page_layouts["Pantalla"]
         lay.addWidget(self._config_section_title(
-            "Pantalla",
-            "Controlador gráfico virtual y memoria de video.",
+            self.tr("Pantalla"),
+            self.tr("Controlador gráfico virtual y memoria de video."),
         ))
 
-        lay.addWidget(QLabel("<b>Gráficos / GPU</b>"))
+        lay.addWidget(QLabel(self.tr("<b>Gráficos / GPU</b>")))
         self.combo_graphics = QComboBox()
-        self.combo_graphics.addItem("Automático (recomendado)", "auto")
-        self.combo_graphics.addItem("VirtIO-GPU 2D (compatible • snap. discos ✓ • snap. completo ✗)", "virtio")
-        self.combo_graphics.addItem("VirtIO-GPU + VirGL 3D (OpenGL • snapshots ✗)", "virgl")
-        self.combo_graphics.addItem("VirtIO-GPU + Venus/Vulkan 3D (experimental • snapshots ✗)", "venus")
-        self.combo_graphics.addItem("Red Hat QXL 2D (3D ✗ • snap. completo ✓ • macOS ⚠)", "qxl")
-        self.combo_graphics.addItem("VMware SVGA II (3D acelerado ✗ • snap. completo ✓ • macOS ⚠)", "vmware")
-        self.combo_graphics.addItem("Sin video / Headless", "none")
-        self.combo_graphics.setToolTip(
+        self.combo_graphics.addItem(self.tr("Automático (recomendado)"), "auto")
+        self.combo_graphics.addItem(self.tr("VirtIO-GPU 2D (compatible • snap. discos ✓ • snap. completo ✗)"), "virtio")
+        self.combo_graphics.addItem(self.tr("VirtIO-GPU + VirGL 3D (OpenGL • snapshots ✗)"), "virgl")
+        self.combo_graphics.addItem(self.tr("VirtIO-GPU + Venus/Vulkan 3D (experimental • snapshots ✗)"), "venus")
+        self.combo_graphics.addItem(self.tr("Red Hat QXL 2D (3D ✗ • snap. completo ✓ • macOS ⚠)"), "qxl")
+        self.combo_graphics.addItem(self.tr("VMware SVGA II (3D acelerado ✗ • snap. completo ✓ • macOS ⚠)"), "vmware")
+        self.combo_graphics.addItem(self.tr("Sin video / Headless"), "none")
+        self.combo_graphics.setToolTip(self.tr(
 "Automático detecta las capacidades del host y usa aceleración 3D "
             "cuando es segura; si no, vuelve a VirtIO-GPU 2D.\n\n"
             "Snapshots:\n"
             "  • VirtIO-GPU 2D → solo snap. de discos.\n"
             "  • QXL y VMware SVGA → snap. completo (RAM + dispositivos).\n"
             "  • VirGL / Venus → no soportan ningún tipo de snapshot."
-        )
+        ))
         self.combo_graphics.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         self.combo_graphics.currentIndexChanged.connect(self.update_graphics_options)
         lay.addWidget(self.combo_graphics)
 
-        lay.addWidget(QLabel("<b>Memoria de video (VRAM)</b>"))
+        lay.addWidget(QLabel(self.tr("<b>Memoria de video (VRAM)</b>")))
         self.combo_graphics_vram = QComboBox()
         for v in ("128M", "256M", "512M", "1G", "2G", "4G"):
             self.combo_graphics_vram.addItem(v, v)
@@ -1377,7 +1422,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_graphics_vram.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         lay.addWidget(self.combo_graphics_vram)
 
-        self.label_graphics_host = QLabel("Host GPU: detectando…")
+        self.label_graphics_host = QLabel(self.tr("Host GPU: detectando…"))
         self.label_graphics_host.setStyleSheet("font-size:11px; color:#888;")
         self.label_graphics_host.setWordWrap(True)
         lay.addWidget(self.label_graphics_host)
@@ -1400,16 +1445,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.label_snapshot_compat_notice.setVisible(False)
         lay.addWidget(self.label_snapshot_compat_notice)
 
-        self.check_vnc_embedded = QCheckBox("🖼️ Mostrar la VM dentro de la app (consola VNC embebida)")
+        self.check_vnc_embedded = QCheckBox(self.tr("🖼️ Mostrar la VM dentro de la app (consola VNC embebida)"))
         # Sustituido por los combos de protocolo/modo; se conserva el
         # objeto por compatibilidad con código antiguo pero no se muestra.
         self.check_vnc_embedded.setVisible(False)
-        self.check_vnc_embedded.setToolTip(
+        self.check_vnc_embedded.setToolTip(self.tr(
             "Cuando está activo, la VM se muestra dentro de la app.\n"
             "Fuerza gráficos sin aceleración OpenGL (VNC no soporta GL).\n"
             "Si lo desactivas, la VM se abre en una ventana externa y puedes\n"
             "elegir modos con aceleración 3D (VirGL, Venus)."
-        )
+        ))
         self.check_vnc_embedded.setChecked(True)
         self.check_vnc_embedded.stateChanged.connect(self._on_vnc_embedded_changed)
         lay.addWidget(self.check_vnc_embedded)
@@ -1423,46 +1468,46 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # VM: dentro de la app, en un visor externo, o en la ventana
         # nativa de QEMU.
         # ------------------------------------------------------------------
-        console_group = QGroupBox("Consola remota")
+        console_group = QGroupBox(self.tr("Consola remota"))
         console_form = QFormLayout(console_group)
 
         self.combo_console_protocol = QComboBox()
-        self.combo_console_protocol.addItem("VNC (compatible con cualquier gráfico)", PROTOCOL_VNC)
-        self.combo_console_protocol.addItem("SPICE (mejor rendimiento en local)", PROTOCOL_SPICE)
-        self.combo_console_protocol.setToolTip(
+        self.combo_console_protocol.addItem(self.tr("VNC (compatible con cualquier gráfico)"), PROTOCOL_VNC)
+        self.combo_console_protocol.addItem(self.tr("SPICE (mejor rendimiento en local)"), PROTOCOL_SPICE)
+        self.combo_console_protocol.setToolTip(self.tr(
             "VNC: cliente ligero, funciona con cualquier dispositivo de video.\n"
             "SPICE: mejor rendimiento en local, requiere un visor spice-gtk.\n"
             "Con cualquiera de los dos, QEMU no abre ventana local: solo el socket."
-        )
-        console_form.addRow("Protocolo:", self.combo_console_protocol)
+        ))
+        console_form.addRow(self.tr("Protocolo:"), self.combo_console_protocol)
 
         self.combo_console_mode = QComboBox()
-        self.combo_console_mode.addItem("Embebida en la app", MODE_EMBEDDED)
-        self.combo_console_mode.addItem("Ventana externa (visor del sistema)", MODE_EXTERNAL)
-        self.combo_console_mode.addItem("Ventana nativa de QEMU", MODE_NATIVE)
+        self.combo_console_mode.addItem(self.tr("Embebida en la app"), MODE_EMBEDDED)
+        self.combo_console_mode.addItem(self.tr("Ventana externa (visor del sistema)"), MODE_EXTERNAL)
+        self.combo_console_mode.addItem(self.tr("Ventana nativa de QEMU"), MODE_NATIVE)
         self.combo_console_mode.addItem(
-            "Híbrida (VNC embebido + SPICE externo)", MODE_HYBRID
+            self.tr("Híbrida (VNC embebido + SPICE externo)"), MODE_HYBRID
         )
-        self.combo_console_mode.setToolTip(
+        self.combo_console_mode.setToolTip(self.tr(
             "Embebida: la pantalla vive dentro de esta app (pestaña Consola Gráfica).\n"
             "Ventana externa: se lanza el visor del sistema (vncviewer / spicy).\n"
             "Nativa QEMU: QEMU abre su propia ventana (comportamiento clásico)."
-        )
-        console_form.addRow("Modo:", self.combo_console_mode)
+        ))
+        console_form.addRow(self.tr("Modo:"), self.combo_console_mode)
 
         # --- Log detallado del cliente VNC embebido ---
         # Por defecto INFO (una línea por conexión/desconexión, no por
         # frame). Activando esta casilla se sube a DEBUG para diagnosticar
         # problemas concretos; genera miles de líneas por segundo y puede
         # llenar launch.log.
-        self.chk_vnc_debug_log = QCheckBox("Log VNC detallado (DEBUG)")
-        self.chk_vnc_debug_log.setToolTip(
+        self.chk_vnc_debug_log = QCheckBox(self.tr("Log VNC detallado (DEBUG)"))
+        self.chk_vnc_debug_log.setToolTip(self.tr(
             "Activa el nivel DEBUG del cliente VNC embebido.\n\n"
             "Por defecto INFO: el widget VNC no llena launch.log con\n"
             "una línea por cada frame. Actívalo solo para diagnosticar\n"
             "problemas concretos del cliente VNC; escribe miles de\n"
             "líneas por segundo y puede afectar al rendimiento."
-        )
+        ))
         try:
             self.chk_vnc_debug_log.setChecked(
                 QSettings().value("console/vnc_debug_log", False, type=bool)
@@ -1531,19 +1576,19 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
     def _populate_config_red(self):
         lay = self._config_page_layouts["Red"]
         lay.addWidget(self._config_section_title(
-            "Red",
-            "Adaptadores de red virtuales. Cada uno puede usar NAT, bridge o TAP.",
+            self.tr("Red"),
+            self.tr("Adaptadores de red virtuales. Cada uno puede usar NAT, bridge o TAP."),
         ))
 
-        group = QGroupBox("Adaptadores")
+        group = QGroupBox(self.tr("Adaptadores"))
         gl = QVBoxLayout(group)
         self.network_devices_list = QListWidget()
         self.network_devices_list.setMinimumHeight(110)
         gl.addWidget(self.network_devices_list)
         row = QHBoxLayout()
-        self.btn_network_add = QPushButton("➕ Agregar adaptador")
-        self.btn_network_edit = QPushButton("✏ Editar")
-        self.btn_network_remove = QPushButton("🗑 Eliminar")
+        self.btn_network_add = QPushButton(self.tr("➕ Agregar adaptador"))
+        self.btn_network_edit = QPushButton(self.tr("✏ Editar"))
+        self.btn_network_remove = QPushButton(self.tr("🗑 Eliminar"))
         self.btn_network_add.clicked.connect(self.add_network_device)
         self.btn_network_edit.clicked.connect(self.edit_network_device)
         self.btn_network_remove.clicked.connect(self.remove_network_device)
@@ -1553,7 +1598,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         gl.addLayout(row)
         lay.addWidget(group)
 
-        self.check_no_network = QCheckBox("Sin red (ningún adaptador virtual)")
+        self.check_no_network = QCheckBox(self.tr("Sin red (ningún adaptador virtual)"))
         self.check_no_network.toggled.connect(lambda checked: (
             self.network_devices_list.setEnabled(not checked),
             self.btn_network_add.setEnabled(not checked),
@@ -1567,18 +1612,18 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # Controles legacy ocultos (combo_network_*, label_network_target): se
         # mantienen para cargar configs antiguas, pero no se muestran.
         self.combo_network_mode = QComboBox()
-        self.combo_network_mode.addItem("NAT / Internet (recomendado)", "nat")
-        self.combo_network_mode.addItem("Bridge existente", "bridge")
-        self.combo_network_mode.addItem("TAP", "tap")
+        self.combo_network_mode.addItem(self.tr("NAT / Internet (recomendado)"), "nat")
+        self.combo_network_mode.addItem(self.tr("Bridge existente"), "bridge")
+        self.combo_network_mode.addItem(self.tr("TAP"), "tap")
         self.combo_network = QComboBox()
-        self.combo_network.addItem("VirtIO (recomendado)", "virtio-net-pci")
-        self.combo_network.addItem("Intel E1000", "e1000")
-        self.combo_network.addItem("Realtek RTL8139", "rtl8139")
-        self.combo_network.addItem("VMware VMXNET3", "vmxnet3")
+        self.combo_network.addItem(self.tr("VirtIO (recomendado)"), "virtio-net-pci")
+        self.combo_network.addItem(self.tr("Intel E1000"), "e1000")
+        self.combo_network.addItem(self.tr("Realtek RTL8139"), "rtl8139")
+        self.combo_network.addItem(self.tr("VMware VMXNET3"), "vmxnet3")
         self.combo_network_count = QComboBox()
         for n in range(1, 5):
             self.combo_network_count.addItem(str(n), n)
-        self.label_network_target = QLabel("Interfaz/Bridge:")
+        self.label_network_target = QLabel(self.tr("Interfaz/Bridge:"))
         self.combo_network_interface = QComboBox()
         for _w in (self.combo_network_mode, self.combo_network, self.combo_network_count,
                    self.label_network_target, self.combo_network_interface):
@@ -1594,29 +1639,29 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
     def _populate_config_dispositivos(self):
         lay = self._config_page_layouts["Dispositivos"]
         lay.addWidget(self._config_section_title(
-            "Dispositivos",
-            "Audio y otros dispositivos integrados de la máquina virtual.",
+            self.tr("Dispositivos"),
+            self.tr("Audio y otros dispositivos integrados de la máquina virtual."),
         ))
 
-        lay.addWidget(QLabel("<b>Audio</b>"))
+        lay.addWidget(QLabel(self.tr("<b>Audio</b>")))
         self.combo_audio = QComboBox()
-        self.combo_audio.addItem("Intel HDA (recomendado)", "intel-hda")
-        self.combo_audio.addItem("AC97", "ac97")
-        self.combo_audio.addItem("Sound Blaster 16", "sb16")
-        self.combo_audio.addItem("Sin sonido", "none")
+        self.combo_audio.addItem(self.tr("Intel HDA (recomendado)"), "intel-hda")
+        self.combo_audio.addItem(self.tr("AC97"), "ac97")
+        self.combo_audio.addItem(self.tr("Sound Blaster 16"), "sb16")
+        self.combo_audio.addItem(self.tr("Sin sonido"), "none")
         self.combo_audio.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         lay.addWidget(self.combo_audio)
 
-        lay.addWidget(QLabel("<b>Dispositivo de señalización (ratón / teclado)</b>"))
+        lay.addWidget(QLabel(self.tr("<b>Dispositivo de señalización (ratón / teclado)</b>")))
         self.combo_pointer = QComboBox()
-        self.combo_pointer.addItem("Automático (recomendado)", "auto")
-        self.combo_pointer.addItem("USB Tablet (posición absoluta)", "usb-tablet")
-        self.combo_pointer.addItem("USB Mouse (posición relativa)", "usb-mouse")
-        self.combo_pointer.addItem("USB Keyboard + Tablet", "usb-kbd-tablet")
-        self.combo_pointer.addItem("VirtIO Tablet (requiere drivers en el guest)", "virtio-tablet")
-        self.combo_pointer.addItem("PS/2 (clásico)", "ps2")
-        self.combo_pointer.addItem("Ninguno", "none")
-        self.combo_pointer.setToolTip(
+        self.combo_pointer.addItem(self.tr("Automático (recomendado)"), "auto")
+        self.combo_pointer.addItem(self.tr("USB Tablet (posición absoluta)"), "usb-tablet")
+        self.combo_pointer.addItem(self.tr("USB Mouse (posición relativa)"), "usb-mouse")
+        self.combo_pointer.addItem(self.tr("USB Keyboard + Tablet"), "usb-kbd-tablet")
+        self.combo_pointer.addItem(self.tr("VirtIO Tablet (requiere drivers en el guest)"), "virtio-tablet")
+        self.combo_pointer.addItem(self.tr("PS/2 (clásico)"), "ps2")
+        self.combo_pointer.addItem(self.tr("Ninguno"), "none")
+        self.combo_pointer.setToolTip(self.tr(
             "Dispositivo de entrada que QEMU emula para el ratón/teclado.\n"
             "\n"
             "• Automático: macOS usa USB Tablet sobre NEC XHCI; el resto deja\n"
@@ -1629,7 +1674,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             "  el guest (no válido en macOS).\n"
             "• PS/2: ratón/teclado tradicionales de QEMU, sin USB.\n"
             "• Ninguno: sin ratón/teclado emulados."
-        )
+        ))
         self.combo_pointer.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
         self.combo_pointer.currentIndexChanged.connect(self._on_pointer_device_changed)
         lay.addWidget(self.combo_pointer)
@@ -1638,9 +1683,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # Util para diagnosticar problemas de arranque cuando la consola
         # grafica no muestra nada.
         self.check_serial_to_file = QCheckBox(
-            "Capturar el puerto serie a un archivo (serial.log)"
+            self.tr("Capturar el puerto serie a un archivo (serial.log)")
         )
-        self.check_serial_to_file.setToolTip(
+        self.check_serial_to_file.setToolTip(self.tr(
             "Activa -serial file:<vm_dir>/serial.log en la linea de QEMU.\n"
             "\n"
             "El puerto serie del guest se vuelca a un archivo dentro de la\n"
@@ -1651,16 +1696,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             "El archivo se SOBREESCRIBE en cada arranque: solo conserva la\n"
             "ultima sesion. Se puede abrir con '📂 Carpeta' en la pestana\n"
             "Resumen."
-        )
+        ))
         self.check_serial_to_file.stateChanged.connect(
             self._on_serial_to_file_changed
         )
         lay.addWidget(self.check_serial_to_file)
 
-        note = QLabel(
+        note = QLabel(self.tr(
             "Para pasar hardware físico (PCI/USB) a esta VM, usa la pestaña "
             "<b>Dispositivos</b> de la parte superior de la ventana."
-        )
+        ))
         note.setWordWrap(True)
         note.setStyleSheet("color:#888; font-size:11px; padding-top:8px;")
         lay.addWidget(note)
@@ -1696,11 +1741,11 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         (sección "Virtualización"). Ahora este método SOLO construye el
         widget; la pestaña "Configuración Host" lo inserta.
         """
-        deps_group = QGroupBox("Estado del sistema de virtualización")
+        deps_group = QGroupBox(self.tr("Estado del sistema de virtualización"))
         deps_layout = QVBoxLayout(deps_group)
 
-        self.label_host_distro = QLabel("Distribución: comprobando...")
-        self.label_host_manager = QLabel("Gestor de paquetes: comprobando...")
+        self.label_host_distro = QLabel(self.tr("Distribución: comprobando..."))
+        self.label_host_manager = QLabel(self.tr("Gestor de paquetes: comprobando..."))
         deps_layout.addWidget(self.label_host_distro)
         deps_layout.addWidget(self.label_host_manager)
 
@@ -1726,8 +1771,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         deps_layout.addLayout(status_grid)
 
         deps_buttons = QHBoxLayout()
-        self.btn_check_deps = QPushButton("🔄 Comprobar dependencias")
-        self.btn_repair_deps = QPushButton("🛠️ Comprobar/Reparar dependencias")
+        self.btn_check_deps = QPushButton(self.tr("🔄 Comprobar dependencias"))
+        self.btn_repair_deps = QPushButton(self.tr("🛠️ Comprobar/Reparar dependencias"))
         self.btn_check_deps.clicked.connect(self.refresh_dependency_status)
         self.btn_repair_deps.clicked.connect(self.repair_dependency_status)
         deps_buttons.addWidget(self.btn_check_deps)
@@ -1745,16 +1790,18 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
           2. Orden de arranque (abajo, ancho completo).
         """
         # --- Contenedor principal del bloque ---
-        storage_group = QGroupBox("Almacenamiento")
+        storage_group = QGroupBox(self.tr("Almacenamiento"))
         storage_layout = QVBoxLayout(storage_group)
         storage_layout.setSpacing(12)
         storage_layout.setContentsMargins(12, 12, 12, 12)
 
         # --- 1) Controladores y dispositivos ---
-        ctrl_group = QGroupBox("Controladores y dispositivos")
+        ctrl_group = QGroupBox(self.tr("Controladores y dispositivos"))
         ctrl_layout = QVBoxLayout(ctrl_group)
         self.storage_tree = QTreeWidget()
-        self.storage_tree.setHeaderLabels(["Dispositivo", "Tipo / archivo", "Tamaño"])
+        self.storage_tree.setHeaderLabels([
+            self.tr("Dispositivo"), self.tr("Tipo / archivo"),
+            self.tr("Tamaño")])
         self.storage_tree.setColumnWidth(0, 300)
         self.storage_tree.setColumnWidth(1, 320)
         self.storage_tree.setColumnWidth(2, 150)
@@ -1768,20 +1815,20 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # UI simplificada: el "Disco Duro" se registra internamente
         # como sata y workers.py decide el bus real (NVMe/AHCI/IDE)
         # según el sistema operativo invitado.
-        for label, devtype in (("📀 CD / DVD", "cdrom"),
-                               ("💽 Disco Duro", "sata"),
-                               ("💾 Disquete", "floppy")):
+        for label, devtype in ((self.tr("📀 CD / DVD"), "cdrom"),
+                               (self.tr("💽 Disco Duro"), "sata"),
+                               (self.tr("💾 Disquete"), "floppy")):
             b = QPushButton(label)
             b.setMinimumHeight(30)
             b.clicked.connect(lambda _, t=devtype: self.create_storage_device(t))
             add_row.addWidget(b)
-        self.btn_storage_modify_device = QPushButton("✏ Modificar")
+        self.btn_storage_modify_device = QPushButton(self.tr("✏ Modificar"))
         self.btn_storage_modify_device.setMinimumHeight(30)
         self.btn_storage_modify_device.clicked.connect(self.modify_storage_device)
         add_row.addWidget(self.btn_storage_modify_device)
-        self.btn_storage_disk_manager = QPushButton("🗜 Compactar")
+        self.btn_storage_disk_manager = QPushButton(self.tr("🗜 Compactar"))
         self.btn_storage_disk_manager.setMinimumHeight(30)
-        self.btn_storage_disk_manager.setToolTip(
+        self.btn_storage_disk_manager.setToolTip(self.tr(
             "Compacta un disco QCOW2 de la VM seleccionada.\n"
             "\n"
             "Reduce el archivo físico en el host eliminando bloques no\n"
@@ -1790,10 +1837,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             "\n"
             "Se pedirá confirmación y se recomienda hacer un backup antes\n"
             "de proceder. Requiere que la VM esté apagada."
-        )
+        ))
         self.btn_storage_disk_manager.clicked.connect(self.compact_vm_disk)
         add_row.addWidget(self.btn_storage_disk_manager)
-        self.btn_storage_delete_device = QPushButton("🗑 Eliminar")
+        self.btn_storage_delete_device = QPushButton(self.tr("🗑 Eliminar"))
         self.btn_storage_delete_device.setMinimumHeight(30)
         self.btn_storage_delete_device.clicked.connect(self.delete_storage_device)
         add_row.addWidget(self.btn_storage_delete_device)
@@ -1811,7 +1858,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         storage_layout.addWidget(ctrl_group)
 
         # --- 2) Orden de arranque ---
-        boot_group = QGroupBox("Orden de arranque")
+        boot_group = QGroupBox(self.tr("Orden de arranque"))
         boot_layout = QVBoxLayout(boot_group)
         self.storage_list = QListWidget()
         self.storage_list.setMinimumHeight(110)
@@ -1826,9 +1873,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         boot_layout.addWidget(self.storage_list)
 
         boot_row = QHBoxLayout()
-        self.btn_storage_up = QPushButton("⬆ Subir")
-        self.btn_storage_down = QPushButton("⬇ Bajar")
-        self.btn_storage_remove = QPushButton("🗑 Quitar")
+        self.btn_storage_up = QPushButton(self.tr("⬆ Subir"))
+        self.btn_storage_down = QPushButton(self.tr("⬇ Bajar"))
+        self.btn_storage_remove = QPushButton(self.tr("🗑 Quitar"))
         self.btn_storage_up.clicked.connect(lambda: self.move_storage_boot(-1))
         self.btn_storage_down.clicked.connect(lambda: self.move_storage_boot(1))
         self.btn_storage_remove.clicked.connect(self.remove_storage_device)
@@ -1852,8 +1899,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             # Con rediseño: título de sección + bloque, dentro de su página.
             if not getattr(self, "_storage_section_title_added", False):
                 target_layout.addWidget(self._config_section_title(
-                    "Almacenamiento",
-                    "Discos, unidades ópticas y orden de arranque de la máquina virtual.",
+                    self.tr("Almacenamiento"),
+                    self.tr("Discos, unidades ópticas y orden de arranque de la máquina virtual."),
                 ))
                 self._storage_section_title_added = True
             target_layout.addWidget(storage_group)
@@ -1886,14 +1933,14 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         left_layout.setContentsMargins(6, 6, 6, 6)
         left_layout.setSpacing(6)
 
-        left_title = QLabel("<b>MÁQUINAS VIRTUALES</b>")
+        left_title = QLabel(self.tr("<b>MÁQUINAS VIRTUALES</b>"))
         left_title.setStyleSheet("font-size: 11px; padding: 4px 2px;")
         left_layout.addWidget(left_title)
 
         # Buscador de VMs (antes vivía en el toolbar de Configuración
         # y solo se veía en esa pestaña). Ahora siempre visible.
         self.input_vm_search = QLineEdit()
-        self.input_vm_search.setPlaceholderText("🔍 Buscar máquinas...")
+        self.input_vm_search.setPlaceholderText(self.tr("🔍 Buscar máquinas..."))
         self.input_vm_search.setMinimumWidth(0)
         self.input_vm_search.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -1905,16 +1952,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # en _apply_vm_order() (vm_lifecycle_mixin.py). La eleccion se
         # persiste en QSettings "layout/vm_order".
         self.combo_vm_order = QComboBox()
-        self.combo_vm_order.addItem("Ordenar: Nombre (A-Z)", "name")
-        self.combo_vm_order.addItem("Ordenar: Estado", "state")
-        self.combo_vm_order.addItem("Ordenar: Ultima vez usada", "last_used")
-        self.combo_vm_order.setToolTip(
+        self.combo_vm_order.addItem(self.tr("Ordenar: Nombre (A-Z)"), "name")
+        self.combo_vm_order.addItem(self.tr("Ordenar: Estado"), "state")
+        self.combo_vm_order.addItem(self.tr("Ordenar: Ultima vez usada"), "last_used")
+        self.combo_vm_order.setToolTip(self.tr(
             "Como ordenar la lista de maquinas virtuales.\n"
             "  - Nombre: alfabetico.\n"
             "  - Estado: encendidas primero, luego pausadas, apagadas al final.\n"
             "  - Ultima vez usada: por fecha de modificacion del vm_config.ini\n"
             "    (aproxima cuando se configuro por ultima vez)."
-        )
+        ))
         try:
             _saved_order = QSettings().value("layout/vm_order", "name") or "name"
         except Exception:
@@ -1930,15 +1977,15 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # al vuelo (sin caché, porque los grupos cambian al editar
         # etiquetas de cualquier VM).
         self.combo_vm_group = QComboBox()
-        self.combo_vm_group.addItem("Todos los grupos", "")
-        self.combo_vm_group.setToolTip(
+        self.combo_vm_group.addItem(self.tr("Todos los grupos"), "")
+        self.combo_vm_group.setToolTip(self.tr(
             "Muestra solo las VMs de un grupo concreto.\n"
             "  • Todos los grupos: sin filtro de grupo.\n"
             "  • Sin grupo: solo VMs sin etiqueta de grupo.\n"
             "  • <nombre>: solo VMs con ese grupo.\n"
             "\n"
             "Los grupos se asignan desde el botón '🏷 Etiqueta' del Resumen."
-        )
+        ))
         self.combo_vm_group.currentIndexChanged.connect(
             self._on_vm_group_filter_changed
         )
@@ -1947,7 +1994,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # Fila de acciones: [➕ Nueva VM] [🔌 USB]
         new_row = QHBoxLayout()
         new_row.setSpacing(4)
-        self.btn_new_vm = QPushButton("➕ Nueva VM")
+        self.btn_new_vm = QPushButton(self.tr("➕ Nueva VM"))
         self.btn_new_vm.setMinimumHeight(36)
         self.btn_new_vm.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -1976,7 +2023,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.vm_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.vm_list.setMinimumHeight(120)
         self.vm_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.vm_list.setToolTip("Selecciona una máquina virtual")
+        self.vm_list.setToolTip(self.tr("Selecciona una máquina virtual"))
         # OJO: NO definir reglas '::item' en el QSS del QListWidget.
         # Cuando el stylesheet tiene cualquier regla ::item, Qt pinta los
         # items con QStyleSheetStyle y deja de respetar el BackgroundRole
@@ -2007,21 +2054,21 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.vm_list.itemClicked.connect(self.on_vm_list_item_clicked)
         left_layout.addWidget(self.vm_list, 1)
 
-        self.vm_control_status = QLabel("● Sin VM seleccionada")
+        self.vm_control_status = QLabel(self.tr("● Sin VM seleccionada"))
         self.vm_control_status.setStyleSheet("font-weight:bold; color:#757575; padding:4px;")
         left_layout.addWidget(self.vm_control_status)
 
 
         control_row = QHBoxLayout()
-        self.btn_vm_start = QPushButton("▶ Iniciar")
+        self.btn_vm_start = QPushButton(self.tr("▶ Iniciar"))
         self.btn_vm_pause = QToolButton()
-        self.btn_vm_pause.setText("⏸ Pausar")
-        self.btn_vm_pause.setToolTip(
+        self.btn_vm_pause.setText(self.tr("⏸ Pausar"))
+        self.btn_vm_pause.setToolTip(self.tr(
             "Pausar la VM. Usa la flecha para más opciones:\n"
             "• Pausar (rápido): detiene sin guardar el estado en disco.\n"
             "• Guardar estado y pausar: escribe la RAM a disco antes de pausar.\n"
             "• Reanudar: vuelve a ejecutar la VM pausada."
-        )
+        ))
         self.btn_vm_pause.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.btn_vm_pause.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         # "Apagar" es un QToolButton con menú desplegable en vez de un botón
@@ -2029,36 +2076,36 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # igual que el botón de cierre de VirtualBox. Clic normal = Apagado
         # (ACPI, la opción más segura); el menú da acceso a las demás.
         self.btn_vm_poweroff = QToolButton()
-        self.btn_vm_poweroff.setText("⏹ Apagar")
-        self.btn_vm_poweroff.setToolTip("Apagado (ACPI): pide a la VM que se apague de forma ordenada.")
+        self.btn_vm_poweroff.setText(self.tr("⏹ Apagar"))
+        self.btn_vm_poweroff.setToolTip(self.tr("Apagado (ACPI): pide a la VM que se apague de forma ordenada."))
         self.btn_vm_poweroff.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.btn_vm_poweroff.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
 
         self.menu_vm_poweroff = QMenu(self.btn_vm_poweroff)
-        self.action_vm_shutdown = QAction("⏹ Apagado (ACPI)", self)
-        self.action_vm_shutdown.setToolTip(
+        self.action_vm_shutdown = QAction(self.tr("⏹ Apagado (ACPI)"), self)
+        self.action_vm_shutdown.setToolTip(self.tr(
             "Pide a la VM que se apague de forma ordenada, como pulsar el botón de\n"
             "encendido en un equipo real. El sistema operativo invitado decide cuándo\n"
             "y cómo cerrar. Puede tardar unos segundos o no responder si está colgado."
-        )
-        self.action_vm_force_shutdown = QAction("⏻ Forzar apagado", self)
-        self.action_vm_force_shutdown.setToolTip(
+        ))
+        self.action_vm_force_shutdown = QAction(self.tr("⏻ Forzar apagado"), self)
+        self.action_vm_force_shutdown.setToolTip(self.tr(
             "Corta la VM de inmediato, sin avisar al sistema operativo invitado —\n"
             "como desenchufar un equipo real. Puede causar pérdida de datos no\n"
             "guardados; úsalo solo si la VM no responde al apagado normal."
-        )
-        self.action_vm_reboot = QAction("⟳ Reiniciar", self)
-        self.action_vm_reboot.setToolTip(
+        ))
+        self.action_vm_reboot = QAction(self.tr("⟳ Reiniciar"), self)
+        self.action_vm_reboot.setToolTip(self.tr(
             "Reinicia la VM (equivalente al botón de reinicio de un equipo real).\n"
             "No es un apagado ordenado del sistema operativo invitado: simplemente\n"
             "reinicia el hardware virtual."
-        )
-        self.action_vm_force_reboot = QAction("⟲ Forzar reinicio", self)
-        self.action_vm_force_reboot.setToolTip(
+        ))
+        self.action_vm_force_reboot = QAction(self.tr("⟲ Forzar reinicio"), self)
+        self.action_vm_force_reboot.setToolTip(self.tr(
             "Corta la VM por completo y la vuelve a iniciar desde cero, sin avisar\n"
             "al sistema operativo invitado. Úsalo solo si la VM no responde ni al\n"
             "apagado ni al reinicio normales."
-        )
+        ))
         for action in (
             self.action_vm_shutdown,
             self.action_vm_force_shutdown,
@@ -2077,31 +2124,31 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         #   - Reanudar: alternativa contextual, va segundo.
         #   - Tomar Snapshot: opción menos frecuente, va tercero.
         self.menu_vm_pause = QMenu(self.btn_vm_pause)
-        self.action_vm_pause = QAction("⏸ Pausar (rápido)", self)
-        self.action_vm_pause.setToolTip(
+        self.action_vm_pause = QAction(self.tr("⏸ Pausar (rápido)"), self)
+        self.action_vm_pause.setToolTip(self.tr(
             "Pausa la VM sin guardar el estado en disco. Es instantáneo, pero\n"
             "el estado (RAM y dispositivos) se pierde si el host se reinicia."
-        )
-        self.action_vm_resume = QAction("▶ Reanudar", self)
-        self.action_vm_resume.setToolTip(
+        ))
+        self.action_vm_resume = QAction(self.tr("▶ Reanudar"), self)
+        self.action_vm_resume.setToolTip(self.tr(
             "Reanuda la ejecución de la VM pausada."
-        )
-        self.action_vm_pause_save = QAction("📸 Tomar Snapshot", self)
-        self.action_vm_pause_save.setToolTip(
+        ))
+        self.action_vm_pause_save = QAction(self.tr("📸 Tomar Snapshot"), self)
+        self.action_vm_pause_save.setToolTip(self.tr(
             "Guarda la RAM y el estado de los dispositivos a disco (como un\n"
             "snapshot) y luego pausa la VM. Tarda más pero sobrevive a reinicios.\n"
             "El snapshot aparecerá en la pestaña Snapshots y su captura de\n"
             "pantalla en el panel 'Último snapshot'."
-        )
+        ))
         # Orden de inserción: Pausar → Reanudar → Tomar Snapshot.
         for _a in (self.action_vm_pause, self.action_vm_resume, self.action_vm_pause_save):
             self.menu_vm_pause.addAction(_a)
         self.btn_vm_pause.setMenu(self.menu_vm_pause)
 
         for b, tip, color, hover in (
-            (self.btn_vm_start, "Iniciar VM", "#2e7d32", "#1b5e20"),
-            (self.btn_vm_pause, "Pausar/Reanudar VM", "#f9a825", "#f57f17"),
-            (self.btn_vm_poweroff, "Apagado (ACPI): pide a la VM que se apague de forma ordenada.\nUsa la flecha para más opciones (forzar, reiniciar).", "#c62828", "#8e0000"),
+            (self.btn_vm_start, self.tr("Iniciar VM"), "#2e7d32", "#1b5e20"),
+            (self.btn_vm_pause, self.tr("Pausar/Reanudar VM"), "#f9a825", "#f57f17"),
+            (self.btn_vm_poweroff, self.tr("Apagado (ACPI): pide a la VM que se apague de forma ordenada.\nUsa la flecha para más opciones (forzar, reiniciar)."), "#c62828", "#8e0000"),
         ):
             # Todos los botones deben tener EXACTAMENTE la misma política de
             # tamaño para que crezcan/decrezcan juntos al redimensionar el
@@ -2138,7 +2185,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.action_vm_reboot.triggered.connect(self.control_reboot_vm)
         self.action_vm_force_reboot.triggered.connect(self.control_force_reboot_vm)
 
-        left_hint = QLabel("Selecciona una VM para administrarla. Usa 'Nueva máquina virtual' para crear otra.")
+        left_hint = QLabel(self.tr("Selecciona una VM para administrarla. Usa 'Nueva máquina virtual' para crear otra."))
         left_hint.setWordWrap(True)
         left_hint.setStyleSheet("color:#666; font-size:9px; padding:4px 2px;")
         left_layout.addWidget(left_hint)
@@ -2149,11 +2196,11 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         details_layout.setContentsMargins(12, 10, 12, 10)
         details_layout.setSpacing(8)
 
-        self.manager_vm_title = QLabel("Nueva máquina virtual")
+        self.manager_vm_title = QLabel(self.tr("Nueva máquina virtual"))
         self.manager_vm_title.setFont(QFont("Arial", 18, QFont.Weight.Bold))
         details_layout.addWidget(self.manager_vm_title)
 
-        self.manager_vm_state = QLabel("● Nueva VM")
+        self.manager_vm_state = QLabel(self.tr("● Nueva VM"))
         self.manager_vm_state.setStyleSheet("font-weight:bold; color:#757575;")
         details_layout.addWidget(self.manager_vm_state)
 
@@ -2189,13 +2236,13 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             self.menu_vm_usb.aboutToShow.connect(self._refresh_media_menu)
 
         # Botón "💿 Medios" — abre el menú de CD/DVD + USB.
-        self.btn_vm_usb = QPushButton("💿 Medios")
+        self.btn_vm_usb = QPushButton(self.tr("💿 Medios"))
         self.btn_vm_usb.setMinimumHeight(34)
-        self.btn_vm_usb.setToolTip(
+        self.btn_vm_usb.setToolTip(self.tr(
             "Medios de la VM: unidades CD/DVD y dispositivos USB.\n"
             "Cambia ISO en caliente, expulsa medios y conecta/desconecta\n"
             "USB sin reiniciar la máquina. Atajo: Ctrl+M."
-        )
+        ))
         self.btn_vm_usb.setStyleSheet(
             "QPushButton { background-color: #1976d2; color: white; "
             "font-weight: bold; border: 1px solid #0d47a1; "
@@ -2210,53 +2257,53 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         toolbar.addWidget(self.btn_vm_usb)
 
         for attr, text, slot, tip in (
-            ("manager_btn_clone", "🧬 Clonar",
+            ("manager_btn_clone", self.tr("🧬 Clonar"),
              self.clone_current_vm,
-             "Crea una copia completa de esta VM en una carpeta nueva."),
-            ("manager_btn_unlink", "🧬 Desenlazar",
+             self.tr("Crea una copia completa de esta VM en una carpeta nueva.")),
+            ("manager_btn_unlink", self.tr("🧬 Desenlazar"),
              self.unlink_linked_clone,
-             "Convierte este clon enlazado en un QCOW2 autónomo.\n"
+             self.tr("Convierte este clon enlazado en un QCOW2 autónomo.\n"
              "Después, el clon deja de depender del original y puede\n"
              "moverse o copiarse por separado.\n\n"
              "Solo aparece cuando la VM seleccionada es un clon\n"
-             "enlazado y está apagada."),
-            ("manager_btn_import", "⇩ Importar",
+             "enlazado y está apagada.")),
+            ("manager_btn_import", self.tr("⇩ Importar"),
              self.import_vm,
-             "Importar una VM desde una carpeta (con vm_config.ini) o desde\n"
-             "un archivo .tar.gz / .zip exportado previamente."),
-            ("manager_btn_export", "⇪ Exportar",
+             self.tr("Importar una VM desde una carpeta (con vm_config.ini) o desde\n"
+             "un archivo .tar.gz / .zip exportado previamente.")),
+            ("manager_btn_export", self.tr("⇪ Exportar"),
              self.export_vm,
-             "Exportar esta VM como carpeta, .tar.gz o .zip portable.\n"
-             "Se omiten los archivos de runtime (pids, sockets, logs)."),
-            ("manager_btn_save_template", "💾 Plantilla",
+             self.tr("Exportar esta VM como carpeta, .tar.gz o .zip portable.\n"
+             "Se omiten los archivos de runtime (pids, sockets, logs).")),
+            ("manager_btn_save_template", self.tr("💾 Plantilla"),
              self.save_current_vm_as_template,
-             "Guarda la configuración de hardware de esta VM como\n"
+             self.tr("Guarda la configuración de hardware de esta VM como\n"
              "plantilla reutilizable. Se omiten discos, ISOs, MACs,\n"
              "carpetas compartidas, notas y reglas NAT.\n"
-             "Aparecerá en el menú del botón '➕ Nueva VM'."),
-            ("manager_btn_qemu_cmd", "📜 Comando QEMU",
+             "Aparecerá en el menú del botón '➕ Nueva VM'.")),
+            ("manager_btn_qemu_cmd", self.tr("📜 Comando QEMU"),
              self.show_qemu_command,
-             "Muestra el contenido de run_temp.sh: el comando exacto con\n"
+             self.tr("Muestra el contenido de run_temp.sh: el comando exacto con\n"
              "el que QEMU está ejecutando (o ejecutó por última vez) esta\n"
-             "VM. Solo está disponible si la VM se ha arrancado alguna vez."),
-            ("manager_btn_notes", "📝 Notas",
+             "VM. Solo está disponible si la VM se ha arrancado alguna vez.")),
+            ("manager_btn_notes", self.tr("📝 Notas"),
              self.edit_vm_notes,
-             "Notas libres sobre esta VM. Se guardan en vm_config.ini\n"
+             self.tr("Notas libres sobre esta VM. Se guardan en vm_config.ini\n"
              "(extra.notes) y aparecen como aviso amarillo debajo del\n"
-             "estado en esta misma pestaña."),
-            ("manager_btn_label", "🏷 Etiqueta",
+             "estado en esta misma pestaña.")),
+            ("manager_btn_label", self.tr("🏷 Etiqueta"),
              self.edit_vm_label,
-             "Grupo y color de esta VM. El grupo agrupa VMs en la lista\n"
-             "lateral; el color se aplica como fondo del ítem."),
-            ("manager_btn_compare", "⚖ Comparar con defaults",
+             self.tr("Grupo y color de esta VM. El grupo agrupa VMs en la lista\n"
+             "lateral; el color se aplica como fondo del ítem.")),
+            ("manager_btn_compare", self.tr("⚖ Comparar con defaults"),
              self.compare_config_with_defaults,
-             "Compara la configuración actual de esta VM con los\n"
+             self.tr("Compara la configuración actual de esta VM con los\n"
              "valores por defecto del perfil del SO. Permite aplicar\n"
              "los defaults a un campo o a todos; los cambios se aplican\n"
-             "a los widgets y se persisten al Guardar."),
-            ("manager_btn_delete", "🗑️ Eliminar",
+             "a los widgets y se persisten al Guardar.")),
+            ("manager_btn_delete", self.tr("🗑️ Eliminar"),
              self.delete_current_vm,
-             "Elimina esta VM (con opción de conservar los discos)."),
+             self.tr("Elimina esta VM (con opción de conservar los discos).")),
         ):
             b = QPushButton(text)
             b.setMinimumHeight(34)
@@ -2278,7 +2325,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         details_layout.addLayout(toolbar)
 
         # Tarjeta con la configuración textual de la VM.
-        info_box = QGroupBox("Resumen de Configuración")
+        info_box = QGroupBox(self.tr("Resumen de Configuración"))
         info_layout = QVBoxLayout(info_box)
         self.manager_details_label = QLabel()
         self.manager_details_label.setWordWrap(True)
@@ -2308,7 +2355,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self._perf_prev_io = None
         self._perf_prev_time = None
 
-        self.manager_quick_hint = QLabel("Selecciona una máquina virtual en la lista de la izquierda.")
+        self.manager_quick_hint = QLabel(self.tr("Selecciona una máquina virtual en la lista de la izquierda."))
         self.manager_quick_hint.setStyleSheet("color:#666; padding:4px;")
         details_layout.addWidget(self.manager_quick_hint)
         details_layout.addStretch()
@@ -2319,9 +2366,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         snapshots_page = QWidget()
         snap_layout = QVBoxLayout(snapshots_page)
         snap_layout.setContentsMargins(10, 10, 10, 10)
-        snap_title = QLabel("<b>Snapshots de la máquina virtual</b>")
+        snap_title = QLabel(self.tr("<b>Snapshots de la máquina virtual</b>"))
         snap_layout.addWidget(snap_title)
-        snap_info = QLabel("Crea, restaura, elimina y administra snapshots. La aplicación comprueba los discos QCOW2 escribibles, el espacio libre y qué discos formarán parte del snapshot antes de ejecutarlo.")
+        snap_info = QLabel(self.tr(
+            "Crea, restaura, elimina y administra snapshots. La aplicación "
+            "comprueba los discos QCOW2 escribibles, el espacio libre y qué "
+            "discos formarán parte del snapshot antes de ejecutarlo."))
         snap_info.setWordWrap(True)
         snap_info.setStyleSheet("color:#555; padding-bottom:4px;")
         snap_layout.addWidget(snap_info)
@@ -2332,14 +2382,14 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # fuerza solo-disco en ese caso; este aviso lo explica.
         # La visibilidad la controla
         # _update_linked_clone_snapshot_notice() desde SnapshotsMixin.
-        self.snapshot_linked_clone_notice = QLabel(
+        self.snapshot_linked_clone_notice = QLabel(self.tr(
             "\u26a0 Esta VM es un clon enlazado (backing file QCOW2). "
             "Los snapshots completos (RAM + dispositivos) no se pueden "
             "restaurar en QEMU con backing file; la app usará siempre "
             "snapshots SOLO DE DISCOS. Para tener snapshots completos, "
             "desenlaza primero el clon con \u2018\U0001f9ec Desenlazar\u2019 "
             "en la pestaña Resumen."
-        )
+        ))
         self.snapshot_linked_clone_notice.setWordWrap(True)
         self.snapshot_linked_clone_notice.setStyleSheet(
             "color:#7a5b00; background:#fff3cd; border:1px solid #ffe082; "
@@ -2350,18 +2400,21 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         # Fila de acciones (arriba de la lista de discos).
         snap_buttons = QHBoxLayout()
-        self.btn_snapshot_refresh = QPushButton("🔄 Actualizar")
-        self.btn_snapshot_create = QPushButton("➕ Crear")
-        self.btn_snapshot_restore = QPushButton("↩ Restaurar")
-        self.btn_snapshot_rename = QPushButton("✏ Cambiar nombre")
-        self.btn_snapshot_delete = QPushButton("🗑 Eliminar")
+        self.btn_snapshot_refresh = QPushButton(self.tr("🔄 Actualizar"))
+        self.btn_snapshot_create = QPushButton(self.tr("➕ Crear"))
+        self.btn_snapshot_restore = QPushButton(self.tr("↩ Restaurar"))
+        self.btn_snapshot_rename = QPushButton(self.tr("✏ Cambiar nombre"))
+        self.btn_snapshot_delete = QPushButton(self.tr("🗑 Eliminar"))
         for b, slot in ((self.btn_snapshot_refresh, self.refresh_snapshot_page), (self.btn_snapshot_create, self.create_snapshot_from_page), (self.btn_snapshot_restore, self.restore_snapshot_from_page), (self.btn_snapshot_rename, self.rename_snapshot_from_page), (self.btn_snapshot_delete, self.delete_snapshot_from_page)):
             b.clicked.connect(slot); snap_buttons.addWidget(b)
         snap_buttons.addStretch(1)
         snap_layout.addLayout(snap_buttons)
 
         self.snapshot_disk_status = QTreeWidget()
-        self.snapshot_disk_status.setHeaderLabels(["Dispositivo", "Formato", "Tamaño virtual", "Tamaño archivo", "Libre host", "Escritura", "Snapshot"])
+        self.snapshot_disk_status.setHeaderLabels([
+            self.tr("Dispositivo"), self.tr("Formato"),
+            self.tr("Tamaño virtual"), self.tr("Tamaño archivo"),
+            self.tr("Libre host"), self.tr("Escritura"), self.tr("Snapshot")])
         self.snapshot_disk_status.setRootIsDecorated(False)
         self.snapshot_disk_status.setAlternatingRowColors(True)
         self.snapshot_disk_status.setMaximumHeight(95)
@@ -2373,7 +2426,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.snapshot_space_label.setStyleSheet("padding:4px;")
         snap_layout.addWidget(self.snapshot_space_label)
 
-        self.snapshot_progress_label = QLabel("Sin operación de snapshot")
+        self.snapshot_progress_label = QLabel(self.tr("Sin operación de snapshot"))
         self.snapshot_progress_label.setStyleSheet("padding:2px; font-weight:bold;")
         # Barra inline deshabilitada: el diálogo de progreso del
         # snapshot la sustituye. Se conserva el widget oculto por
@@ -2386,7 +2439,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.snapshot_progress_bar.setVisible(False)
 
         self.snapshot_list_widget = QTreeWidget()
-        self.snapshot_list_widget.setHeaderLabels(["ID", "Nombre", "Tamaño VM", "Fecha", "Reloj VM"])
+        self.snapshot_list_widget.setHeaderLabels([
+            self.tr("ID"), self.tr("Nombre"), self.tr("Tamaño VM"),
+            self.tr("Fecha"), self.tr("Reloj VM")])
         self.snapshot_list_widget.setRootIsDecorated(False)
         self.snapshot_list_widget.setAlternatingRowColors(True)
         self.snapshot_list_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -2394,10 +2449,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         # Selector de vista: radio buttons (uno siempre activo).
         toggle_row = QHBoxLayout()
-        toggle_row.addWidget(QLabel("Vista:"))
-        self.radio_snap_view_list = QRadioButton("📋 Lista")
+        toggle_row.addWidget(QLabel(self.tr("Vista:")))
+        self.radio_snap_view_list = QRadioButton(self.tr("📋 Lista"))
         self.radio_snap_view_list.setChecked(True)
-        self.radio_snap_view_graph = QRadioButton("🌳 Organigrama")
+        self.radio_snap_view_graph = QRadioButton(self.tr("🌳 Organigrama"))
         self.snap_view_group = QButtonGroup(self)
         self.snap_view_group.addButton(self.radio_snap_view_list, 0)
         self.snap_view_group.addButton(self.radio_snap_view_graph, 1)
@@ -2422,16 +2477,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         preview_layout.setSpacing(4)
 
         preview_zoom_row = QHBoxLayout()
-        preview_zoom_row.addWidget(QLabel("Zoom:"))
+        preview_zoom_row.addWidget(QLabel(self.tr("Zoom:")))
         self.btn_preview_zoom_out = QPushButton("🔍−")
         self.btn_preview_zoom_out.setMaximumWidth(44)
-        self.btn_preview_zoom_out.setToolTip("Alejar la miniatura")
+        self.btn_preview_zoom_out.setToolTip(self.tr("Alejar la miniatura"))
         self.btn_preview_zoom_in = QPushButton("🔍+")
         self.btn_preview_zoom_in.setMaximumWidth(44)
-        self.btn_preview_zoom_in.setToolTip("Acercar la miniatura")
-        self.btn_preview_zoom_reset = QPushButton("↺ Ajustar")
+        self.btn_preview_zoom_in.setToolTip(self.tr("Acercar la miniatura"))
+        self.btn_preview_zoom_reset = QPushButton(self.tr("↺ Ajustar"))
         self.btn_preview_zoom_reset.setMaximumWidth(90)
-        self.btn_preview_zoom_reset.setToolTip("Ajustar al tamaño original")
+        self.btn_preview_zoom_reset.setToolTip(self.tr("Ajustar al tamaño original"))
         self.snapshot_preview_zoom_label = QLabel("100%")
         self.snapshot_preview_zoom_label.setMinimumWidth(50)
         self.snapshot_preview_zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -2454,7 +2509,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.snapshot_preview_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.snapshot_preview_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        self.snapshot_preview_label = QLabel("Sin captura de pantalla")
+        self.snapshot_preview_label = QLabel(self.tr("Sin captura de pantalla"))
         self.snapshot_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.snapshot_preview_label.setMinimumSize(320, 180)
         self.snapshot_preview_label.setStyleSheet("background: #1e1e1e; color: #888; padding: 4px;")
@@ -2482,7 +2537,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         # Integración Host ↔ Guest: Compartir (carpetas + clipboard).
         shared_page=QWidget(); shared_outer_layout=QVBoxLayout(shared_page)
-        shared_info=QLabel("Integración Host ↔ Guest. Aquí se configuran las carpetas compartidas y el portapapeles (clipboard).")
+        shared_info=QLabel(self.tr("Integración Host ↔ Guest. Aquí se configuran las carpetas compartidas y el portapapeles (clipboard)."))
         shared_info.setWordWrap(True); shared_info.setStyleSheet("color:#555; padding:6px;"); shared_outer_layout.addWidget(shared_info)
 
         self.shared_subtabs = QTabWidget()
@@ -2490,23 +2545,23 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         # --- Subpestaña: Compartir Carpetas ---
         shared_folders_page=QWidget(); sf_layout=QVBoxLayout(shared_folders_page)
-        sf_info=QLabel("Comparte directorios del host con el guest. Automático usa VirtioFS en Linux cuando virtiofsd está disponible, 9p como respaldo y SMB para Windows/macOS. Solo lectura impide que el guest modifique archivos del host.")
+        sf_info=QLabel(self.tr("Comparte directorios del host con el guest. Automático usa VirtioFS en Linux cuando virtiofsd está disponible, 9p como respaldo y SMB para Windows/macOS. Solo lectura impide que el guest modifique archivos del host."))
         sf_info.setWordWrap(True); sf_info.setStyleSheet("color:#555; padding:6px;"); sf_layout.addWidget(sf_info)
 
-        sf_dep_group=QGroupBox("Dependencias del host")
+        sf_dep_group=QGroupBox(self.tr("Dependencias del host"))
         sf_dep_layout=QVBoxLayout(sf_dep_group)
-        self.sf_dep_virtiofsd=QLabel("VirtioFS: SIN COMPROBAR")
-        self.sf_dep_9p=QLabel("9p: SIN COMPROBAR")
-        self.sf_dep_smb=QLabel("SMB: SIN COMPROBAR")
+        self.sf_dep_virtiofsd=QLabel(self.tr("VirtioFS: SIN COMPROBAR"))
+        self.sf_dep_9p=QLabel(self.tr("9p: SIN COMPROBAR"))
+        self.sf_dep_smb=QLabel(self.tr("SMB: SIN COMPROBAR"))
         dep_status_row=QHBoxLayout()
         for lab in (self.sf_dep_virtiofsd,self.sf_dep_9p,self.sf_dep_smb):
             lab.setMinimumWidth(180); dep_status_row.addWidget(lab)
         sf_dep_layout.addLayout(dep_status_row)
-        sf_dep_note=QLabel("9p forma parte de QEMU y normalmente no requiere instalar un paquete adicional en el host. VirtioFS necesita virtiofsd y SMB necesita Samba/smbd.")
+        sf_dep_note=QLabel(self.tr("9p forma parte de QEMU y normalmente no requiere instalar un paquete adicional en el host. VirtioFS necesita virtiofsd y SMB necesita Samba/smbd."))
         sf_dep_note.setWordWrap(True); sf_dep_note.setStyleSheet("color:#666;"); sf_dep_layout.addWidget(sf_dep_note)
         sf_dep_buttons=QHBoxLayout()
-        self.btn_sf_check_deps=QPushButton("🔄 Comprobar")
-        self.btn_sf_install_deps=QPushButton("🛠️ Instalar faltantes")
+        self.btn_sf_check_deps=QPushButton(self.tr("🔄 Comprobar"))
+        self.btn_sf_install_deps=QPushButton(self.tr("🛠️ Instalar faltantes"))
         self.btn_sf_check_deps.clicked.connect(self.refresh_shared_folder_dependencies)
         self.btn_sf_install_deps.clicked.connect(self.install_shared_folder_dependencies)
         sf_dep_buttons.addWidget(self.btn_sf_check_deps); sf_dep_buttons.addWidget(self.btn_sf_install_deps); sf_dep_buttons.addStretch()
@@ -2516,72 +2571,72 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self._sf_dep_group = sf_dep_group
 
         self.shared_folders_tree=QTreeWidget()
-        self.shared_folders_tree.setHeaderLabels(["Host","Guest / etiqueta","Método","Montaje en el guest","Acceso"])
+        self.shared_folders_tree.setHeaderLabels([self.tr("Host"),self.tr("Guest / etiqueta"),self.tr("Método"),self.tr("Montaje en el guest"),self.tr("Acceso")])
         self.shared_folders_tree.setRootIsDecorated(False); self.shared_folders_tree.setAlternatingRowColors(True)
         sf_layout.addWidget(self.shared_folders_tree,1)
         sf_buttons=QHBoxLayout()
-        self.btn_shared_add=QPushButton("➕ Agregar"); self.btn_shared_edit=QPushButton("✏ Modificar"); self.btn_shared_delete=QPushButton("🗑 Eliminar"); self.btn_shared_apply=QPushButton("💾 Guardar")
+        self.btn_shared_add=QPushButton(self.tr("➕ Agregar")); self.btn_shared_edit=QPushButton(self.tr("✏ Modificar")); self.btn_shared_delete=QPushButton(self.tr("🗑 Eliminar")); self.btn_shared_apply=QPushButton(self.tr("💾 Guardar"))
         self.btn_shared_add.clicked.connect(self.add_shared_folder); self.btn_shared_edit.clicked.connect(self.edit_shared_folder); self.btn_shared_delete.clicked.connect(self.delete_shared_folder); self.btn_shared_apply.clicked.connect(self.save_shared_folders)
         for b in (self.btn_shared_add,self.btn_shared_edit,self.btn_shared_delete,self.btn_shared_apply): sf_buttons.addWidget(b)
         sf_buttons.addStretch(); sf_layout.addLayout(sf_buttons)
 
         # --- Subpestaña: Guest Tools ---
         guest_tools_page=QWidget(); gt_layout=QVBoxLayout(guest_tools_page)
-        gt_info=QLabel("Guest Tools reúne la integración del sistema invitado: QEMU Guest Agent, controladores VirtIO y, en Windows, componentes SPICE. La ISO se puede montar como CD/DVD en cualquier VM.")
+        gt_info=QLabel(self.tr("Guest Tools reúne la integración del sistema invitado: QEMU Guest Agent, controladores VirtIO y, en Windows, componentes SPICE. La ISO se puede montar como CD/DVD en cualquier VM."))
         gt_info.setWordWrap(True); gt_info.setStyleSheet("color:#555; padding:6px;"); gt_layout.addWidget(gt_info)
-        gt_group=QGroupBox("QEMU Guest Agent")
+        gt_group=QGroupBox(self.tr("QEMU Guest Agent"))
         gt_form=QFormLayout(gt_group)
-        self.guest_agent_enabled=QCheckBox("Activar canal QEMU Guest Agent al iniciar la VM")
+        self.guest_agent_enabled=QCheckBox(self.tr("Activar canal QEMU Guest Agent al iniciar la VM"))
         self.guest_agent_enabled.setChecked(False)
         self.guest_agent_enabled.stateChanged.connect(lambda _state: self.save_guest_tools_settings())
-        gt_form.addRow("Canal:",self.guest_agent_enabled)
-        self.guest_agent_status_label=QLabel("Estado: no comprobado")
-        self.guest_agent_status_label.setWordWrap(True); gt_form.addRow("Estado:",self.guest_agent_status_label)
+        gt_form.addRow(self.tr("Canal:"),self.guest_agent_enabled)
+        self.guest_agent_status_label=QLabel(self.tr("Estado: no comprobado"))
+        self.guest_agent_status_label.setWordWrap(True); gt_form.addRow(self.tr("Estado:"),self.guest_agent_status_label)
         gt_buttons=QHBoxLayout()
-        self.btn_guest_agent_test=QPushButton("🔎 Probar conexión")
-        self.btn_guest_tools_iso=QPushButton("💿 Crear / actualizar ISO Guest Tools")
-        self.btn_guest_tools_attach=QPushButton("🧰 Adjuntar a esta VM")
-        self.btn_guest_tools_attach.setToolTip("Crea la ISO si falta y la adjunta como CD/DVD a la VM seleccionada, en un solo paso.")
-        self.btn_guest_tools_open=QPushButton("📂 Abrir carpeta de Guest Tools")
+        self.btn_guest_agent_test=QPushButton(self.tr("🔎 Probar conexión"))
+        self.btn_guest_tools_iso=QPushButton(self.tr("💿 Crear / actualizar ISO Guest Tools"))
+        self.btn_guest_tools_attach=QPushButton(self.tr("🧰 Adjuntar a esta VM"))
+        self.btn_guest_tools_attach.setToolTip(self.tr("Crea la ISO si falta y la adjunta como CD/DVD a la VM seleccionada, en un solo paso."))
+        self.btn_guest_tools_open=QPushButton(self.tr("📂 Abrir carpeta de Guest Tools"))
         self.btn_guest_agent_test.clicked.connect(self.test_guest_agent)
         self.btn_guest_tools_iso.clicked.connect(self.create_guest_tools_iso_ui)
         self.btn_guest_tools_attach.clicked.connect(self.attach_guest_tools_iso)
         self.btn_guest_tools_open.clicked.connect(self.open_guest_tools_folder)
         gt_buttons.addWidget(self.btn_guest_agent_test); gt_buttons.addWidget(self.btn_guest_tools_iso); gt_buttons.addWidget(self.btn_guest_tools_attach); gt_buttons.addWidget(self.btn_guest_tools_open); gt_buttons.addStretch()
-        gt_form.addRow("Acciones:",gt_buttons)
+        gt_form.addRow(self.tr("Acciones:"),gt_buttons)
         gt_layout.addWidget(gt_group)
-        gt_note=QLabel("Linux: instala qemu-guest-agent desde esta ISO o desde el gestor de paquetes. Windows: INSTALL-WINDOWS.CMD descarga e instala VirtIO Guest Tools y SPICE Guest Tools desde sus fuentes oficiales. Después reinicia el guest.")
+        gt_note=QLabel(self.tr("Linux: instala qemu-guest-agent desde esta ISO o desde el gestor de paquetes. Windows: INSTALL-WINDOWS.CMD descarga e instala VirtIO Guest Tools y SPICE Guest Tools desde sus fuentes oficiales. Después reinicia el guest."))
         gt_note.setWordWrap(True); gt_note.setStyleSheet("color:#666;"); gt_layout.addWidget(gt_note)
         gt_layout.addStretch(1)
 
         # --- Subpestaña: Clipboard ---
         clipboard_page=QWidget(); cb_layout=QVBoxLayout(clipboard_page)
-        cb_group=QGroupBox("Compartir clipboard")
+        cb_group=QGroupBox(self.tr("Compartir clipboard"))
         cb_form=QFormLayout(cb_group)
         self.clipboard_mode=QComboBox()
-        self.clipboard_mode.addItem("Desactivado","disabled")
-        self.clipboard_mode.addItem("Host → SO invitado","host_to_guest")
-        self.clipboard_mode.addItem("SO invitado → Host","guest_to_host")
-        self.clipboard_mode.addItem("Bidireccional","bidirectional")
-        cb_form.addRow("Dirección:",self.clipboard_mode)
-        cb_note=QLabel("Linux y Windows: se usará QEMU vdagent + canal VirtIO/SPICE y GTK para clipboard bidireccional. El guest debe tener spice-vdagent (Linux) o SPICE Guest Tools (Windows). macOS se probará en una fase específica.")
+        self.clipboard_mode.addItem(self.tr("Desactivado"),"disabled")
+        self.clipboard_mode.addItem(self.tr("Host → SO invitado"),"host_to_guest")
+        self.clipboard_mode.addItem(self.tr("SO invitado → Host"),"guest_to_host")
+        self.clipboard_mode.addItem(self.tr("Bidireccional"),"bidirectional")
+        cb_form.addRow(self.tr("Dirección:"),self.clipboard_mode)
+        cb_note=QLabel(self.tr("Linux y Windows: se usará QEMU vdagent + canal VirtIO/SPICE y GTK para clipboard bidireccional. El guest debe tener spice-vdagent (Linux) o SPICE Guest Tools (Windows). macOS se probará en una fase específica."))
         cb_note.setWordWrap(True); cb_note.setStyleSheet("color:#666;"); cb_form.addRow("",cb_note)
         cb_buttons=QHBoxLayout()
-        self.btn_clipboard_save=QPushButton("💾 Guardar configuración")
+        self.btn_clipboard_save=QPushButton(self.tr("💾 Guardar configuración"))
         self.btn_clipboard_save.clicked.connect(self.save_clipboard_settings)
         cb_buttons.addWidget(self.btn_clipboard_save); cb_buttons.addStretch()
         cb_form.addRow("",cb_buttons)
         cb_layout.addWidget(cb_group)
-        cb_status=QGroupBox("Estado")
+        cb_status=QGroupBox(self.tr("Estado"))
         cb_status_lay=QVBoxLayout(cb_status)
-        self.clipboard_status_label=QLabel("Configuración por VM. El mecanismo concreto se seleccionará según el SO invitado y su soporte de integración.")
+        self.clipboard_status_label=QLabel(self.tr("Configuración por VM. El mecanismo concreto se seleccionará según el SO invitado y su soporte de integración."))
         self.clipboard_status_label.setWordWrap(True); cb_status_lay.addWidget(self.clipboard_status_label)
         cb_layout.addWidget(cb_status)
         cb_layout.addStretch(1)
 
-        self.shared_subtabs.addTab(shared_folders_page,"Compartir Carpetas")
-        self.shared_subtabs.addTab(guest_tools_page,"Guest Tools")
-        self.shared_subtabs.addTab(clipboard_page,"Clipboard")
+        self.shared_subtabs.addTab(shared_folders_page,self.tr("Compartir Carpetas"))
+        self.shared_subtabs.addTab(guest_tools_page,self.tr("Guest Tools"))
+        self.shared_subtabs.addTab(clipboard_page,self.tr("Clipboard"))
         shared_outer_layout.addWidget(self.shared_subtabs,1)
         # split_vm_host_config_v1: shared_page ya no se envuelve en un
         # scroll ni se anade al main_tabs. Se insertara como seccion
@@ -2591,7 +2646,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # Passthrough de dispositivos del host (PCI/USB).
         passthrough_page = QWidget()
         pt_layout = QVBoxLayout(passthrough_page)
-        pt_info = QLabel("Passthrough de hardware físico. PCI usa VFIO; USB usa usb-host sobre XHCI. El programa comprobará el acceso a /dev/bus/usb, desmontará automáticamente el almacenamiento USB seleccionado del anfitrión y solicitará permisos administrativos solo cuando sea necesario. No selecciones Root Hubs.")
+        pt_info = QLabel(self.tr("Passthrough de hardware físico. PCI usa VFIO; USB usa usb-host sobre XHCI. El programa comprobará el acceso a /dev/bus/usb, desmontará automáticamente el almacenamiento USB seleccionado del anfitrión y solicitará permisos administrativos solo cuando sea necesario. No selecciones Root Hubs."))
         pt_info.setWordWrap(True)
         pt_info.setStyleSheet("color:#555; padding:6px;")
         pt_layout.addWidget(pt_info)
@@ -2615,20 +2670,20 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.label_passthrough_snapshot_notice.setVisible(False)
         pt_layout.addWidget(self.label_passthrough_snapshot_notice)
 
-        vfio_group = QGroupBox("Diagnóstico PCI / VFIO")
+        vfio_group = QGroupBox(self.tr("Diagnóstico PCI / VFIO"))
         vfio_lay = QVBoxLayout(vfio_group)
-        self.vfio_diag_label = QLabel("Comprobando Intel VT-d / IOMMU...")
+        self.vfio_diag_label = QLabel(self.tr("Comprobando Intel VT-d / IOMMU..."))
         self.vfio_diag_label.setWordWrap(True)
         self.vfio_diag_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         vfio_lay.addWidget(self.vfio_diag_label)
         vfio_btns = QHBoxLayout()
-        self.btn_vfio_refresh = QPushButton("🔄 Comprobar IOMMU / VFIO")
+        self.btn_vfio_refresh = QPushButton(self.tr("🔄 Comprobar IOMMU / VFIO"))
         self.btn_vfio_refresh.clicked.connect(self.refresh_vfio_diagnostics)
-        self.btn_vfio_details = QPushButton("ℹ Ver diagnóstico detallado")
+        self.btn_vfio_details = QPushButton(self.tr("ℹ Ver diagnóstico detallado"))
         self.btn_vfio_details.clicked.connect(self.vfio_diagnostic_details)
-        self.btn_vfio_prepare = QPushButton("🛠 Preparar intel_iommu=on")
+        self.btn_vfio_prepare = QPushButton(self.tr("🛠 Preparar intel_iommu=on"))
         self.btn_vfio_prepare.clicked.connect(self.prepare_iommu_from_ui)
-        self.btn_vfio_firmware = QPushButton("⚙ Abrir UEFI/BIOS")
+        self.btn_vfio_firmware = QPushButton(self.tr("⚙ Abrir UEFI/BIOS"))
         self.btn_vfio_firmware.clicked.connect(self.open_firmware_setup)
         vfio_btns.addWidget(self.btn_vfio_refresh)
         vfio_btns.addWidget(self.btn_vfio_details)
@@ -2645,36 +2700,36 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # Se comprueba si existe la regla que permite el passthrough USB
         # sin pedir contraseña cada vez. Si falta, se puede instalar aquí
         # mismo con un solo clic (usa pkexec).
-        usb_perm_group = QGroupBox("Permisos USB del host")
+        usb_perm_group = QGroupBox(self.tr("Permisos USB del host"))
         usb_perm_layout = QVBoxLayout(usb_perm_group)
 
-        usb_perm_info = QLabel(
+        usb_perm_info = QLabel(self.tr(
             "Para poder pasar memorias o discos USB a la VM sin pedir "
             "contraseña cada vez, el sistema necesita una regla udev que "
             "conceda acceso al usuario activo. Puedes instalarla aquí con "
             "un clic; solo se aplica a esta categoría de dispositivos."
-        )
+        ))
         usb_perm_info.setWordWrap(True)
         usb_perm_info.setStyleSheet("color:#666; font-size: 11px;")
         usb_perm_layout.addWidget(usb_perm_info)
 
         usb_perm_row = QHBoxLayout()
-        self.usb_perm_status_label = QLabel("Comprobando…")
+        self.usb_perm_status_label = QLabel(self.tr("Comprobando…"))
         self.usb_perm_status_label.setStyleSheet("font-weight: bold;")
         usb_perm_row.addWidget(self.usb_perm_status_label)
         usb_perm_row.addStretch()
 
-        self.btn_usb_perm_check = QPushButton("🔄 Comprobar")
+        self.btn_usb_perm_check = QPushButton(self.tr("🔄 Comprobar"))
         self.btn_usb_perm_check.clicked.connect(self.refresh_usb_permissions_status)
         usb_perm_row.addWidget(self.btn_usb_perm_check)
 
-        self.btn_usb_perm_install = QPushButton("🔧 Configurar permisos USB")
-        self.btn_usb_perm_install.setToolTip(
+        self.btn_usb_perm_install = QPushButton(self.tr("🔧 Configurar permisos USB"))
+        self.btn_usb_perm_install.setToolTip(self.tr(
             "Crea /etc/udev/rules.d/50-vm-manager-usb.rules con la regla\n"
             "que permite el acceso a los dispositivos USB al usuario activo.\n"
             "Solo se toca este archivo; el resto de la configuración USB\n"
             "del sistema no se modifica."
-        )
+        ))
         self.btn_usb_perm_install.clicked.connect(self.install_usb_permissions)
         usb_perm_row.addWidget(self.btn_usb_perm_install)
         usb_perm_layout.addLayout(usb_perm_row)
@@ -2683,19 +2738,19 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self._usb_perm_group = usb_perm_group
 
         self.passthrough_tree = QTreeWidget()
-        self.passthrough_tree.setHeaderLabels(["Usar", "Tipo", "Dispositivo", "IOMMU / Driver", "Estado"] )
+        self.passthrough_tree.setHeaderLabels([self.tr("Usar"), self.tr("Tipo"), self.tr("Dispositivo"), self.tr("IOMMU / Driver"), self.tr("Estado")] )
         self.passthrough_tree.setColumnWidth(0, 55)
         self.passthrough_tree.setColumnWidth(1, 55)
         self.passthrough_tree.setColumnWidth(3, 170)
         pt_layout.addWidget(self.passthrough_tree, 1)
         pt_buttons = QHBoxLayout()
-        self.btn_passthrough_refresh = QPushButton("🔄 Detectar dispositivos")
-        self.btn_passthrough_apply = QPushButton("💾 Guardar selección")
+        self.btn_passthrough_refresh = QPushButton(self.tr("🔄 Detectar dispositivos"))
+        self.btn_passthrough_apply = QPushButton(self.tr("💾 Guardar selección"))
         self.btn_passthrough_refresh.clicked.connect(self.refresh_passthrough_tree)
         self.btn_passthrough_apply.clicked.connect(self.save_passthrough_selection)
-        self.btn_passthrough_hotplug = QPushButton("🔌 Conectar USB en caliente")
+        self.btn_passthrough_hotplug = QPushButton(self.tr("🔌 Conectar USB en caliente"))
         self.btn_passthrough_hotplug.clicked.connect(self.passthrough_usb_hotplug)
-        self.btn_passthrough_unplug = QPushButton("⏏ Desconectar USB")
+        self.btn_passthrough_unplug = QPushButton(self.tr("⏏ Desconectar USB"))
         self.btn_passthrough_unplug.clicked.connect(self.passthrough_usb_unplug)
         pt_buttons.addWidget(self.btn_passthrough_refresh)
         pt_buttons.addWidget(self.btn_passthrough_apply)
@@ -2765,8 +2820,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         except Exception:
             pass
         self.main_tabs.setDocumentMode(True)
-        self.main_tabs.addTab(details_page, "Resumen")
-        self.main_tabs.addTab(config_scroll, "Configuración VM")
+        self.main_tabs.addTab(details_page, self.tr("Resumen"))
+        self.main_tabs.addTab(config_scroll, self.tr("Configuración VM"))
 
         # split_vm_host_config_v1: nueva pestana "Configuracion Host".
         # Agrupa todo lo que toca al sistema anfitrion (no se guarda con
@@ -2777,9 +2832,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         _host_layout.setContentsMargins(22, 18, 22, 18)
         _host_layout.setSpacing(14)
         _host_layout.addWidget(self._config_section_title(
-            "Configuración Host",
-            "Ajustes y diagnostico del sistema anfitrion. Nada de esta "
-            "seccion se guarda con la VM: aplica a todo el equipo."
+            self.tr("Configuración Host"),
+            self.tr("Ajustes y diagnostico del sistema anfitrion. Nada de esta "
+                    "seccion se guarda con la VM: aplica a todo el equipo.")
         ))
         # theme_selector_v1: seccion "Apariencia" al principio de
         # Configuracion Host, porque el tema es una preferencia
@@ -2822,7 +2877,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         _host_scroll.setWidgetResizable(True)
         _host_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         _host_scroll.setWidget(_host_page)
-        self.main_tabs.addTab(_host_scroll, "Configuración Host")
+        self.main_tabs.addTab(_host_scroll, self.tr("Configuración Host"))
 
         # split_vm_host_config_v1: Passthrough y Carpetas compartidas
         # ya no son pestanas propias. Se mantienen los atributos por
@@ -2831,7 +2886,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # "Configuracion VM" (indice 1), que es donde viven ahora.
         self._passthrough_tab_index = 1
         self._shared_tab_index = 1
-        self.main_tabs.addTab(snap_scroll, "Snapshots")
+        self.main_tabs.addTab(snap_scroll, self.tr("Snapshots"))
         self._snapshots_tab_index = 3
 
         # --- Pestana Backups (marcador backup_schedule_v1) ---
@@ -2840,14 +2895,14 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         backups_layout.setContentsMargins(14, 14, 14, 14)
         backups_layout.setSpacing(10)
 
-        _bk_title = QLabel(
+        _bk_title = QLabel(self.tr(
             "<b>Backups de la maquina virtual</b><br>"
             "<span style='color:#666;font-size:11px;'>Copia periodica "
             "de la carpeta completa (discos + config + snapshots). "
             "El backup se guarda como carpeta independiente; se puede "
             "restaurar con el boton <b>Importar</b> de la pestana Resumen "
             "apuntando a la carpeta del backup.</span>"
-        )
+        ))
         _bk_title.setWordWrap(True)
         backups_layout.addWidget(_bk_title)
 
@@ -2865,7 +2920,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         backups_scroll.setWidgetResizable(True)
         backups_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         backups_scroll.setWidget(backups_page)
-        self.main_tabs.addTab(backups_scroll, "\U0001f4be Backups")
+        self.main_tabs.addTab(backups_scroll, self.tr("\U0001f4be Backups"))
         self._backups_tab_index = self.main_tabs.count() - 1
 
         # --- Pestana Biblioteca de Medios (marcador media_library_v1) ---
@@ -2882,7 +2937,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         media_scroll.setWidgetResizable(True)
         media_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         media_scroll.setWidget(media_page)
-        self.main_tabs.addTab(media_scroll, "\U0001f4da Medios")
+        self.main_tabs.addTab(media_scroll, self.tr("\U0001f4da Medios"))
         self._media_tab_index = self.main_tabs.count() - 1
 
         # Pestaña "Consola": VNC embebido para ver la VM dentro de la app.
@@ -2904,7 +2959,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             )
             console_status_row.addWidget(self.label_console_status)
             console_status_row.addSpacing(8)
-            self.vnc_label_status = QLabel("La VM no está corriendo.")
+            self.vnc_label_status = QLabel(self.tr("La VM no está corriendo."))
             self.vnc_label_status.setStyleSheet("color:#666; padding:4px;")
             console_status_row.addWidget(self.vnc_label_status)
             console_status_row.addStretch(1)
@@ -2913,11 +2968,11 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             # Va en la fila de estado, junto al checkbox que decide si
             # ese visor se abre a pantalla completa, para que las dos
             # acciones del visor EXTERNO queden visualmente juntas.
-            self.btn_console_launch_external = QPushButton("↗ Abrir en ventana externa")
-            self.btn_console_launch_external.setToolTip(
+            self.btn_console_launch_external = QPushButton(self.tr("↗ Abrir en ventana externa"))
+            self.btn_console_launch_external.setToolTip(self.tr(
                 "Lanza el visor externo del protocolo configurado en Pantalla,\n"
                 "aunque el modo sea 'embebida'. Útil para tener las dos vistas a la vez."
-            )
+            ))
             self.btn_console_launch_external.clicked.connect(
                 self._launch_external_console
             )
@@ -2926,14 +2981,14 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             # Checkbox: abrir el visor EXTERNO a pantalla completa.
             # NO afecta al visor embebido: para ese está el botón
             # "Pantalla completa del visor" de la fila de abajo.
-            self.chk_external_fullscreen = QCheckBox("Externos en pantalla completa")
-            self.chk_external_fullscreen.setToolTip(
+            self.chk_external_fullscreen = QCheckBox(self.tr("Externos en pantalla completa"))
+            self.chk_external_fullscreen.setToolTip(self.tr(
                 "Cuando está marcado, los visores externos (los que abre el\n"
                 "botón 'Abrir en ventana externa' o el modo 'Ventana externa'\n"
                 "de Configuración → Pantalla) se lanzan ocupando toda la\n"
                 "pantalla. NO afecta al visor embebido (VNC dentro de la app):\n"
                 "para ese, usa el botón 'Pantalla completa del visor'."
-            )
+            ))
             self.chk_external_fullscreen.setChecked(
                 QSettings().value("console/external_fullscreen", False, type=bool)
             )
@@ -2956,12 +3011,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             if not hasattr(self, "menu_vm_usb") or self.menu_vm_usb is None:
                 self.menu_vm_usb = QMenu(self)
                 self.menu_vm_usb.aboutToShow.connect(self._refresh_media_menu)
-            self.btn_vm_usb_console = QPushButton("💿 Medios")
-            self.btn_vm_usb_console.setToolTip(
+            self.btn_vm_usb_console = QPushButton(self.tr("💿 Medios"))
+            self.btn_vm_usb_console.setToolTip(self.tr(
                 "Medios de la VM: unidades CD/DVD y dispositivos USB.\n"
                 "Mismo menú que el botón 'Medios' de la pestaña Resumen.\n"
                 "Atajo: Ctrl+M."
-            )
+            ))
             self.btn_vm_usb_console.setStyleSheet(
                 "QPushButton { background-color: #1976d2; color: white; "
                 "font-weight: bold; border: 1px solid #0d47a1; "
@@ -2976,62 +3031,62 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             console_toolbar.addWidget(self.btn_vm_usb_console)
 
             # Botón de refresco manual del widget VNC.
-            self.btn_vnc_refresh = QPushButton("🔄 Reconectar")
-            self.btn_vnc_refresh.setToolTip(
+            self.btn_vnc_refresh = QPushButton(self.tr("🔄 Reconectar"))
+            self.btn_vnc_refresh.setToolTip(self.tr(
                 "Reconectar el widget VNC.\n"
                 "Útil si cambiaste la resolución del guest y la imagen\n"
                 "quedó recortada o mal escalada. El cliente VNC básico\n"
                 "no puede cambiar el tamaño de su framebuffer sin\n"
                 "reconectar.\n\n"
                 "Atajo: Ctrl+R."
-            )
+            ))
             self.btn_vnc_refresh.setMinimumWidth(130)
             self.btn_vnc_refresh.clicked.connect(self._manual_refresh_vnc)
             console_toolbar.addWidget(self.btn_vnc_refresh)
 
             # --- Zoom del visor embebido ---
             console_toolbar.addSpacing(10)
-            console_toolbar.addWidget(QLabel("Zoom:"))
+            console_toolbar.addWidget(QLabel(self.tr("Zoom:")))
 
-            self.btn_vnc_zoom_out = QPushButton("🔍−")
+            self.btn_vnc_zoom_out = QPushButton(self.tr("🔍−"))
             self.btn_vnc_zoom_out.setFixedWidth(52)
-            self.btn_vnc_zoom_out.setToolTip(
+            self.btn_vnc_zoom_out.setToolTip(self.tr(
                 "Reducir el zoom del visor embebido.\n"
                 "Escalones: 10, 25, 50, 75, 100, 125, 150, 200, 300, 400."
-            )
+            ))
             self.btn_vnc_zoom_out.clicked.connect(self._on_vnc_zoom_out)
             console_toolbar.addWidget(self.btn_vnc_zoom_out)
 
-            self.lbl_vnc_zoom_state = QLabel("Ajustado")
+            self.lbl_vnc_zoom_state = QLabel(self.tr("Ajustado"))
             self.lbl_vnc_zoom_state.setMinimumWidth(70)
             self.lbl_vnc_zoom_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.lbl_vnc_zoom_state.setStyleSheet("font-weight: bold;")
             console_toolbar.addWidget(self.lbl_vnc_zoom_state)
 
-            self.btn_vnc_zoom_in = QPushButton("🔍+")
+            self.btn_vnc_zoom_in = QPushButton(self.tr("🔍+"))
             self.btn_vnc_zoom_in.setFixedWidth(52)
-            self.btn_vnc_zoom_in.setToolTip(
+            self.btn_vnc_zoom_in.setToolTip(self.tr(
                 "Aumentar el zoom del visor embebido.\n"
                 "Escalones: 10, 25, 50, 75, 100, 125, 150, 200, 300, 400."
-            )
+            ))
             self.btn_vnc_zoom_in.clicked.connect(self._on_vnc_zoom_in)
             console_toolbar.addWidget(self.btn_vnc_zoom_in)
 
-            self.btn_vnc_zoom_fit = QPushButton("⊞ Ajustar")
-            self.btn_vnc_zoom_fit.setToolTip(
+            self.btn_vnc_zoom_fit = QPushButton(self.tr("⊞ Ajustar"))
+            self.btn_vnc_zoom_fit.setToolTip(self.tr(
                 "Ajustar la imagen de la VM al tamaño del widget (escala\n"
                 "automática). La VM se ve entera, sin barras de scroll.\n"
                 "Si la relación de aspecto no coincide, aparecen bandas\n"
                 "negras a los lados."
-            )
+            ))
             self.btn_vnc_zoom_fit.clicked.connect(self._on_vnc_zoom_fit)
             console_toolbar.addWidget(self.btn_vnc_zoom_fit)
 
-            self.btn_vnc_zoom_real = QPushButton("1:1 Tamaño real")
-            self.btn_vnc_zoom_real.setToolTip(
+            self.btn_vnc_zoom_real = QPushButton(self.tr("1:1 Tamaño real"))
+            self.btn_vnc_zoom_real.setToolTip(self.tr(
                 "Mostrar la imagen de la VM a su resolución real (100%).\n"
                 "Si no cabe en la ventana, aparecen barras de scroll."
-            )
+            ))
             self.btn_vnc_zoom_real.clicked.connect(self._on_vnc_zoom_real)
             console_toolbar.addWidget(self.btn_vnc_zoom_real)
 
@@ -3042,34 +3097,41 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             # "Externos en pantalla completa" de la fila de arriba.
             # presentation_mode_v1: botón para entrar/salir del modo
             # presentación. Mismo atajo (F11).
-            self.btn_presentation = QPushButton("🎬 Presentación")
-            self.btn_presentation.setToolTip(
+            self.btn_presentation = QPushButton(self.tr("🎬 Presentación"))
+            self.btn_presentation.setToolTip(self.tr(
                 "Modo presentación: oculta los paneles laterales, entra\n"
                 "en pantalla completa y salta a la Consola Gráfica.\n"
                 "Requiere que la VM esté encendida.\n\n"
                 "Atajo: F11. Para salir: F11 o Escape."
-            )
+            ))
             self.btn_presentation.clicked.connect(
                 self._toggle_presentation_mode
             )
             console_toolbar.addWidget(self.btn_presentation)
 
-            self.btn_vnc_fullscreen = QPushButton("⛶ Pantalla completa del visor")
+            self.btn_vnc_fullscreen = QPushButton(self.tr("⛶ Pantalla completa del visor"))
             self.btn_vnc_fullscreen.setEnabled(False)  # se activa cuando hay VM
             self.btn_vnc_fullscreen.clicked.connect(self._toggle_vnc_fullscreen)
             console_toolbar.addWidget(self.btn_vnc_fullscreen)
             self._update_fullscreen_button_tooltip()
 
             console_toolbar.addSpacing(10)
-            console_toolbar.addWidget(QLabel("Salir con:"))
+            console_toolbar.addWidget(QLabel(self.tr("Salir con:")))
             self.combo_fullscreen_exit = QComboBox()
-            for label, seq_str in FULLSCREEN_EXIT_SHORTCUTS:
-                self.combo_fullscreen_exit.addItem(label, seq_str)
-            self.combo_fullscreen_exit.setToolTip(
+            _fs_labels = [
+                ("Ctrl derecho (como VirtualBox)", "RCTRL"),
+                ("Ctrl+F11", "Ctrl+F11"),
+                ("Ctrl+Alt+Intro", "Ctrl+Alt+Return"),
+                ("Meta+Escape", "Meta+Escape"),
+                ("Escape", "Escape"),
+            ]
+            for _lab, _seq in _fs_labels:
+                self.combo_fullscreen_exit.addItem(self.tr(_lab), _seq)
+            self.combo_fullscreen_exit.setToolTip(self.tr(
                 "Combinación de teclas para salir de la pantalla completa del visor embebido.\n"
                 "Evita elegir una tecla que necesites enviar dentro de la VM (p. ej. si vas a\n"
                 "usar Escape o F11 dentro del sistema invitado, no la uses aquí)."
-            )
+            ))
             saved_seq = QSettings().value(
                 "console/fullscreen_exit_shortcut", DEFAULT_FULLSCREEN_EXIT_SHORTCUT
             )
@@ -3098,7 +3160,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             self.vnc_placeholder.setText("Esperando conexión de la VM...")
             console_layout.addWidget(self.vnc_placeholder, 1)
 
-            self.main_tabs.addTab(self.console_page, "🖥️ Consola Gráfica")
+            self.main_tabs.addTab(self.console_page, self.tr("🖥️ Consola Gráfica"))
             self._console_tab_index = self.main_tabs.count() - 1
         else:
             self._console_tab_index = -1
@@ -3113,11 +3175,11 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         console_layout = QVBoxLayout(console_group)
         console_layout.setContentsMargins(6, 6, 6, 6)
         console_header = QHBoxLayout()
-        self.btn_vm_health = QPushButton("🩺 Salud de la VM")
-        self.btn_vm_health.setToolTip("Comprueba de un vistazo si la VM realmente está corriendo, si el Guest Agent responde y si las carpetas compartidas montaron.")
+        self.btn_vm_health = QPushButton(self.tr("🩺 Salud de la VM"))
+        self.btn_vm_health.setToolTip(self.tr("Comprueba de un vistazo si la VM realmente está corriendo, si el Guest Agent responde y si las carpetas compartidas montaron."))
         self.btn_vm_health.clicked.connect(self.show_vm_health_check)
         console_header.addWidget(self.btn_vm_health)
-        self.btn_health_dashboard = QPushButton("🚦 Semáforos")
+        self.btn_health_dashboard = QPushButton(self.tr("🚦 Semáforos"))
         self.btn_health_dashboard.setToolTip(
             "Panel en vivo con un semáforo por subsistema:\n"
             "  • Red de la VM (NIC y conexiones activas)\n"
@@ -3131,18 +3193,18 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         )
         self.btn_health_dashboard.clicked.connect(self.show_health_dashboard)
         console_header.addWidget(self.btn_health_dashboard)
-        self.btn_clean_orphans = QPushButton("🧹 Limpiar procesos huérfanos")
-        self.btn_clean_orphans.setToolTip("Busca procesos QEMU/virtiofsd/swtpm que quedaron colgados de una sesión anterior (por un cierre forzado) y ofrece detenerlos.")
+        self.btn_clean_orphans = QPushButton(self.tr("🧹 Limpiar procesos huérfanos"))
+        self.btn_clean_orphans.setToolTip(self.tr("Busca procesos QEMU/virtiofsd/swtpm que quedaron colgados de una sesión anterior (por un cierre forzado) y ofrece detenerlos."))
         self.btn_clean_orphans.clicked.connect(self.clean_orphan_processes)
         console_header.addWidget(self.btn_clean_orphans)
         # --- Filtros y opciones de la consola ---
         # Nivel mínimo: filtra las líneas que se muestran sin perder
         # el historial (se puede volver a subir el nivel y reaparecen).
-        console_header.addWidget(QLabel("Nivel:"))
+        console_header.addWidget(QLabel(self.tr("Nivel:")))
         self.log_level_combo = QComboBox()
-        self.log_level_combo.addItem("Todo", "info")
-        self.log_level_combo.addItem("Avisos+", "warn")
-        self.log_level_combo.addItem("Errores", "error")
+        self.log_level_combo.addItem(self.tr("Todo"), "info")
+        self.log_level_combo.addItem(self.tr("Avisos+"), "warn")
+        self.log_level_combo.addItem(self.tr("Errores"), "error")
         self.log_level_combo.setCurrentIndex(0)
         self.log_level_combo.setToolTip(
             "Muestra solo las líneas con este nivel o superior.\n"
@@ -3155,7 +3217,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         # Buscador: filtra por texto contenido en la línea.
         self.log_search_box = QLineEdit()
-        self.log_search_box.setPlaceholderText("🔍 Filtrar...")
+        self.log_search_box.setPlaceholderText(self.tr("🔍 Filtrar..."))
         self.log_search_box.setFixedWidth(160)
         self.log_search_box.setToolTip(
             "Muestra solo las líneas que contengan este texto.\n"
@@ -3167,7 +3229,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         # Auto-scroll: si está marcado, la consola baja sola al
         # añadirse líneas nuevas (como una terminal).
-        self.log_autoscroll_cb = QCheckBox("Auto-scroll")
+        self.log_autoscroll_cb = QCheckBox(self.tr("Auto-scroll"))
         self.log_autoscroll_cb.setChecked(True)
         self.log_autoscroll_cb.setToolTip(
             "Si está marcado, la consola baja automáticamente al\n"
@@ -3179,16 +3241,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         console_header.addWidget(self.log_autoscroll_cb)
 
         console_header.addStretch(1)
-        self.btn_view_full_log = QPushButton("📄 Ver log completo")
-        self.btn_view_full_log.setToolTip("Muestra el historial completo guardado en disco para esta VM (launch.log), no solo lo que cabe en esta ventana.")
+        self.btn_view_full_log = QPushButton(self.tr("📄 Ver log completo"))
+        self.btn_view_full_log.setToolTip(self.tr("Muestra el historial completo guardado en disco para esta VM (launch.log), no solo lo que cabe en esta ventana."))
         self.btn_view_full_log.clicked.connect(self.show_full_log)
         console_header.addWidget(self.btn_view_full_log)
-        self.btn_export_log = QPushButton("💾 Exportar log")
-        self.btn_export_log.setToolTip("Guarda el log completo de esta VM en un archivo, útil para pedir ayuda o reportar un problema.")
+        self.btn_export_log = QPushButton(self.tr("💾 Exportar log"))
+        self.btn_export_log.setToolTip(self.tr("Guarda el log completo de esta VM en un archivo, útil para pedir ayuda o reportar un problema."))
         self.btn_export_log.clicked.connect(self.export_full_log)
         console_header.addWidget(self.btn_export_log)
-        self.btn_clear_console = QPushButton("Limpiar consola")
-        self.btn_clear_console.setToolTip("Borra los mensajes mostrados aquí (el historial completo en disco no se toca; usa 'Ver log completo').")
+        self.btn_clear_console = QPushButton(self.tr("Limpiar consola"))
+        self.btn_clear_console.setToolTip(self.tr("Borra los mensajes mostrados aquí (el historial completo en disco no se toca; usa 'Ver log completo')."))
         self.btn_clear_console.clicked.connect(self._clear_log_console)
         console_header.addWidget(self.btn_clear_console)
         console_layout.addLayout(console_header)
@@ -3199,7 +3261,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.console.setObjectName("consoleBox")
         self.console.setAcceptRichText(True)
         console_layout.addWidget(self.console)
-        self.main_tabs.addTab(console_group, "📋 Consola de Progreso")
+        self.main_tabs.addTab(console_group, self.tr("📋 Consola de Progreso"))
         self._progress_console_tab_index = self.main_tabs.count() - 1
 
         # --- Pestaña Ayuda ---
@@ -3210,13 +3272,13 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         help_outer.setContentsMargins(16, 16, 16, 16)
         help_outer.setSpacing(8)
 
-        help_title = QLabel("<h2>Ayuda de Virtual.Machine</h2>")
+        help_title = QLabel(self.tr("<h2>Ayuda de Virtual.Machine</h2>"))
         help_outer.addWidget(help_title)
 
         # Boton para abrir la guia completa de la consola.
         help_top_row = QHBoxLayout()
         self.btn_help_console_guide = QPushButton(
-            "Guia completa de la consola (VNC / SPICE)"
+            self.tr("Guia completa de la consola (VNC / SPICE)")
         )
         self.btn_help_console_guide.setMinimumHeight(32)
         self.btn_help_console_guide.setToolTip(
@@ -3229,67 +3291,31 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         help_top_row.addStretch(1)
         help_outer.addLayout(help_top_row)
 
+        # i18n_tanda2e4_help_md: el contenido del panel Ayuda vive en
+        # help/help_<lang>.md (Markdown). Editarlo NO requiere tocar
+        # codigo ni recompilar traducciones.
         help_text = QLabel()
         help_text.setWordWrap(True)
         help_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        help_text.setText(
-            "<p><b>Virtual.Machine</b> es un asistente gráfico para crear y "
-            "administrar máquinas virtuales con QEMU/KVM.</p>"
-            "<h3>Primeros pasos</h3>"
-            "<ul>"
-            "  <li>Pulsa <b>Nueva VM</b> en el panel izquierdo para crear una "
-            "      máquina virtual desde cero.</li>"
-            "  <li>Selecciona una VM en la lista para ver su estado y configurarla.</li>"
-            "  <li>Usa el botón <b>Iniciar</b> para arrancarla y el botón "
-            "      <b>Apagar</b> para detenerla.</li>"
-            "</ul>"
-            "<h3>Panel derecho</h3>"
-            "<ul>"
-            "  <li><b>Uso de recursos</b>: CPU, RAM, disco y red de la VM en vivo.</li>"
-            "  <li><b>Información general</b>: estado, PID, IP, MAC, discos, "
-            "      snapshots y estado de la integración con el guest.</li>"
-            "  <li><b>Último snapshot</b>: vista previa del snapshot más reciente.</li>"
-            "  <li><b>Sugerencias</b>: avisos y recomendaciones según el estado "
-            "      de la VM.</li>"
-            "</ul>"
-            "<h3>Pestañas de la máquina virtual</h3>"
-            "<ul>"
-            "  <li><b>Resumen</b>: acciones sobre la VM (Clonar, Importar, "
-            "      Exportar, Eliminar).</li>"
-            "  <li><b>Configuración</b>: hardware, almacenamiento, red, "
-            "      dispositivos y opciones avanzadas.</li>"
-            "  <li><b>Passthrough</b>: pasar hardware físico (PCI/USB) a la VM.</li>"
-            "  <li><b>Carpetas compartidas</b>: integrar el guest con el host.</li>"
-            "  <li><b>Snapshots</b>: crear, restaurar y eliminar instantáneas.</li>"
-            "  <li><b>Consola Gráfica</b>: ver la VM dentro de la app (si está "
-            "      disponible).</li>"
-            "  <li><b>Consola de Progreso</b>: log detallado de la aplicación.</li>"
-            "</ul>"
-            "<h3>Atajos de teclado</h3>"
-            "<ul>"
-            "  <li><b>Ctrl+M</b>: abrir el menú de Medios (CD/DVD, USB).</li>"
-            "  <li>Dentro del widget VNC: hacer clic dentro para capturar "
-            "      el teclado. Clic fuera para liberarlo.</li>"
-            "  <li>En pantalla completa del VNC: la combinación configurada "
-            "      en la barra de la Consola Gráfica (por defecto Ctrl derecho).</li>"
-            "</ul>"
-            "<h3>Problemas frecuentes</h3>"
-            "<ul>"
-            "  <li><b>La VM no arranca</b>: revisa la Consola de Progreso. "
-            "      Pulsa <b>Salud de la VM</b> para diagnóstico.</li>"
-            "  <li><b>Sin salida gráfica</b>: prueba a cambiar el modo en "
-            "      Configuración → Pantalla.</li>"
-            "  <li><b>USB no se conecta</b>: comprueba los permisos en "
-            "      Passthrough → Permisos USB.</li>"
-            "  <li><b>Teclas especiales no llegan al guest</b>: en Wayland, "
-            "      Meta/Super y Ctrl+Alt+F* no se pueden capturar por diseño. "
-            "      Inicia sesión en X11 si las necesitas.</li>"
-            "</ul>"
-            "<hr>"
-            "<p style='color:#888; font-size:11px;'>"
-            "Virtual.Machine — Asistente Multi-VM QEMU/KVM. "
-            "</p>"
-        )
+        try:
+            from PyQt6.QtCore import Qt as _QtHelp
+            help_text.setTextFormat(_QtHelp.TextFormat.MarkdownText)
+        except Exception:
+            pass
+        try:
+            help_text.setOpenExternalLinks(True)
+        except Exception:
+            pass
+        try:
+            _help_md = self._load_localized_md("help", subdir="help")
+        except Exception:
+            _help_md = ""
+        if _help_md:
+            help_text.setText(_help_md)
+        else:
+            help_text.setText(
+                "<p><b>Virtual.Machine</b> - guia no disponible.</p>"
+            )
         help_scroll = QScrollArea()
         help_scroll.setWidgetResizable(True)
         help_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -3301,10 +3327,39 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         help_scroll.setWidget(help_container)
         help_outer.addWidget(help_scroll, 1)
 
-        self.main_tabs.addTab(self.help_page, "❓ Ayuda")
+        self.main_tabs.addTab(self.help_page, self.tr("❓ Ayuda"))
         self._help_tab_index = self.main_tabs.count() - 1
 
         self.main_tabs.setCurrentIndex(0)
+        # Selector de idioma en la esquina del conjunto de pestañas.
+        # Selector de idioma en la esquina del conjunto de pestañas.
+        # language_flags_v1_selector: cada opcion muestra la bandera
+        # del idioma (emoji regional indicator) seguida del codigo
+        # ISO en mayusculas (ES / EN). El codigo sirve de respaldo en
+        # sistemas que no renderizan banderas emoji como tales (p.ej.
+        # Windows con Segoe UI Emoji antiguo). El tooltip de cada item
+        # lleva el nombre completo del idioma.
+        self.language_selector = QComboBox(self.main_tabs)
+        self.language_selector.setObjectName("languageSelector")
+        self.language_selector.setToolTip(self.tr("Idioma de la interfaz."))
+        for _code, _name in LANGUAGE_NAMES.items():
+            _flag = language_flag(_code)
+            _label = (_flag + " " + _code.upper()) if _flag else _name
+            self.language_selector.addItem(_label, _code)
+            self.language_selector.setItemData(
+                self.language_selector.count() - 1,
+                _name,
+                Qt.ItemDataRole.ToolTipRole,
+            )
+        _lang_index = self.language_selector.findData(self._ui_language)
+        self.language_selector.setCurrentIndex(max(0, _lang_index))
+        self.language_selector.setMinimumWidth(90)
+        self.language_selector.currentIndexChanged.connect(
+            self._on_language_changed
+        )
+        self.main_tabs.setCornerWidget(
+            self.language_selector, Qt.Corner.TopRightCorner
+        )
         self.main_tabs.currentChanged.connect(self._on_main_tab_changed)
         self._performance_timer = QTimer(self)
         self._performance_timer.setInterval(1000)
@@ -3341,12 +3396,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         _resources_header = QHBoxLayout()
         _resources_header.addStretch(1)
-        self.btn_pin_resources = QPushButton("📌 Fijar")
-        self.btn_pin_resources.setToolTip(
+        self.btn_pin_resources = QPushButton(self.tr("📌 Fijar"))
+        self.btn_pin_resources.setToolTip(self.tr(
             "Fija este panel como columna derecha de la ventana, siempre visible.\n"
             "Útil para monitorizar CPU/RAM mientras trabajas en otra pestaña.\n"
             "Vuelve a pulsar para devolverlo a Resumen."
-        )
+        ))
         self.btn_pin_resources.setMaximumWidth(140)
         self.btn_pin_resources.clicked.connect(
             lambda _checked=False: self._apply_resources_pinned(
@@ -3361,117 +3416,117 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self._details_scroll_layout = details_scroll_layout
         self._resources_pinned = False
 
-        usage_box = QGroupBox("📊 Uso de recursos")
+        usage_box = QGroupBox(self.tr("📊 Uso de recursos"))
         usage_layout = QVBoxLayout(usage_box)
-        self.perf_cpu_graph = RealtimePerformanceGraph("CPU (VM)", "%", 100)
-        self.perf_cpu_graph.setToolTip(
+        self.perf_cpu_graph = RealtimePerformanceGraph(self.tr("CPU (VM)"), "%", 100)
+        self.perf_cpu_graph.setToolTip(self.tr(
             "Uso de CPU del proceso QEMU en el host, atribuido a esta VM.\n"
             "100% = el proceso usa el equivalente a todos los hilos del host.\n"
             "Si el host tiene 8 hilos y QEMU usa 4, verás 50%."
-        )
-        self.perf_ram_graph = RealtimePerformanceGraph("RAM (QEMU)", "%", 100)
-        self.perf_ram_graph.setToolTip(
+        ))
+        self.perf_ram_graph = RealtimePerformanceGraph(self.tr("RAM (QEMU)"), "%", 100)
+        self.perf_ram_graph.setToolTip(self.tr(
             "Memoria RSS del proceso QEMU en el host (lo que QEMU ocupa\n"
             "realmente en el sistema anfitrión), como porcentaje de la RAM\n"
             "total del host. No es la RAM que 've' el sistema invitado."
-        )
-        self.perf_disk_graph = RealtimePerformanceGraph("Disco (VM)", "MB/s", 100)
-        self.perf_disk_graph.setToolTip(
+        ))
+        self.perf_disk_graph = RealtimePerformanceGraph(self.tr("Disco (VM)"), "MB/s", 100)
+        self.perf_disk_graph.setToolTip(self.tr(
             "I/O de disco generado por el proceso QEMU para esta VM, según\n"
             "/proc/<pid_qemu>/io (read_bytes + write_bytes).\n"
             "Es el tráfico real a los archivos de disco de la VM en el host."
-        )
-        self.perf_net_graph = RealtimePerformanceGraph("Red (VM)", "MB/s", 100)
-        self.perf_net_graph.setToolTip(
+        ))
+        self.perf_net_graph = RealtimePerformanceGraph(self.tr("Red (VM)"), "MB/s", 100)
+        self.perf_net_graph.setToolTip(self.tr(
             "Tráfico de red de esta VM.\n"
             "• Modo TAP/Bridge: se leen los contadores reales de la interfaz\n"
             "  asociada en el host (exacto).\n"
             "• Modo NAT: QEMU usa un stack interno sin interfaz visible en\n"
             "  el host, así que no se puede medir sin Guest Agent.\n"
             "  El gráfico mostrará 'NAT (sin medida)'."
-        )
+        ))
         for g in (self.perf_cpu_graph, self.perf_ram_graph, self.perf_disk_graph, self.perf_net_graph):
             g.setMinimumHeight(70)
             usage_layout.addWidget(g)
         resources_layout.addWidget(usage_box)
 
-        info_general_box = QGroupBox("ℹ️ Información general")
+        info_general_box = QGroupBox(self.tr("ℹ️ Información general"))
         info_general_layout = QFormLayout(info_general_box)
-        self.info_estado_label = QLabel("● Sin VM seleccionada")
+        self.info_estado_label = QLabel(self.tr("● Sin VM seleccionada"))
         self.info_uptime_label = QLabel("—")
         self.info_procesos_label = QLabel("—")
         self.info_ip_label = QLabel("—")
         self.info_mac_label = QLabel("—")
-        info_general_layout.addRow("Estado:", self.info_estado_label)
-        info_general_layout.addRow("Tiempo activo:", self.info_uptime_label)
-        info_general_layout.addRow("Procesos:", self.info_procesos_label)
-        info_general_layout.addRow("Dirección IP:", self.info_ip_label)
-        info_general_layout.addRow("Dirección MAC:", self.info_mac_label)
+        info_general_layout.addRow(self.tr("Estado:"), self.info_estado_label)
+        info_general_layout.addRow(self.tr("Tiempo activo:"), self.info_uptime_label)
+        info_general_layout.addRow(self.tr("Procesos:"), self.info_procesos_label)
+        info_general_layout.addRow(self.tr("Dirección IP:"), self.info_ip_label)
+        info_general_layout.addRow(self.tr("Dirección MAC:"), self.info_mac_label)
 
         # --- Estado de la integración con el guest ---
         # Antes vivían en el panel izquierdo, bajo el estado de la VM.
         # Ahora están aquí porque son información de la VM, no acciones.
-        self.label_live_guest_agent = QLabel("Guest Agent: —")
+        self.label_live_guest_agent = QLabel(self.tr("Guest Agent:") + " —")
         self.label_live_guest_agent.setStyleSheet("font-size:11px; color:#757575;")
-        info_general_layout.addRow("Guest Agent:", self.label_live_guest_agent)
+        info_general_layout.addRow(self.tr("Guest Agent:"), self.label_live_guest_agent)
 
-        self.label_live_shared_folders = QLabel("Carpetas: —")
+        self.label_live_shared_folders = QLabel(self.tr("Carpetas:") + " —")
         self.label_live_shared_folders.setStyleSheet("font-size:11px; color:#757575;")
-        info_general_layout.addRow("Carpetas:", self.label_live_shared_folders)
+        info_general_layout.addRow(self.tr("Carpetas:"), self.label_live_shared_folders)
 
-        self.label_live_clipboard = QLabel("Clipboard: —")
+        self.label_live_clipboard = QLabel(self.tr("Clipboard:") + " —")
         self.label_live_clipboard.setStyleSheet("font-size:11px; color:#757575;")
-        info_general_layout.addRow("Clipboard:", self.label_live_clipboard)
+        info_general_layout.addRow(self.tr("Clipboard:"), self.label_live_clipboard)
 
-        self.label_live_vdagent = QLabel("spice-vdagent: —")
+        self.label_live_vdagent = QLabel(self.tr("spice-vdagent:") + " —")
         self.label_live_vdagent.setStyleSheet("font-size:11px; color:#757575;")
-        self.label_live_vdagent.setToolTip(
+        self.label_live_vdagent.setToolTip(self.tr(
             "Detección de spice-vdagent en el guest vía QEMU Guest Agent.\n"
             "Cuando está activo, el clipboard bidireccional y la\n"
             "resolución automática funcionan."
-        )
-        info_general_layout.addRow("spice-vdagent:", self.label_live_vdagent)
+        ))
+        info_general_layout.addRow(self.tr("spice-vdagent:"), self.label_live_vdagent)
 
         # --- Campos adicionales (actualizados en _refresh_general_info_extra) ---
         self.info_pid_label = QLabel("—")
-        info_general_layout.addRow("PID QEMU:", self.info_pid_label)
+        info_general_layout.addRow(self.tr("PID QEMU:"), self.info_pid_label)
 
         self.info_cpu_host_label = QLabel("—")
-        self.info_cpu_host_label.setToolTip(
+        self.info_cpu_host_label.setToolTip(self.tr(
             "Uso de CPU del proceso QEMU expresado como porcentaje del total\n"
             "de hilos del host. Si el host tiene 8 hilos y QEMU usa 4, el\n"
             "valor mostrado es 50%."
-        )
-        info_general_layout.addRow("CPU (VM):", self.info_cpu_host_label)
+        ))
+        info_general_layout.addRow(self.tr("CPU (VM):"), self.info_cpu_host_label)
 
         self.info_ram_host_label = QLabel("—")
-        self.info_ram_host_label.setToolTip(
+        self.info_ram_host_label.setToolTip(self.tr(
             "Memoria RAM libre del host, respecto al total."
-        )
-        info_general_layout.addRow("RAM host:", self.info_ram_host_label)
+        ))
+        info_general_layout.addRow(self.tr("RAM host:"), self.info_ram_host_label)
 
         self.info_disk_size_label = QLabel("—")
-        self.info_disk_size_label.setToolTip(
+        self.info_disk_size_label.setToolTip(self.tr(
             "Tamaño del archivo de disco principal de la VM y su tamaño\n"
             "virtual (lo que ve el sistema invitado)."
-        )
-        info_general_layout.addRow("Disco:", self.info_disk_size_label)
+        ))
+        info_general_layout.addRow(self.tr("Disco:"), self.info_disk_size_label)
 
         self.info_snapshots_label = QLabel("—")
-        self.info_snapshots_label.setToolTip(
+        self.info_snapshots_label.setToolTip(self.tr(
             "Número de snapshots registrados y antigüedad del último."
-        )
-        info_general_layout.addRow("Snapshots:", self.info_snapshots_label)
+        ))
+        info_general_layout.addRow(self.tr("Snapshots:"), self.info_snapshots_label)
 
         # Panel del último snapshot: miniatura + restaurar en un clic.
         # Vive en el panel derecho (siempre visible) para que el usuario
         # no tenga que cambiar a la pestaña Snapshots solo para verlo.
-        last_snap_box = QGroupBox("🖼️ Último snapshot")
+        last_snap_box = QGroupBox(self.tr("🖼️ Último snapshot"))
         last_snap_layout = QVBoxLayout(last_snap_box)
         last_snap_layout.setContentsMargins(8, 8, 8, 8)
         last_snap_layout.setSpacing(6)
 
-        self.last_snap_thumbnail = QLabel("Sin VM seleccionada")
+        self.last_snap_thumbnail = QLabel(self.tr("Sin VM seleccionada"))
         self.last_snap_thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.last_snap_thumbnail.setMinimumHeight(120)
         self.last_snap_thumbnail.setMaximumHeight(140)
@@ -3495,12 +3550,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         )
         last_snap_layout.addWidget(self.last_snap_time_label)
 
-        self.btn_last_snap_restore = QPushButton("↩ Restaurar este snapshot")
-        self.btn_last_snap_restore.setToolTip(
+        self.btn_last_snap_restore = QPushButton(self.tr("↩ Restaurar este snapshot"))
+        self.btn_last_snap_restore.setToolTip(self.tr(
             "Restaura el snapshot más reciente de esta VM.\n"
             "Si la VM está corriendo, se restaura en caliente (snapshot-load).\n"
             "Si está apagada, se restauran los discos QCOW2 internos."
-        )
+        ))
         self.btn_last_snap_restore.clicked.connect(self._restore_last_snapshot)
         self.btn_last_snap_restore.setEnabled(False)
         last_snap_layout.addWidget(self.btn_last_snap_restore)
@@ -3663,6 +3718,45 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         root_layout.addWidget(splitter)
         self.setCentralWidget(container)
 
+
+    def _on_language_changed(self, _index):
+        """Guarda el idioma y ofrece reiniciar. Marcador: i18n_v1.
+
+        Politica: TODO el interfaz se traduce al reiniciar la app.
+        No se retraduce nada en caliente. Los textos de widgets,
+        dialogos, paneles de Configuracion, ayuda y mensajes se
+        construyen al arrancar con el idioma activo; reconstruirlos
+        en caliente es caro y propenso a bugs. Mismo patron que el
+        selector de tema (appearance_mixin.py).
+
+        Al arrancar, __main__ llama a load_language(app,
+        current_language()) ANTES de crear la ventana, asi que todos
+        los self.tr(...) se resuelven con el idioma correcto desde
+        el primer frame.
+        """
+        if not hasattr(self, "language_selector"):
+            return
+        language = normalize_language(self.language_selector.currentData())
+        self._ui_language = language
+        QSettings().setValue("ui/language", language)
+
+        try:
+            _lang_label = LANGUAGE_NAMES.get(language, language)
+            resp = QMessageBox.question(
+                self, self.tr("Cambio de idioma"),
+                self.tr(
+                    "Se ha cambiado el idioma a {0}.\n\n"
+                    "Para que TODA la aplicaci\u00f3n use el idioma nuevo\n"
+                    "es necesario reiniciar.\n\n"
+                    "\u00bfQuieres reiniciar ahora?"
+                ).format(_lang_label),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if resp == QMessageBox.StandardButton.Yes:
+                self._restart_application()
+        except Exception:
+            pass
 
     def _wire_signals(self):
         """Conexión de todas las señales a sus slots. Debe ejecutarse
@@ -3935,6 +4029,10 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setOrganizationName("MaquinaVirtual")
     app.setApplicationName("VirtualMachineManagerApp")
+    # i18n_v1: cargar el idioma ANTES de crear la ventana principal.
+    # Si se hace despues, los widgets ya construidos se quedan con el
+    # idioma fuente (espanol) hasta el siguiente arranque.
+    load_language(app, current_language())
     prewarm_host_capabilities()  # sondas de GPU/QEMU en segundo plano
 
     def _launch_main_window():

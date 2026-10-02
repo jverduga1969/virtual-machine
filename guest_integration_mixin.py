@@ -30,7 +30,7 @@ from workers import _BackgroundCallThread
 
 class GuestIntegrationMixin:
     def _set_shared_dep_label(self, label, name, ok, detail=""):
-        label.setText(f"{name}: {'OK' if ok else 'FALTA'}" + (f" ({detail})" if detail else ""))
+        label.setText(f"{name}: {self.tr('OK') if ok else self.tr('FALTA')}" + (f" ({detail})" if detail else ""))
         label.setStyleSheet("color:#2e7d32; font-weight:bold;" if ok else "color:#c62828; font-weight:bold;")
 
     def refresh_shared_folder_dependencies(self):
@@ -53,21 +53,21 @@ class GuestIntegrationMixin:
         need_v=not st["virtiofsd"]
         need_s=not st["smb"]
         if not need_v and not need_s:
-            QMessageBox.information(self,"Carpetas compartidas","Las dependencias del host ya están instaladas.")
+            QMessageBox.information(self,self.tr("Carpetas compartidas"),self.tr("Las dependencias del host ya están instaladas."))
             return
         items=[]
         if need_v: items.append("VirtioFS (virtiofsd)")
         if need_s: items.append("SMB (Samba/smbd)")
-        ans=QMessageBox.question(self,"Instalar dependencias", "Faltan:\n\n• " + "\n• ".join(items) + "\n\n¿Deseas instalarlas ahora usando el gestor de paquetes del sistema?", QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
+        ans=QMessageBox.question(self,self.tr("Instalar dependencias"), self.tr("Faltan:\n\n• {0}\n\n¿Deseas instalarlas ahora usando el gestor de paquetes del sistema?").format("\n• ".join(items)), QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
         if ans != QMessageBox.StandardButton.Yes: return
         try:
             self.log_message("==> Instalando dependencias de carpetas compartidas...")
             ensure_shared_folder_dependencies(need_virtiofsd=need_v, need_smb=need_s, log_func=self.log_message)
             self.refresh_shared_folder_dependencies()
-            QMessageBox.information(self,"Dependencias","Las dependencias de carpetas compartidas quedaron instaladas y verificadas.")
+            QMessageBox.information(self,self.tr("Dependencias"),self.tr("Las dependencias de carpetas compartidas quedaron instaladas y verificadas."))
         except Exception as e:
             self.refresh_shared_folder_dependencies()
-            QMessageBox.critical(self,"Dependencias",f"No se pudieron instalar todas las dependencias.\n\n{e}")
+            QMessageBox.critical(self,self.tr("Dependencias"),self.tr("No se pudieron instalar todas las dependencias.\n\n{0}").format(e))
 
     def _qga_socket_path(self, vm_dir=None):
         return os.path.join(vm_dir or self.current_vm_dir or "", "qga.sock")
@@ -81,7 +81,7 @@ class GuestIntegrationMixin:
         import socket
         path = self._qga_socket_path(vm_dir)
         if not path or not os.path.exists(path):
-            raise RuntimeError("El socket de QEMU Guest Agent no está disponible.")
+            raise RuntimeError(self.tr("El socket de QEMU Guest Agent no está disponible."))
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         sock.connect(path)
@@ -99,7 +99,7 @@ class GuestIntegrationMixin:
             while time.time() < deadline:
                 data = sock.recv(65536)
                 if not data:
-                    raise RuntimeError("QEMU Guest Agent cerró el canal durante la sincronización.")
+                    raise RuntimeError(self.tr("QEMU Guest Agent cerró el canal durante la sincronización."))
                 # La respuesta de guest-sync-delimited comienza con 0xFF.
                 for raw in data.splitlines():
                     raw = raw.lstrip(b"\xff\x00\r\n")
@@ -111,7 +111,7 @@ class GuestIntegrationMixin:
                         continue
                     if obj.get("return") == sync_id or obj.get("id") == sync_id:
                         return sock
-            raise RuntimeError("Tiempo agotado sincronizando QEMU Guest Agent.")
+            raise RuntimeError(self.tr("Tiempo agotado sincronizando QEMU Guest Agent."))
         except Exception:
             sock.close()
             raise
@@ -129,7 +129,7 @@ class GuestIntegrationMixin:
         while time.time() < deadline:
             data = sock.recv(65536)
             if not data:
-                raise RuntimeError("QEMU Guest Agent cerró el canal.")
+                raise RuntimeError(self.tr("QEMU Guest Agent cerró el canal."))
             pending += data
             while b"\n" in pending:
                 raw, pending = pending.split(b"\n", 1)
@@ -142,7 +142,7 @@ class GuestIntegrationMixin:
                     continue
                 if obj.get("id") == expected_id:
                     return obj
-        raise RuntimeError("Tiempo agotado esperando la respuesta de QEMU Guest Agent.")
+        raise RuntimeError(self.tr("Tiempo agotado esperando la respuesta de QEMU Guest Agent."))
 
     def _qga_request(self, payload, timeout=8):
         """Envía una petición QEMU Guest Agent usando guest-sync-delimited."""
@@ -169,7 +169,7 @@ class GuestIntegrationMixin:
                 raise RuntimeError(r["error"].get("desc") or str(r["error"]))
             pid = (r.get("return") or {}).get("pid")
             if not pid:
-                raise RuntimeError("Guest Agent no devolvió el PID de guest-exec.")
+                raise RuntimeError(self.tr("Guest Agent no devolvió el PID de guest-exec."))
 
             deadline = time.time() + timeout
             while time.time() < deadline:
@@ -186,9 +186,9 @@ class GuestIntegrationMixin:
                 if ret.get("exited"):
                     code = int(ret.get("exitcode", 1))
                     if code != 0:
-                        raise RuntimeError(f"guest-exec terminó con código {code}.")
+                        raise RuntimeError(self.tr("guest-exec terminó con código {0}.").format(code))
                     return True
-            raise RuntimeError("Tiempo agotado esperando a que termine el comando ejecutado mediante QEMU Guest Agent.")
+            raise RuntimeError(self.tr("Tiempo agotado esperando a que termine el comando ejecutado mediante QEMU Guest Agent."))
         finally:
             sock.close()
 
@@ -212,7 +212,7 @@ class GuestIntegrationMixin:
             elif seen_socket:
                 return False  # el socket desapareció: la VM se apagó
             elif elapsed > 30:
-                raise RuntimeError("El canal de QEMU Guest Agent no está disponible en esta VM.")
+                raise RuntimeError(self.tr("El canal de QEMU Guest Agent no está disponible en esta VM."))
             if seen_socket:
                 try:
                     s = self._qga_connect(timeout=4, vm_dir=vm_dir)
@@ -228,8 +228,8 @@ class GuestIntegrationMixin:
                     pass  # el agente todavía no responde (arrancando o no instalado)
             if elapsed >= max_wait:
                 raise RuntimeError(
-                    f"El Guest Agent del invitado no respondió en {int(max_wait)} s "
-                    "(no está instalado o no se está ejecutando).")
+                    self.tr("El Guest Agent del invitado no respondió en {0} s "
+                            "(no está instalado o no se está ejecutando).").format(int(max_wait)))
             if time.time() - last_log >= 30:
                 log_emit(f"==> Esperando al Guest Agent del invitado ({int(elapsed)} s)...")
                 last_log = time.time()
@@ -308,11 +308,11 @@ class GuestIntegrationMixin:
         def _on_done(_result, error):
             if error is not None:
                 QMessageBox.information(
-                    self, "Montaje automático",
-                    "La VM arrancó, pero no se pudo configurar el montaje automático dentro del SO.\n\n"
-                    f"{error}\n\n"
-                    "Comprueba que qemu-guest-agent esté instalado y ejecutándose en el guest "
-                    "(pestaña Guest Tools). Una vez instalado, el montaje se hará solo en el próximo arranque de la VM."
+                    self, self.tr("Montaje automático"),
+                    self.tr("La VM arrancó, pero no se pudo configurar el montaje automático dentro del SO.\n\n"
+                            "{0}\n\n"
+                            "Comprueba que qemu-guest-agent esté instalado y ejecutándose en el guest "
+                            "(pestaña Guest Tools). Una vez instalado, el montaje se hará solo en el próximo arranque de la VM.").format(error)
                 )
                 self.log_message(f"[AVISO] Montaje automático: {error}")
             threads.pop(vm_dir, None)
@@ -346,15 +346,16 @@ class GuestIntegrationMixin:
                 mountpoint = "/mnt/" + tag
                 lines.append(f"sudo mkdir -p {mountpoint}\nsudo mount -t virtiofs {tag} {mountpoint}")
             text = (
-                "La carpeta compartida VirtioFS ya está conectada a la VM.\n\n"
-                "En Linux el dispositivo debe montarse dentro del guest. En un LiveCD "
-                "no es posible hacerlo de forma persistente desde el host sin un agente "
-                "instalado en el guest.\n\n"
-                "Comando(s):\n\n" + "\n\n".join(lines) + "\n\n"
-                "En una instalación Linux permanente podremos añadir automontaje mediante "
-                "fstab/systemd en una versión posterior."
+                self.tr("La carpeta compartida VirtioFS ya está conectada a la VM.\n\n"
+                        "En Linux el dispositivo debe montarse dentro del guest. En un LiveCD "
+                        "no es posible hacerlo de forma persistente desde el host sin un agente "
+                        "instalado en el guest.\n\n"
+                        "Comando(s):\n\n") + "\n\n".join(lines) +
+                self.tr("\n\n"
+                        "En una instalación Linux permanente podremos añadir automontaje mediante "
+                        "fstab/systemd en una versión posterior.")
             )
-            QMessageBox.information(self, "Carpeta compartida lista", text)
+            QMessageBox.information(self, self.tr("Carpeta compartida lista"), text)
         except Exception as e:
             self.log_message(f"[AVISO] No se pudieron mostrar las instrucciones de montaje: {e}")
 
@@ -364,7 +365,7 @@ class GuestIntegrationMixin:
     def open_guest_tools_folder(self):
         folder=self._guest_tools_dir(); os.makedirs(folder, exist_ok=True)
         try: subprocess.Popen(["xdg-open", folder])
-        except Exception: QMessageBox.information(self, "Guest Tools", f"Carpeta:\n{folder}")
+        except Exception: QMessageBox.information(self, self.tr("Guest Tools"), self.tr("Carpeta:\n{0}").format(folder))
 
     def create_guest_tools_iso_ui(self):
         """Genera la ISO de Guest Tools en un hilo de fondo (mkisofs puede
@@ -375,26 +376,26 @@ class GuestIntegrationMixin:
 
         def _work(log_emit, is_cancelled, progress_emit):
             log_emit("==> Generando ISO de Guest Tools…")
-            progress_emit(-1, "Generando ISO de Guest Tools…")
+            progress_emit(-1, self.tr("Generando ISO de Guest Tools…"))
             create_guest_tools_iso(out)
             log_emit(f"==> ISO de Guest Tools generada: {out}")
-            progress_emit(100, "ISO creada.")
+            progress_emit(100, self.tr("ISO creada."))
             return out
 
         def _on_success(iso_path):
             if hasattr(self, "guest_agent_status_label"):
-                self.guest_agent_status_label.setText(f"ISO disponible: {iso_path}")
+                self.guest_agent_status_label.setText(self.tr("ISO disponible: {0}").format(iso_path))
 
         self.run_async(
             _work,
-            "Crear ISO de Guest Tools",
+            self.tr("Crear ISO de Guest Tools"),
             on_success=_on_success,
             on_error=lambda e: self._show_selectable_error(
-                "Guest Tools", f"No se pudo crear la ISO.\n\n{e}"
+                self.tr("Guest Tools"), self.tr("No se pudo crear la ISO.\n\n{0}").format(e)
             ),
             cancelable=False,
             show_log=True,
-            subtitle="La ISO se guarda en la carpeta GuestTools.",
+            subtitle=self.tr("La ISO se guarda en la carpeta GuestTools."),
         )
 
 
@@ -404,7 +405,7 @@ class GuestIntegrationMixin:
         (puede tardar 1-2 segundos); el adjuntado se hace en el hilo principal
         porque toca widgets y archivos de configuración."""
         if not self.current_vm_dir:
-            QMessageBox.information(self, "Guest Tools", "Selecciona (o crea) una VM primero.")
+            QMessageBox.information(self, self.tr("Guest Tools"), self.tr("Selecciona (o crea) una VM primero."))
             return
 
         folder = self._guest_tools_dir()
@@ -420,7 +421,7 @@ class GuestIntegrationMixin:
 
         def _work(log_emit, is_cancelled, progress_emit):
             log_emit("==> Creando ISO de Guest Tools…")
-            progress_emit(-1, "Creando ISO de Guest Tools…")
+            progress_emit(-1, self.tr("Creando ISO de Guest Tools…"))
             create_guest_tools_iso(iso_path)
             log_emit(f"==> ISO creada: {iso_path}")
             progress_emit(100, "ISO creada.")
@@ -431,14 +432,14 @@ class GuestIntegrationMixin:
 
         self.run_async(
             _work,
-            "Guest Tools — Adjuntar a la VM",
+            self.tr("Guest Tools — Adjuntar a la VM"),
             on_success=_on_success,
             on_error=lambda e: self._show_selectable_error(
-                "Guest Tools", f"No se pudo crear ni adjuntar la ISO.\n\n{e}"
+                self.tr("Guest Tools"), self.tr("No se pudo crear ni adjuntar la ISO.\n\n{0}").format(e)
             ),
             cancelable=False,
             show_log=True,
-            subtitle="Se creará la ISO y se adjuntará como CD/DVD a esta VM.",
+            subtitle=self.tr("Se creará la ISO y se adjuntará como CD/DVD a esta VM."),
         )
 
     def _attach_guest_tools_iso_to_vm(self, iso_path):
@@ -448,7 +449,7 @@ class GuestIntegrationMixin:
         try:
             devices = self._storage_devices_all(self.current_vm_dir)
             if any(d.get("path") == iso_path for d in devices):
-                QMessageBox.information(self, "Guest Tools", "Esta VM ya tiene la ISO de Guest Tools adjunta como CD/DVD.")
+                QMessageBox.information(self, self.tr("Guest Tools"), self.tr("Esta VM ya tiene la ISO de Guest Tools adjunta como CD/DVD."))
                 return
             devices.append({
                 "id": f"dev_{uuid.uuid4().hex[:8]}",
@@ -464,13 +465,13 @@ class GuestIntegrationMixin:
             if hasattr(self, "_update_manager_details"):
                 self._update_manager_details()
             QMessageBox.information(
-                self, "Guest Tools",
-                "ISO de Guest Tools adjuntada a esta VM como CD/DVD.\n\n"
-                "En el próximo arranque, dentro del guest: monta la unidad y ejecuta\n"
-                "INSTALL-LINUX.SH (con sudo) o INSTALL-WINDOWS.CMD (como Administrador)."
+                self, self.tr("Guest Tools"),
+                self.tr("ISO de Guest Tools adjuntada a esta VM como CD/DVD.\n\n"
+                        "En el próximo arranque, dentro del guest: monta la unidad y ejecuta\n"
+                        "INSTALL-LINUX.SH (con sudo) o INSTALL-WINDOWS.CMD (como Administrador).")
             )
         except Exception as e:
-            self._show_selectable_error("Guest Tools", f"No se pudo adjuntar la ISO.\n\n{e}")
+            self._show_selectable_error(self.tr("Guest Tools"), self.tr("No se pudo adjuntar la ISO.\n\n{0}").format(e))
 
 
     def _guest_agent_socket_path(self):
@@ -479,11 +480,11 @@ class GuestIntegrationMixin:
     def test_guest_agent(self):
         path=self._guest_agent_socket_path()
         if not path or not os.path.exists(path):
-            self.guest_agent_status_label.setText("Estado: canal no disponible. Enciende la VM con Guest Agent activado.")
+            self.guest_agent_status_label.setText(self.tr("Estado: canal no disponible. Enciende la VM con Guest Agent activado."))
             return
         if getattr(self, "_qga_test_thread", None) is not None and self._qga_test_thread.isRunning():
             return
-        self.guest_agent_status_label.setText("Estado: consultando al Guest Agent...")
+        self.guest_agent_status_label.setText(self.tr("Estado: consultando al Guest Agent..."))
 
         def _work(_log_emit):
             return self._qga_request({"execute": "guest-info"}, timeout=3)
@@ -492,13 +493,13 @@ class GuestIntegrationMixin:
 
         def _on_done(result, error):
             if error is not None:
-                self.guest_agent_status_label.setText(f"Estado: sin respuesta del guest agent ({error}).")
+                self.guest_agent_status_label.setText(self.tr("Estado: sin respuesta del guest agent ({0}).").format(error))
             elif "return" in result:
                 info = result.get("return") or {}
-                ver = info.get("version") or "desconocida"
-                self.guest_agent_status_label.setText(f"Estado: QEMU Guest Agent responde correctamente (v{ver}).")
+                ver = info.get("version") or self.tr("desconocida")
+                self.guest_agent_status_label.setText(self.tr("Estado: QEMU Guest Agent responde correctamente (v{0}).").format(ver))
             else:
-                self.guest_agent_status_label.setText(f"Estado: QGA respondió con un error: {result.get('error', result)}")
+                self.guest_agent_status_label.setText(self.tr("Estado: QGA respondió con un error: {0}").format(result.get('error', result)))
             self._qga_test_thread = None
 
         thread.done_signal.connect(_on_done)
@@ -513,8 +514,8 @@ class GuestIntegrationMixin:
                 cfg=load_vm_config(self.current_vm_dir); enabled=bool((cfg.get("extra") or {}).get("guest_agent_enabled",False))
         except Exception: pass
         self.guest_agent_enabled.blockSignals(True); self.guest_agent_enabled.setChecked(enabled); self.guest_agent_enabled.blockSignals(False)
-        if self.current_vm_dir and os.path.exists(self._guest_agent_socket_path()): self.guest_agent_status_label.setText("Estado: canal QGA presente; pulsa Probar conexión.")
-        else: self.guest_agent_status_label.setText("Estado: canal QGA no activo en este momento.")
+        if self.current_vm_dir and os.path.exists(self._guest_agent_socket_path()): self.guest_agent_status_label.setText(self.tr("Estado: canal QGA presente; pulsa Probar conexión."))
+        else: self.guest_agent_status_label.setText(self.tr("Estado: canal QGA no activo en este momento."))
 
     def save_guest_tools_settings(self):
         if not self.current_vm_dir: return
@@ -531,25 +532,25 @@ class GuestIntegrationMixin:
     def refresh_shared_folders_ui(self):
         if not hasattr(self,"shared_folders_tree"): return
         self.shared_folders_tree.clear()
-        mount_labels={"manual":"Manual","auto_start":"Automático al iniciar SO","auto_demand":"Automático bajo demanda"}
+        mount_labels={"manual":self.tr("Manual"),"auto_start":self.tr("Automático al iniciar SO"),"auto_demand":self.tr("Automático bajo demanda")}
         for d in self._shared_folders_data():
             mount_mode=str(d.get("mount_mode","manual"))
-            item=QTreeWidgetItem([str(d.get("host","")),str(d.get("guest","share")),str(d.get("method","auto")).upper(),mount_labels.get(mount_mode,mount_mode),"Solo lectura" if d.get("readonly") else "Lectura / escritura"]); item.setData(0,Qt.ItemDataRole.UserRole,d); self.shared_folders_tree.addTopLevelItem(item)
+            item=QTreeWidgetItem([str(d.get("host","")),str(d.get("guest","share")),str(d.get("method","auto")).upper(),mount_labels.get(mount_mode,mount_mode),self.tr("Solo lectura") if d.get("readonly") else self.tr("Lectura / escritura")]); item.setData(0,Qt.ItemDataRole.UserRole,d); self.shared_folders_tree.addTopLevelItem(item)
         self.refresh_clipboard_ui()
         self.refresh_guest_tools_ui()
 
     def _shared_folder_dialog(self,initial=None):
-        initial=initial or {}; dlg=QDialog(self); dlg.setWindowTitle("Carpeta compartida"); dlg.resize(680,300); form=QFormLayout(dlg)
-        host=QLineEdit(initial.get("host","")); browse=QPushButton("📁"); row=QHBoxLayout(); row.addWidget(host); row.addWidget(browse); browse.clicked.connect(lambda: host.setText(QFileDialog.getExistingDirectory(self,"Seleccionar carpeta del host",host.text() or os.path.expanduser("~")))); form.addRow("Carpeta del host:",row)
-        guest=QLineEdit(initial.get("guest","share")); form.addRow("Etiqueta / guest:",guest)
-        method=QComboBox(); [method.addItem(t,v) for t,v in (("Automático","auto"),("VirtioFS","virtiofs"),("9p","9p"),("SMB","smb"))]; idx=method.findData(initial.get("method","auto")); method.setCurrentIndex(max(0,idx)); form.addRow("Método:",method)
-        mount_mode=QComboBox(); [mount_mode.addItem(t,v) for t,v in (("Manual","manual"),("Automático al iniciar SO","auto_start"),("Automático bajo demanda","auto_demand"))]; midx=mount_mode.findData(initial.get("mount_mode","manual")); mount_mode.setCurrentIndex(max(0,midx)); form.addRow("Montaje en el guest:",mount_mode)
-        ro=QCheckBox("Solo lectura"); ro.setChecked(bool(initial.get("readonly",False))); form.addRow("Acceso:",ro)
-        note=QLabel("La política de montaje es la misma para todos los SO: Manual, Automático al iniciar SO o Automático bajo demanda. El mecanismo real de montaje se adapta al SO invitado y a sus componentes de integración. En un LiveCD, el montaje persistente normalmente no puede configurarse desde el host."); note.setWordWrap(True); note.setStyleSheet("color:#666;"); form.addRow("",note)
-        buttons=QHBoxLayout(); ok=QPushButton("Aceptar"); cancel=QPushButton("Cancelar"); buttons.addStretch(); buttons.addWidget(ok); buttons.addWidget(cancel); form.addRow("",buttons); ok.clicked.connect(dlg.accept); cancel.clicked.connect(dlg.reject)
+        initial=initial or {}; dlg=QDialog(self); dlg.setWindowTitle(self.tr("Carpeta compartida")); dlg.resize(680,300); form=QFormLayout(dlg)
+        host=QLineEdit(initial.get("host","")); browse=QPushButton("📁"); row=QHBoxLayout(); row.addWidget(host); row.addWidget(browse); browse.clicked.connect(lambda: host.setText(QFileDialog.getExistingDirectory(self,self.tr("Seleccionar carpeta del host"),host.text() or os.path.expanduser("~")))); form.addRow(self.tr("Carpeta del host:"),row)
+        guest=QLineEdit(initial.get("guest","share")); form.addRow(self.tr("Etiqueta / guest:"),guest)
+        method=QComboBox(); [method.addItem(t,v) for t,v in ((self.tr("Automático"),"auto"),("VirtioFS","virtiofs"),("9p","9p"),("SMB","smb"))]; idx=method.findData(initial.get("method","auto")); method.setCurrentIndex(max(0,idx)); form.addRow(self.tr("Método:"),method)
+        mount_mode=QComboBox(); [mount_mode.addItem(t,v) for t,v in ((self.tr("Manual"),"manual"),(self.tr("Automático al iniciar SO"),"auto_start"),(self.tr("Automático bajo demanda"),"auto_demand"))]; midx=mount_mode.findData(initial.get("mount_mode","manual")); mount_mode.setCurrentIndex(max(0,midx)); form.addRow(self.tr("Montaje en el guest:"),mount_mode)
+        ro=QCheckBox(self.tr("Solo lectura")); ro.setChecked(bool(initial.get("readonly",False))); form.addRow(self.tr("Acceso:"),ro)
+        note=QLabel(self.tr("La política de montaje es la misma para todos los SO: Manual, Automático al iniciar SO o Automático bajo demanda. El mecanismo real de montaje se adapta al SO invitado y a sus componentes de integración. En un LiveCD, el montaje persistente normalmente no puede configurarse desde el host.")); note.setWordWrap(True); note.setStyleSheet("color:#666;"); form.addRow("",note)
+        buttons=QHBoxLayout(); ok=QPushButton(self.tr("Aceptar")); cancel=QPushButton(self.tr("Cancelar")); buttons.addStretch(); buttons.addWidget(ok); buttons.addWidget(cancel); form.addRow("",buttons); ok.clicked.connect(dlg.accept); cancel.clicked.connect(dlg.reject)
         if dlg.exec()!=QDialog.DialogCode.Accepted: return None
         hp=os.path.abspath(host.text().strip()) if host.text().strip() else ""
-        if not hp or not os.path.isdir(hp): QMessageBox.warning(self,"Carpeta compartida","La carpeta del host no existe o no es un directorio."); return None
+        if not hp or not os.path.isdir(hp): QMessageBox.warning(self,self.tr("Carpeta compartida"),self.tr("La carpeta del host no existe o no es un directorio.")); return None
         gp=re.sub(r"[^A-Za-z0-9_.-]","_",guest.text().strip() or "share")
         return {"host":hp,"guest":gp,"method":method.currentData(),"mount_mode":mount_mode.currentData(),"readonly":ro.isChecked()}
 
@@ -562,20 +563,21 @@ class GuestIntegrationMixin:
                 c=load_vm_config(self.current_vm_dir); cfg=(c.get("extra") or {}).get("clipboard",{}) or {}
         except Exception: cfg={}
         mode=str(cfg.get("mode","disabled")); idx=self.clipboard_mode.findData(mode); self.clipboard_mode.setCurrentIndex(max(0,idx))
-        labels={"disabled":"Desactivado","host_to_guest":"Host → SO invitado","guest_to_host":"SO invitado → Host","bidirectional":"Bidireccional"}
+        labels={"disabled":self.tr("Desactivado"),"host_to_guest":self.tr("Host → SO invitado"),"guest_to_host":self.tr("SO invitado → Host"),"bidirectional":self.tr("Bidireccional")}
         if mode == "disabled":
-            detail = "No se añadirá ningún canal de clipboard."
+            detail = self.tr("No se añadirá ningún canal de clipboard.")
         elif self.current_vm_dir:
             os_type = load_vm_config(self.current_vm_dir).get("os_type", "linux")
-            detail = ("QEMU vdagent + GTK: bidireccional. Requiere spice-vdagent/SPICE Guest Tools." if os_type in ("linux", "windows") else "macOS: integración de clipboard pendiente.")
+            detail = (self.tr("QEMU vdagent + GTK: bidireccional. Requiere spice-vdagent/SPICE Guest Tools.") if os_type in ("linux", "windows") else self.tr("macOS: integración de clipboard pendiente."))
         else:
-            detail = "Selecciona una VM para comprobar la integración disponible."
-        self.clipboard_status_label.setText(f"Configuración actual: {labels.get(mode,mode)}. {'Se activará automáticamente al iniciar la VM.' if mode != 'disabled' else 'No se activa.'} {detail}")
+            detail = self.tr("Selecciona una VM para comprobar la integración disponible.")
+        _suffix = self.tr("Se activará automáticamente al iniciar la VM.") if mode != 'disabled' else self.tr("No se activa.")
+        self.clipboard_status_label.setText(self.tr("Configuración actual: {0}. {1} {2}").format(labels.get(mode,mode), _suffix, detail))
 
     def save_clipboard_settings(self):
         if not self.current_vm_dir: return
         cfg=load_vm_config(self.current_vm_dir); extra=cfg.get("extra") or {}; extra["clipboard"]={"mode":self.clipboard_mode.currentData()}
-        save_vm_config(self.current_vm_dir,cfg["name"],cfg["os_type"],cfg["ram"],cfg["cores"],cfg["disk_size"],cfg["disk_type"],cfg["disk_format"],cfg["disk_ext"],extra,cfg["firmware"],cfg["secure_boot"],cfg["tpm"],cfg["boot_device"],cfg["network_model"],cfg["audio_device"],cfg["network_mode"],cfg["network_interface"],cfg["network_count"],cfg["graphics_mode"],cfg["graphics_vram"],cfg["boot_order"],network_devices=cfg.get("network_devices",[]),passthrough_devices=cfg.get("passthrough_devices",[]),chipset=cfg.get("chipset","pc")); self.refresh_clipboard_ui(); self._update_manager_details(); QMessageBox.information(self,"Clipboard","Configuración del clipboard guardada para esta VM.")
+        save_vm_config(self.current_vm_dir,cfg["name"],cfg["os_type"],cfg["ram"],cfg["cores"],cfg["disk_size"],cfg["disk_type"],cfg["disk_format"],cfg["disk_ext"],extra,cfg["firmware"],cfg["secure_boot"],cfg["tpm"],cfg["boot_device"],cfg["network_model"],cfg["audio_device"],cfg["network_mode"],cfg["network_interface"],cfg["network_count"],cfg["graphics_mode"],cfg["graphics_vram"],cfg["boot_order"],network_devices=cfg.get("network_devices",[]),passthrough_devices=cfg.get("passthrough_devices",[]),chipset=cfg.get("chipset","pc")); self.refresh_clipboard_ui(); self._update_manager_details(); QMessageBox.information(self,self.tr("Clipboard"),self.tr("Configuración del clipboard guardada para esta VM."))
 
     def _set_shared_folders_data(self,data):
         if not self.current_vm_dir: return
@@ -601,5 +603,5 @@ class GuestIntegrationMixin:
         if 0<=row<len(data): data.pop(row); self._set_shared_folders_data(data)
 
     def save_shared_folders(self):
-        self._set_shared_folders_data(self._shared_folders_data()); QMessageBox.information(self,"Compartir","Configuración guardada. Se aplicará en el próximo arranque.")
+        self._set_shared_folders_data(self._shared_folders_data()); QMessageBox.information(self,self.tr("Compartir"),self.tr("Configuración guardada. Se aplicará en el próximo arranque."))
 

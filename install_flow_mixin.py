@@ -27,17 +27,17 @@ class InstallFlowMixin:
     def _download_selected_os_installer_for_vm(self):
         os_type = self.combo_main_os.currentData()
         if os_type == "macos":
-            raise RuntimeError("Para macOS utiliza 'Descargar System Recovery'. Apple distribuye el instalador completo como una aplicación; el flujo de Recovery de OSX-KVM es el método integrado en este gestor.")
+            raise RuntimeError(self.tr("Para macOS utiliza 'Descargar System Recovery'. Apple distribuye el instalador completo como una aplicación; el flujo de Recovery de OSX-KVM es el método integrado en este gestor."))
         if os_type == "android":
             # Android-x86 / Bliss OS no tienen descarga automática: el
             # usuario aporta su propia ISO. Esta guarda existe por si
             # algún flujo futuro invoca este helper con una VM Android;
             # el flujo real de start_installation ya no lo hace.
-            raise RuntimeError(
+            raise RuntimeError(self.tr(
                 "Android-x86 / Bliss OS no tienen descarga automática. "
                 "Descarga la ISO desde https://www.android-x86.org/download.html "
                 "o https://blissos.org/ y selecciónala en Plataforma → Android."
-            )
+            ))
         if os_type == "windows":
             win_ver = self.combo_win_ver.currentText()
             url = get_latest_windows_iso_url(win_ver)
@@ -197,13 +197,13 @@ class InstallFlowMixin:
         product = self._macos_recovery_product()
 
         dlg = TaskProgressDialog(
-            f"System Recovery de macOS — {product['name']}",
+            self.tr("System Recovery de macOS — {0}").format(product['name']),
             self,
             cancelable=True,
             show_log=True,
-            subtitle="La imagen se descarga y verifica directamente en la carpeta de la VM.",
+            subtitle=self.tr("La imagen se descarga y verifica directamente en la carpeta de la VM."),
         )
-        dlg.set_progress(-1, "Iniciando descarga…")
+        dlg.set_progress(-1, self.tr("Iniciando descarga…"))
         try:
             dlg.setModal(True)
         except Exception:
@@ -228,7 +228,7 @@ class InstallFlowMixin:
                 result_holder["img"] = result
             try:
                 if error is None:
-                    dlg.finish(True, "Recovery preparado.")
+                    dlg.finish(True, self.tr("Recovery preparado."))
                 else:
                     dlg.finish(False, str(error))
             except Exception:
@@ -279,18 +279,18 @@ class InstallFlowMixin:
         problems = []
         qemu = shutil.which("qemu-system-x86_64")
         if not qemu:
-            problems.append("No se encontró qemu-system-x86_64 en PATH. Ejecuta ./run.sh (instala las dependencias de sistema) o instala qemu-system-x86 / qemu-kvm.")
+            problems.append(self.tr("No se encontró qemu-system-x86_64 en PATH. Ejecuta ./run.sh (instala las dependencias de sistema) o instala qemu-system-x86 / qemu-kvm."))
         if not os.path.exists("/dev/kvm"):
-            problems.append("/dev/kvm no está disponible; QEMU podría funcionar sin aceleración KVM.")
+            problems.append(self.tr("/dev/kvm no está disponible; QEMU podría funcionar sin aceleración KVM."))
         elif not os.access("/dev/kvm", os.R_OK | os.W_OK):
-            problems.append("El usuario no tiene permisos de lectura/escritura sobre /dev/kvm.")
+            problems.append(self.tr("El usuario no tiene permisos de lectura/escritura sobre /dev/kvm."))
         if os_type != "macos" and getattr(self, "check_secure_boot", None) and self.check_secure_boot.isChecked():
             try:
                 _sb_code, _sb_vars = find_ovmf_files(secure_boot=True)
             except Exception:
                 _sb_code, _sb_vars = None, None
             if not (_sb_code and _sb_vars):
-                problems.append("No se detectó un firmware OVMF conocido para Secure Boot.")
+                problems.append(self.tr("No se detectó un firmware OVMF conocido para Secure Boot."))
 
         if self.current_vm_dir and os.path.isdir(self.current_vm_dir):
             devices = self._storage_devices_all(self.current_vm_dir)
@@ -301,7 +301,7 @@ class InstallFlowMixin:
                 path = dev.get("path", "")
                 if path and not os.path.exists(path):
                     etiqueta = dev.get("name") or dev.get("id") or path
-                    problems.append(f"El dispositivo de almacenamiento '{etiqueta}' apunta a un archivo que ya no existe: {path}")
+                    problems.append(self.tr("El dispositivo de almacenamiento '{0}' apunta a un archivo que ya no existe: {1}").format(etiqueta, path))
 
             # Carpetas compartidas cuyo directorio en el host desapareció.
             try:
@@ -313,13 +313,13 @@ class InstallFlowMixin:
             for f in folders:
                 host = f.get("host", "") if isinstance(f, dict) else ""
                 if host and not os.path.isdir(host):
-                    problems.append(f"La carpeta compartida '{f.get('guest', '?')}' apunta a una ruta del host que ya no existe: {host}")
+                    problems.append(self.tr("La carpeta compartida '{0}' apunta a una ruta del host que ya no existe: {1}").format(f.get('guest', '?'), host))
 
             # Espacio libre en el disco donde vive la VM.
             try:
                 free_bytes = shutil.disk_usage(self.current_vm_dir).free
                 if free_bytes < 2 * 1024**3:
-                    problems.append(f"Solo quedan {free_bytes / 1024**3:.1f} GB libres donde vive esta VM; puede fallar durante el uso.")
+                    problems.append(self.tr("Solo quedan {0} GB libres donde vive esta VM; puede fallar durante el uso.").format(f"{free_bytes / 1024**3:.1f}"))
             except OSError:
                 pass
 
@@ -340,9 +340,10 @@ class InstallFlowMixin:
                         size = 0
                     if size > 300 * 1024 * 1024:
                         problems.append(
-                            "El orden de arranque prioriza el CD/DVD, pero el disco "
-                            f"'{dev.get('name', path)}' ya tiene datos (~{size / 1024**3:.1f} GB). "
-                            "Si el sistema ya está instalado, esto puede intentar reinstalar en vez de arrancarlo."
+                            self.tr("El orden de arranque prioriza el CD/DVD, pero el disco "
+                                    "'{0}' ya tiene datos (~{1} GB). "
+                                    "Si el sistema ya está instalado, esto puede intentar reinstalar en vez de arrancarlo.").format(
+                                dev.get('name', path), f"{size / 1024**3:.1f}")
                         )
                         break
 
@@ -351,28 +352,28 @@ class InstallFlowMixin:
     def start_installation(self):
         vm_name = self.input_vm_name.text().strip()
         if not vm_name:
-            QMessageBox.warning(self, "Advertencia", "Debe indicar un nombre para la máquina virtual.")
+            QMessageBox.warning(self, self.tr("Advertencia"), self.tr("Debe indicar un nombre para la máquina virtual."))
             return
         if re.search(r'[\\/:*?"<>|]', vm_name):
-            QMessageBox.warning(self, "Advertencia", 'El nombre no puede contener: \\ / : * ? " < > |')
+            QMessageBox.warning(self, self.tr("Advertencia"), self.tr('El nombre no puede contener: \\ / : * ? " < > |'))
             return
         if self._runtime_state(vm_name) != "stopped":
             QMessageBox.warning(
-                self, "La VM ya está corriendo",
-                f"'{vm_name}' ya tiene un proceso QEMU activo. Iniciarla de nuevo puede corromper el disco "
-                "(dos procesos escribiendo el mismo archivo) o chocar con los sockets ya en uso.\n\n"
-                "Detén la VM actual antes de volver a iniciarla."
+                self, self.tr("La VM ya está corriendo"),
+                self.tr("'{0}' ya tiene un proceso QEMU activo. Iniciarla de nuevo puede corromper el disco "
+                        "(dos procesos escribiendo el mismo archivo) o chocar con los sockets ya en uso.\n\n"
+                        "Detén la VM actual antes de volver a iniciarla.").format(vm_name)
             )
             return
 
         os_type = self.combo_main_os.currentData()
         qemu_path, preflight_problems = self._preflight_check(os_type)
         if not qemu_path:
-            QMessageBox.critical(self, "No se puede iniciar la VM", "Falta QEMU en el sistema. Instala qemu-system-x86 y vuelve a intentarlo.")
+            QMessageBox.critical(self, self.tr("No se puede iniciar la VM"), self.tr("Falta QEMU en el sistema. Instala qemu-system-x86 y vuelve a intentarlo."))
             return
         if preflight_problems:
             details = "\n".join(f"• {item}" for item in preflight_problems)
-            answer = QMessageBox.warning(self, "Revisión previa", details + "\n\n¿Deseas continuar de todos modos?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            answer = QMessageBox.warning(self, self.tr("Revisión previa"), details + "\n\n" + self.tr("¿Deseas continuar de todos modos?"), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
             if answer != QMessageBox.StandardButton.Yes:
                 return
         ram = f"{self.slider_ram.value()}G"
@@ -425,10 +426,10 @@ class InstallFlowMixin:
             self.check_secure_boot.setChecked(True)
             self.check_tpm.setChecked(True)
         if secure_boot and firmware != "uefi":
-            QMessageBox.warning(self, "Configuración incompatible", "Secure Boot requiere UEFI (OVMF).")
+            QMessageBox.warning(self, self.tr("Configuración incompatible"), self.tr("Secure Boot requiere UEFI (OVMF)."))
             return
         if tpm and os_type == "macos":
-            QMessageBox.warning(self, "Configuración incompatible", "El TPM 2.0 no se aplica al flujo actual de macOS/OSX-KVM.")
+            QMessageBox.warning(self, self.tr("Configuración incompatible"), self.tr("El TPM 2.0 no se aplica al flujo actual de macOS/OSX-KVM."))
             return
         # Comprobar e instalar automáticamente las dependencias necesarias.
         # OVMF se necesita para UEFI/Secure Boot y swtpm para TPM 2.0.
@@ -447,8 +448,8 @@ class InstallFlowMixin:
             except Exception as e:
                 QMessageBox.critical(
                     self,
-                    "Dependencias faltantes",
-                    f"No se pudieron preparar automáticamente las dependencias necesarias.\n\n{e}"
+                    self.tr("Dependencias faltantes"),
+                    self.tr("No se pudieron preparar automáticamente las dependencias necesarias.\n\n{0}").format(e)
                 )
                 return
 
@@ -483,8 +484,8 @@ class InstallFlowMixin:
                     # sin dialogo de error.
                     return
             except Exception as e:
-                QMessageBox.critical(self, "System Recovery de macOS",
-                                     f"No se pudo preparar System Recovery antes de iniciar la VM.\n\n{e}")
+                QMessageBox.critical(self, self.tr("System Recovery de macOS"),
+                                     self.tr("No se pudo preparar System Recovery antes de iniciar la VM.\n\n{0}").format(e))
                 return
 
         # Si el usuario ya creó un SATA/NVMe desde Almacenamiento, ese disco es el
@@ -563,12 +564,14 @@ class InstallFlowMixin:
             else:
                 resp = QMessageBox.question(
                     self,
-                    "Disco existente con otra configuración",
-                    f"Ya existe un disco para '{vm_name}' con "
-                    f"{old['disk_size']} / {old['disk_type']} / {old['disk_format']}, "
-                    f"distinto a lo solicitado ({disk} / {disk_type} / {format_data[0]}).\n\n"
-                    "¿Desea eliminarlo y crear uno nuevo con los parámetros actuales?\n"
-                    "(\"No\" conserva el disco existente tal como está.)",
+                    self.tr("Disco existente con otra configuración"),
+                    self.tr("Ya existe un disco para '{0}' con "
+                            "{1} / {2} / {3}, "
+                            "distinto a lo solicitado ({4} / {5} / {6}).\n\n"
+                            "¿Desea eliminarlo y crear uno nuevo con los parámetros actuales?\n"
+                            "(\"No\" conserva el disco existente tal como está.)").format(
+                        vm_name, old['disk_size'], old['disk_type'], old['disk_format'],
+                        disk, disk_type, format_data[0]),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if resp == QMessageBox.StandardButton.Yes:
@@ -632,7 +635,7 @@ class InstallFlowMixin:
                 if os.path.isdir(_legacy):
                     _osx_kvm = _legacy
                 else:
-                    QMessageBox.critical(self, "Error", "No se encuentra la carpeta 'OSX-KVM'.")
+                    QMessageBox.critical(self, self.tr("Error"), self.tr("No se encuentra la carpeta 'OSX-KVM'."))
                     return
             extra_params["os_choice"] = self.os_options[self.combo_macos_ver.currentIndex()][1]
             extra_params["osx_kvm_source"] = _osx_kvm
@@ -675,7 +678,7 @@ class InstallFlowMixin:
                 installer_selected = False
 
             if not installer_selected and not auto_detect_win and (not iso or not os.path.isfile(iso)):
-                QMessageBox.warning(self, "Advertencia", "Debe indicar una ruta de archivo ISO de Windows válida o seleccionar 'Descargar instalador de Windows automáticamente' en CD/DVD.")
+                QMessageBox.warning(self, self.tr("Advertencia"), self.tr("Debe indicar una ruta de archivo ISO de Windows válida o seleccionar 'Descargar instalador de Windows automáticamente' en CD/DVD."))
                 return
             extra_params["win_ver"] = self.combo_win_ver.currentText()
             # Si el CD/DVD tiene una ISO local válida, QEMU usará esa ISO y no habrá descarga.
@@ -698,13 +701,15 @@ class InstallFlowMixin:
                 pass
             if not android_iso:
                 QMessageBox.warning(
-                    self, "Android",
-                    "Debes configurar la ISO de Android-x86 o Bliss OS en "
-                    "Configuración → Almacenamiento → CD / DVD." + chr(92) + "n" + chr(92) + "n" +
-                    "Descárgala de:" + chr(92) + "n" +
-                    "  • https://www.android-x86.org/download.html" + chr(92) + "n" +
-                    "  • https://blissos.org/" + chr(92) + "n" + chr(92) + "n" +
-                    "Añade una unidad CD/DVD y elige «Usar ISO/IMG/DMG existente»."
+                    self, self.tr("Android"),
+                    self.tr(
+                        "Debes configurar la ISO de Android-x86 o Bliss OS en "
+                        "Configuraci\u00f3n \u2192 Almacenamiento \u2192 CD / DVD.\n\n"
+                        "Desc\u00e1rgala de:\n"
+                        "  \u2022 https://www.android-x86.org/download.html\n"
+                        "  \u2022 https://blissos.org/\n\n"
+                        "A\u00f1ade una unidad CD/DVD y elige \u00abUsar ISO/IMG/DMG existente\u00bb."
+                    )
                 )
                 return
             extra_params["android_iso"] = android_iso
@@ -741,8 +746,8 @@ class InstallFlowMixin:
             boot_order = boot_order if boot_order else ["cdrom", "disk", "network"]
             save_vm_config(vm_dir, vm_name, os_type, ram, cores, disk, disk_type, format_data[0], format_data[1], extra_params, firmware, secure_boot, tpm, boot_device, network_model, audio_device, network_mode, network_interface, network_count, graphics_mode, graphics_vram, boot_order, network_devices=network_devices, passthrough_devices=passthrough_devices, chipset=self.combo_chipset.currentData())
         except Exception as e:
-            QMessageBox.critical(self, "Error al guardar configuración",
-                                  f"No se pudo guardar vm_config.ini para '{vm_name}': {e}")
+            QMessageBox.critical(self, self.tr("Error al guardar configuración"),
+                                  self.tr("No se pudo guardar vm_config.ini para '{0}': {1}").format(vm_name, e))
             return
         self.current_vm_dir = vm_dir
         self.refresh_vm_list(select_name=vm_name)
@@ -756,9 +761,11 @@ class InstallFlowMixin:
                 for d in usb_selected:
                     self.log_message(f"[USB] {self._usb_runtime_diagnostics(d)}")
             except Exception as e:
-                self._show_selectable_error("No se puede preparar el passthrough USB",
-                    f"La VM no se iniciará hasta resolver el acceso al USB.\n\n{e}\n\n"
-                    "No se debe seleccionar un Root Hub. La memoria USB debe estar desmontada del anfitrión.")
+                self._show_selectable_error(
+                    self.tr("No se puede preparar el passthrough USB"),
+                    self.tr("La VM no se iniciará hasta resolver el acceso al USB.\n\n"
+                            "{0}\n\n"
+                            "No se debe seleccionar un Root Hub. La memoria USB debe estar desmontada del anfitrión.").format(e))
                 self.btn_start.setEnabled(True)
                 return
         if pci_unbound:
@@ -807,17 +814,17 @@ class InstallFlowMixin:
         dialog = getattr(self, "_installer_progress_dialog", None)
         if dialog is not None:
             dialog._cancel_btn.setEnabled(False)
-            dialog._cancel_btn.setText("Cancelando…")
+            dialog._cancel_btn.setText(self.tr("Cancelando…"))
 
     def _update_installer_progress(self, percent, text):
         dialog = getattr(self, "_installer_progress_dialog", None)
         if dialog is None:
             dialog = TaskProgressDialog(
-                "Instalador del sistema operativo",
+                self.tr("Instalador del sistema operativo"),
                 self,
                 cancelable=True,
                 show_log=True,
-                subtitle="La descarga se realiza dentro de la carpeta de la VM.",
+                subtitle=self.tr("La descarga se realiza dentro de la carpeta de la VM."),
             )
             dialog.canceled.connect(self._cancel_installer_download)
             # Conectar el log del worker a la consola del diálogo también,
@@ -836,11 +843,11 @@ class InstallFlowMixin:
         dialog = getattr(self, "_installer_progress_dialog", None)
         if dialog is not None:
             if code == 0:
-                dialog.finish(True, "Máquina virtual iniciada.")
+                dialog.finish(True, self.tr("Máquina virtual iniciada."))
             elif code == 2:
-                dialog.finish(False, "Descarga cancelada por el usuario.")
+                dialog.finish(False, self.tr("Descarga cancelada por el usuario."))
             else:
-                dialog.finish(False, "QEMU terminó con error. Revisa la consola de progreso.")
+                dialog.finish(False, self.tr("QEMU terminó con error. Revisa la consola de progreso."))
             dialog.deleteLater()
             self._installer_progress_dialog = None
         self.btn_start.setEnabled(True)

@@ -11,6 +11,10 @@
 
 set -e
 
+# Locale UTF-8: Qt lo exige para no caer a "C".
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+export LANG="${LANG:-C.UTF-8}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 

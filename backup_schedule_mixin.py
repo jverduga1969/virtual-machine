@@ -90,17 +90,17 @@ class BackupScheduleMixin:
     # UI
     # ------------------------------------------------------------------
     def _build_backup_schedule_ui(self, parent_layout):
-        box = QGroupBox("Backups automaticos programados")
+        box = QGroupBox(self.tr("Backups automaticos programados"))
         form = QFormLayout(box)
 
-        self.check_backup_schedule_enabled = QCheckBox("Activar")
-        self.check_backup_schedule_enabled.setToolTip(
+        self.check_backup_schedule_enabled = QCheckBox(self.tr("Activar"))
+        self.check_backup_schedule_enabled.setToolTip(self.tr(
             "Cuando esta activo, la app copia la carpeta completa de la VM "
             "(discos, configuracion, snapshots) al destino elegido segun "
             "la frecuencia. Los backups son carpetas independientes; "
             "puedes borrarlos manualmente o dejar que la retencion los "
             "limpie."
-        )
+        ))
         self.check_backup_schedule_enabled.stateChanged.connect(
             self._on_backup_schedule_changed
         )
@@ -109,43 +109,54 @@ class BackupScheduleMixin:
         row_dest = QHBoxLayout()
         self.input_backup_destination = QLineEdit()
         self.input_backup_destination.setPlaceholderText(
-            "Carpeta del host donde guardar los backups"
+            self.tr("Carpeta del host donde guardar los backups")
         )
         self.input_backup_destination.editingFinished.connect(
             self._on_backup_schedule_changed
         )
         row_dest.addWidget(self.input_backup_destination, 1)
-        self.btn_backup_destination = QPushButton("Elegir carpeta...")
+        self.btn_backup_destination = QPushButton(self.tr("Elegir carpeta..."))
         self.btn_backup_destination.clicked.connect(
             self._choose_backup_destination
         )
         row_dest.addWidget(self.btn_backup_destination)
-        form.addRow("Destino:", row_dest)
+        form.addRow(self.tr("Destino:"), row_dest)
 
         self.combo_backup_interval = QComboBox()
+        # i18n_tanda2f3: los labels viven en _BACKUP_INTERVALOS (atributo
+        # de clase); se mapean aqui con literales para que pylupdate6 los
+        # extraiga bajo el contexto de la app.
+        _interval_labels_tr = {
+            "Cada hora": self.tr("Cada hora"),
+            "Cada 6 horas": self.tr("Cada 6 horas"),
+            "Cada 12 horas": self.tr("Cada 12 horas"),
+            "Diario": self.tr("Diario"),
+            "Semanal": self.tr("Semanal"),
+        }
         for label, key, _sec in self._BACKUP_INTERVALOS:
-            self.combo_backup_interval.addItem(label, key)
+            _label_tr = _interval_labels_tr.get(label, label)
+            self.combo_backup_interval.addItem(_label_tr, key)
         self.combo_backup_interval.currentIndexChanged.connect(
             self._on_backup_schedule_changed
         )
-        form.addRow("Frecuencia:", self.combo_backup_interval)
+        form.addRow(self.tr("Frecuencia:"), self.combo_backup_interval)
 
         self.spin_backup_keep = QSpinBox()
         self.spin_backup_keep.setRange(1, 50)
         self.spin_backup_keep.setValue(3)
-        self.spin_backup_keep.setToolTip(
+        self.spin_backup_keep.setToolTip(self.tr(
             "Cuantos backups conservar en el destino. Tras cada backup "
             "exitoso se borran los mas antiguos por encima de este numero."
-        )
+        ))
         self.spin_backup_keep.valueChanged.connect(
             self._on_backup_schedule_changed
         )
-        form.addRow("Conservar:", self.spin_backup_keep)
+        form.addRow(self.tr("Conservar:"), self.spin_backup_keep)
 
         self.check_backup_allow_running = QCheckBox(
-            "Tambien cuando la VM esta encendida"
+            self.tr("Tambien cuando la VM esta encendida")
         )
-        self.check_backup_allow_running.setToolTip(
+        self.check_backup_allow_running.setToolTip(self.tr(
             "Desactivado (recomendado): los backups solo se ejecutan con "
             "la VM apagada.\n\n"
             "Activado: si la VM esta encendida, se copian los discos de "
@@ -153,19 +164,19 @@ class BackupScheduleMixin:
             "esta escribiendo en el .qcow2 en ese momento. La restauracion "
             "podria requerir fsck o no arrancar. Solo si estas dispuesto a "
             "asumir ese riesgo."
-        )
+        ))
         self.check_backup_allow_running.stateChanged.connect(
             self._on_backup_schedule_changed
         )
         form.addRow("", self.check_backup_allow_running)
 
-        note = QLabel(
+        note = QLabel(self.tr(
             "Los backups son <b>carpetas</b> con todos los archivos de la "
             "VM (discos + configuración + snapshots + capturas). No "
             "incluyen pids, sockets ni logs. Para restaurar, usa el botón "
             "<b>Importar</b> de la pestaña Resumen con la carpeta del "
             "backup."
-        )
+        ))
         note.setWordWrap(True)
         note.setStyleSheet("color:#666; font-size:11px;")
         form.addRow("", note)
@@ -178,11 +189,11 @@ class BackupScheduleMixin:
         form.addRow("", self.label_backup_schedule_status)
 
         row_actions = QHBoxLayout()
-        self.btn_backup_now = QPushButton("Backup ahora")
-        self.btn_backup_now.setToolTip(
+        self.btn_backup_now = QPushButton(self.tr("Backup ahora"))
+        self.btn_backup_now.setToolTip(self.tr(
             "Ejecuta un backup inmediato con la configuracion actual, sin "
             "esperar a la proxima programacion."
-        )
+        ))
         self.btn_backup_now.clicked.connect(self.backup_now)
         row_actions.addWidget(self.btn_backup_now)
         row_actions.addStretch(1)
@@ -196,7 +207,7 @@ class BackupScheduleMixin:
     def _choose_backup_destination(self):
         start = self.input_backup_destination.text().strip() or os.path.expanduser("~")
         path = QFileDialog.getExistingDirectory(
-            self, "Elegir carpeta de destino para backups", start,
+            self, self.tr("Elegir carpeta de destino para backups"), start,
         )
         if not path:
             return
@@ -274,14 +285,14 @@ class BackupScheduleMixin:
         if lbl is None:
             return
         if not getattr(self, "current_vm_dir", None):
-            lbl.setText("Selecciona una VM para programar backups.")
+            lbl.setText(self.tr("Selecciona una VM para programar backups."))
             return
         if not self.check_backup_schedule_enabled.isChecked():
-            lbl.setText("Desactivado para esta VM.")
+            lbl.setText(self.tr("Desactivado para esta VM."))
             return
         dest = self.input_backup_destination.text().strip()
         if not dest:
-            lbl.setText("Falta elegir una carpeta de destino.")
+            lbl.setText(self.tr("Falta elegir una carpeta de destino."))
             return
         interval_sec = self._backup_interval_seconds(
             self.combo_backup_interval.currentData()
@@ -299,29 +310,30 @@ class BackupScheduleMixin:
         except Exception:
             free_txt = "?"
         if not last_iso:
-            lbl.setText(
-                f"Sin backups todavia. Libre en destino: {free_txt}. "
-                f"Se creara el primero tras cumplirse la frecuencia."
-            )
+            lbl.setText(self.tr(
+                "Sin backups todavia. Libre en destino: {0}. "
+                "Se creara el primero tras cumplirse la frecuencia."
+            ).format(free_txt))
             return
         try:
             last_dt = datetime.datetime.fromisoformat(last_iso)
             nxt = last_dt + datetime.timedelta(seconds=interval_sec)
             now = datetime.datetime.now()
             if nxt <= now:
-                lbl.setText(
-                    f"Pendiente (ultimo: "
-                    f"{last_dt.strftime('%Y-%m-%d %H:%M')}). Libre: "
-                    f"{free_txt}."
-                )
+                lbl.setText(self.tr(
+                    "Pendiente (ultimo: {0}). Libre: {1}."
+                ).format(
+                    last_dt.strftime('%Y-%m-%d %H:%M'), free_txt
+                ))
             else:
                 mins = max(1, int((nxt - now).total_seconds() // 60))
-                lbl.setText(
-                    f"Ultimo: {last_dt.strftime('%Y-%m-%d %H:%M')} · "
-                    f"Proximo en ~{mins} min · Libre: {free_txt}."
-                )
+                lbl.setText(self.tr(
+                    "Ultimo: {0} · Proximo en ~{1} min · Libre: {2}."
+                ).format(
+                    last_dt.strftime('%Y-%m-%d %H:%M'), mins, free_txt
+                ))
         except Exception:
-            lbl.setText(f"Ultimo: {last_iso} · Libre: {free_txt}.")
+            lbl.setText(self.tr("Ultimo: {0} · Libre: {1}.").format(last_iso, free_txt))
 
     # ------------------------------------------------------------------
     # Scheduler
@@ -406,8 +418,8 @@ class BackupScheduleMixin:
         if not destination:
             if manual:
                 QMessageBox.warning(
-                    self, "Backup",
-                    "Configura primero una carpeta de destino.",
+                    self, self.tr("Backup"),
+                    self.tr("Configura primero una carpeta de destino."),
                 )
             return
         try:
@@ -422,8 +434,10 @@ class BackupScheduleMixin:
                 pass
             if manual:
                 QMessageBox.warning(
-                    self, "Backup",
-                    f"No se pudo crear la carpeta destino:\n{destination}\n\n{e}",
+                    self, self.tr("Backup"),
+                    self.tr("No se pudo crear la carpeta destino:\n{0}\n\n{1}").format(
+                        destination, e
+                    ),
                 )
             return
 
@@ -446,10 +460,12 @@ class BackupScheduleMixin:
         try:
             du = shutil.disk_usage(destination)
             if needed and du.free < needed * 1.1:
-                msg = (
-                    f"Espacio insuficiente en el destino. Necesario "
-                    f"~{self._format_bytes_iexport(needed)}, libre "
-                    f"{self._format_bytes_iexport(int(du.free))}."
+                msg = self.tr(
+                    "Espacio insuficiente en el destino. Necesario "
+                    "~{0}, libre {1}."
+                ).format(
+                    self._format_bytes_iexport(needed),
+                    self._format_bytes_iexport(int(du.free)),
                 )
                 try:
                     self.log_message(f"[AVISO] Backup de '{vm_name}': {msg}")
@@ -572,8 +588,8 @@ class BackupScheduleMixin:
     def backup_now(self):
         if not self._vm_is_selected():
             QMessageBox.information(
-                self, "Backup",
-                "Selecciona primero una maquina virtual.",
+                self, self.tr("Backup"),
+                self.tr("Selecciona primero una maquina virtual."),
             )
             return
         try:
@@ -586,9 +602,9 @@ class BackupScheduleMixin:
             dest = self.input_backup_destination.text().strip()
             if not dest:
                 QMessageBox.warning(
-                    self, "Backup",
-                    "Configura primero una carpeta de destino en esta "
-                    "seccion.",
+                    self, self.tr("Backup"),
+                    self.tr("Configura primero una carpeta de destino en esta "
+                            "seccion."),
                 )
                 return
             sched = dict(sched)
@@ -600,12 +616,16 @@ class BackupScheduleMixin:
             state = "stopped"
         if state in ("running", "paused") and not sched.get("allow_running"):
             QMessageBox.warning(
-                self, "Backup con la VM encendida",
-                "La VM esta encendida.\n\n"
-                "Para evitar una copia inconsistente, apagala primero, o "
-                "marca la opcion 'Tambien cuando la VM esta encendida' en "
-                "esta seccion (asumiendo el riesgo).",
+                self, self.tr("Backup con la VM encendida"),
+                self.tr(
+                    "La VM esta encendida.\n\n"
+                    "Para evitar una copia inconsistente, apagala primero, o "
+                    "marca la opcion 'Tambien cuando la VM esta encendida' en "
+                    "esta seccion (asumiendo el riesgo)."
+                ),
             )
             return
         self._launch_scheduled_backup(name, self.current_vm_dir, sched,
                                        manual=True)
+
+# i18n_tanda2f3_backup_schedule_v1

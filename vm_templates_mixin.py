@@ -119,8 +119,8 @@ class VmTemplatesMixin:
     def save_current_vm_as_template(self):
         if not self._vm_is_selected():
             QMessageBox.information(
-                self, "Guardar como plantilla",
-                "Selecciona primero una máquina virtual.",
+                self, self.tr("Guardar como plantilla"),
+                self.tr("Selecciona primero una máquina virtual."),
             )
             return
 
@@ -129,9 +129,9 @@ class VmTemplatesMixin:
         cfg_path = os.path.join(vm_dir, "vm_config.ini")
         if not os.path.isfile(cfg_path):
             QMessageBox.warning(
-                self, "Guardar como plantilla",
-                "Esta VM no tiene vm_config.ini todavía.\n\n"
-                "Configúrala y guárdala primero.",
+                self, self.tr("Guardar como plantilla"),
+                self.tr("Esta VM no tiene vm_config.ini todavía.\n\n"
+                        "Configúrala y guárdala primero."),
             )
             return
 
@@ -158,8 +158,8 @@ class VmTemplatesMixin:
 
         if os.path.exists(tpl_path):
             resp = QMessageBox.question(
-                self, "Ya existe",
-                f"Ya existe la plantilla '{safe}'.\n\n¿Sobrescribirla?",
+                self, self.tr("Ya existe"),
+                self.tr("Ya existe la plantilla '{0}'.\n\n¿Sobrescribirla?").format(safe),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -205,8 +205,8 @@ class VmTemplatesMixin:
                 cfg.write(f)
         except Exception as e:
             QMessageBox.warning(
-                self, "Guardar como plantilla",
-                f"No se pudo escribir la plantilla.\n\n{e}",
+                self, self.tr("Guardar como plantilla"),
+                self.tr("No se pudo escribir la plantilla.\n\n{0}").format(e),
             )
             return
 
@@ -216,9 +216,9 @@ class VmTemplatesMixin:
             pass
 
         QMessageBox.information(
-            self, "Plantilla guardada",
-            f"Plantilla '{safe}' creada correctamente.\n\n"
-            "Aparecerá en el menú del botón '➕ Nueva VM'.",
+            self, self.tr("Plantilla guardada"),
+            self.tr("Plantilla '{0}' creada correctamente.\n\n"
+                    "Aparecerá en el menú del botón '➕ Nueva VM'.").format(safe),
         )
 
     # ------------------------------------------------------------------
@@ -231,12 +231,12 @@ class VmTemplatesMixin:
             return
 
         menu = QMenu(self)
-        act_blank = QAction("🆕 Nueva VM en blanco", self)
+        act_blank = QAction(self.tr("🆕 Nueva VM en blanco"), self)
         act_blank.triggered.connect(self.new_vm)
         menu.addAction(act_blank)
         menu.addSeparator()
 
-        header = QAction("Desde plantilla:", self)
+        header = QAction(self.tr("Desde plantilla:"), self)
         header.setEnabled(False)
         menu.addAction(header)
 
@@ -268,8 +268,8 @@ class VmTemplatesMixin:
         tpl_path = os.path.join(self._templates_dir(), f"{safe}.ini")
         if not os.path.isfile(tpl_path):
             QMessageBox.warning(
-                self, "Crear desde plantilla",
-                f"No encuentro la plantilla '{template_display_name}'.",
+                self, self.tr("Crear desde plantilla"),
+                self.tr("No encuentro la plantilla '{0}'.").format(template_display_name),
             )
             return
 
@@ -303,9 +303,9 @@ class VmTemplatesMixin:
 
         if os.path.exists(target_dir):
             resp = QMessageBox.question(
-                self, "Ya existe",
-                f"Ya existe una carpeta para '{name}'.\n\n"
-                "¿Reemplazarla? (se eliminará la existente)",
+                self, self.tr("Ya existe"),
+                self.tr("Ya existe una carpeta para '{0}'.\n\n"
+                        "¿Reemplazarla? (se eliminará la existente)").format(name),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -315,8 +315,8 @@ class VmTemplatesMixin:
                 shutil.rmtree(target_dir)
             except Exception as e:
                 QMessageBox.warning(
-                    self, "Crear desde plantilla",
-                    f"No se pudo eliminar la carpeta existente.\n\n{e}",
+                    self, self.tr("Crear desde plantilla"),
+                    self.tr("No se pudo eliminar la carpeta existente.\n\n{0}").format(e),
                 )
                 return
 
@@ -349,8 +349,8 @@ class VmTemplatesMixin:
             except Exception:
                 pass
             QMessageBox.warning(
-                self, "Crear desde plantilla",
-                f"No se pudo crear la VM.\n\n{e}",
+                self, self.tr("Crear desde plantilla"),
+                self.tr("No se pudo crear la VM.\n\n{0}").format(e),
             )
             return
 
@@ -395,10 +395,10 @@ class VmTemplatesMixin:
             pass
 
         QMessageBox.information(
-            self, "VM creada",
-            f"VM '{name}' creada desde la plantilla "
-            f"'{template_display_name}'.\n\n"
-            "Se ha abierto en Configuración → Almacenamiento para que\n"
-            "añadas el disco y el medio de instalación. La MAC de red se\n"
-            "ha regenerado para evitar conflictos con otras VMs.",
+            self, self.tr("VM creada"),
+            self.tr("VM '{0}' creada desde la plantilla "
+                    "'{1}'.\n\n"
+                    "Se ha abierto en Configuración → Almacenamiento para que\n"
+                    "añadas el disco y el medio de instalación. La MAC de red se\n"
+                    "ha regenerado para evitar conflictos con otras VMs.").format(name, template_display_name),
         )

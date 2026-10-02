@@ -52,7 +52,7 @@ class HealthDashboardMixin:
 
     def _open_health_dashboard(self):
         dlg = QDialog(self)
-        dlg.setWindowTitle("Salud de la máquina virtual")
+        dlg.setWindowTitle(self.tr("Salud de la máquina virtual"))
         dlg.resize(640, 440)
         self._health_dashboard_dialog = dlg
 
@@ -60,13 +60,15 @@ class HealthDashboardMixin:
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(10)
 
-        title = QLabel("<b style='font-size:15px;'>🚦 Semáforos de salud</b>")
+        title = QLabel(self.tr("<b style='font-size:15px;'>🚦 Semáforos de salud</b>"))
         root.addWidget(title)
 
         subtitle = QLabel(
-            "Cada fila muestra el estado de un subsistema de la VM. "
-            "Verde: funciona · Amarillo: parcial o sin confirmar · "
-            "Rojo: no disponible · Gris: no aplica. Se refresca cada 4 s."
+            self.tr(
+                "Cada fila muestra el estado de un subsistema de la VM. "
+                "Verde: funciona · Amarillo: parcial o sin confirmar · "
+                "Rojo: no disponible · Gris: no aplica. Se refresca cada 4 s."
+            )
         )
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet("color:#666; font-size:11px;")
@@ -79,11 +81,11 @@ class HealthDashboardMixin:
 
         self._health_rows = {}
         rows = (
-            ("network", "🌐 Red de la VM"),
-            ("host",    "🖥️ Internet del host"),
-            ("audio",   "🔊 Audio"),
-            ("display", "🖼️ Pantalla"),
-            ("qga",     "🔌 Guest Agent"),
+            ("network", self.tr("🌐 Red de la VM")),
+            ("host",    self.tr("🖥️ Internet del host")),
+            ("audio",   self.tr("🔊 Audio")),
+            ("display", self.tr("🖼️ Pantalla")),
+            ("qga",     self.tr("🔌 Guest Agent")),
         )
         for key, label in rows:
             row = QWidget()
@@ -102,7 +104,7 @@ class HealthDashboardMixin:
             name = QLabel(f"<b>{label}</b>")
             name.setMinimumWidth(180)
 
-            detail = QLabel("Comprobando…")
+            detail = QLabel(self.tr("Comprobando…"))
             detail.setWordWrap(True)
             detail.setStyleSheet("color:#555; font-size:11px;")
 
@@ -116,12 +118,12 @@ class HealthDashboardMixin:
         root.addStretch(1)
 
         btn_row = QHBoxLayout()
-        refresh_btn = QPushButton("🔄 Refrescar ahora")
+        refresh_btn = QPushButton(self.tr("🔄 Refrescar ahora"))
         refresh_btn.clicked.connect(self._refresh_health_dashboard)
         btn_row.addWidget(refresh_btn)
         btn_row.addStretch(1)
 
-        close_btn = QPushButton("Cerrar")
+        close_btn = QPushButton(self.tr("Cerrar"))
         close_btn.clicked.connect(self._close_health_dashboard)
         btn_row.addWidget(close_btn)
         root.addLayout(btn_row)
@@ -174,7 +176,7 @@ class HealthDashboardMixin:
         if not self.current_vm_dir:
             for key, (dot, detail) in self._health_rows.items():
                 dot.setStyleSheet(f"color: {_GREY};")
-                detail.setText("Sin VM seleccionada.")
+                detail.setText(self.tr("Sin VM seleccionada."))
             return
 
         vm_dir = self.current_vm_dir
@@ -194,7 +196,7 @@ class HealthDashboardMixin:
 
         if state not in ("running", "paused"):
             for key in ("network", "audio", "display", "qga"):
-                self._set_health(key, _GREY, "La VM no está corriendo.")
+                self._set_health(key, _GREY, self.tr("La VM no está corriendo."))
             return
 
         for key, probe in (
@@ -224,10 +226,10 @@ class HealthDashboardMixin:
             except Exception:
                 results.append(False)
         if all(results):
-            return _GREEN, "Host con salida a Internet (Apple y Cloudflare responden)."
+            return _GREEN, self.tr("Host con salida a Internet (Apple y Cloudflare responden).")
         if any(results):
-            return _YELLOW, "Salida parcial: uno de los dos destinos no respondió."
-        return _RED, "El host no tiene salida a Internet."
+            return _YELLOW, self.tr("Salida parcial: uno de los dos destinos no respondió.")
+        return _RED, self.tr("El host no tiene salida a Internet.")
 
     def _probe_network_health(self, vm_dir):
         """health_network_qmp_v2
@@ -241,15 +243,15 @@ class HealthDashboardMixin:
         """
         run_sh = os.path.join(vm_dir, "run_temp.sh")
         if not os.path.isfile(run_sh):
-            return _GREY, "No hay script de arranque todavía."
+            return _GREY, self.tr("No hay script de arranque todavía.")
         try:
             with open(run_sh, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         except OSError:
-            return _GREY, "No se pudo leer el script de arranque."
+            return _GREY, self.tr("No se pudo leer el script de arranque.")
 
         if "-netdev" not in content:
-            return _RED, "No hay adaptador de red configurado en esta VM."
+            return _RED, self.tr("No hay adaptador de red configurado en esta VM.")
 
         is_user = bool(re.search(r"-netdev\s+user", content))
         kind = "user (slirp)" if is_user else "directa"
@@ -281,23 +283,41 @@ class HealthDashboardMixin:
                         prev[vm_dir] = {"ts": now, "rx": rx_total, "tx": tx_total}
                         if kbps > 1.0:
                             return _GREEN, (
-                                f"NIC {kind}: tráfico activo "
-                                f"({kbps:.1f} KB/s; "
-                                f"rx {rx_total / 1024 / 1024:.1f} MB, "
-                                f"tx {tx_total / 1024 / 1024:.1f} MB)."
+                                self.tr(
+                                    "NIC {0}: tráfico activo "
+                                    "({1:.1f} KB/s; "
+                                    "rx {2:.1f} MB, "
+                                    "tx {3:.1f} MB)."
+                                ).format(
+                                    kind, kbps,
+                                    rx_total / 1024 / 1024,
+                                    tx_total / 1024 / 1024,
+                                )
                             )
                         return _YELLOW, (
-                            f"NIC {kind} con contadores activos pero "
-                            f"sin tráfico en el último intervalo "
-                            f"(rx {rx_total / 1024 / 1024:.1f} MB, "
-                            f"tx {tx_total / 1024 / 1024:.1f} MB)."
+                            self.tr(
+                                "NIC {0} con contadores activos pero "
+                                "sin tráfico en el último intervalo "
+                                "(rx {1:.1f} MB, "
+                                "tx {2:.1f} MB)."
+                            ).format(
+                                kind,
+                                rx_total / 1024 / 1024,
+                                tx_total / 1024 / 1024,
+                            )
                         )
                     prev[vm_dir] = {"ts": now, "rx": rx_total, "tx": tx_total}
                     return _YELLOW, (
-                        f"NIC {kind}: contadores iniciales leídos "
-                        f"(rx {rx_total / 1024 / 1024:.1f} MB, "
-                        f"tx {tx_total / 1024 / 1024:.1f} MB); "
-                        "esperando siguiente lectura para medir velocidad."
+                        self.tr(
+                            "NIC {0}: contadores iniciales leídos "
+                            "(rx {1:.1f} MB, "
+                            "tx {2:.1f} MB); "
+                            "esperando siguiente lectura para medir velocidad."
+                        ).format(
+                            kind,
+                            rx_total / 1024 / 1024,
+                            tx_total / 1024 / 1024,
+                        )
                     )
                 # Sin contadores: caer al fallback.
         except Exception:
@@ -331,48 +351,58 @@ class HealthDashboardMixin:
 
                     if prev_count is None:
                         return _YELLOW, (
-                            f"NIC {kind} configurada. {count} conexiones TCP "
-                            "activas en el host; esperando segunda lectura "
-                            "para medir cambio."
+                            self.tr(
+                                "NIC {0} configurada. {1} conexiones TCP "
+                                "activas en el host; esperando segunda lectura "
+                                "para medir cambio."
+                            ).format(kind, count)
                         )
                     if count != prev_count:
                         return _GREEN, (
-                            f"NIC {kind}: actividad detectada "
-                            f"({prev_count} → {count} conexiones TCP ESTAB)."
+                            self.tr(
+                                "NIC {0}: actividad detectada "
+                                "({1} → {2} conexiones TCP ESTAB)."
+                            ).format(kind, prev_count, count)
                         )
                     if count > 0:
                         return _YELLOW, (
-                            f"NIC {kind} configurada. {count} conexiones TCP "
-                            "activas en el host, sin cambios en el último "
-                            "intervalo (la VM puede estar idle)."
+                            self.tr(
+                                "NIC {0} configurada. {1} conexiones TCP "
+                                "activas en el host, sin cambios en el último "
+                                "intervalo (la VM puede estar idle)."
+                            ).format(kind, count)
                         )
                     return _YELLOW, (
-                        f"NIC {kind} configurada; sin conexiones externas "
-                        "activas en el host."
+                        self.tr(
+                            "NIC {0} configurada; sin conexiones externas "
+                            "activas en el host."
+                        ).format(kind)
                     )
             except Exception:
                 pass
 
         return _YELLOW, (
-            f"NIC {kind} configurada. No se pudo medir tráfico (QMP no "
-            "expone query-netdev y ss no está disponible)."
+            self.tr(
+                "NIC {0} configurada. No se pudo medir tráfico (QMP no "
+                "expone query-netdev y ss no está disponible)."
+            ).format(kind)
         )
     def _probe_audio_health(self, vm_dir):
         run_sh = os.path.join(vm_dir, "run_temp.sh")
         if not os.path.isfile(run_sh):
-            return _GREY, "No hay script de arranque todavía."
+            return _GREY, self.tr("No hay script de arranque todavía.")
         try:
             with open(run_sh, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         except OSError:
-            return _GREY, "No se pudo leer el script de arranque."
+            return _GREY, self.tr("No se pudo leer el script de arranque.")
 
         if "-audiodev" not in content and "-device intel-hda" not in content:
-            return _GREY, "Sin audio configurado en esta VM."
+            return _GREY, self.tr("Sin audio configurado en esta VM.")
 
         pactl = shutil.which("pactl")
         if not pactl:
-            return _YELLOW, "Audiodev configurado. pactl no disponible; no se puede confirmar reproducción."
+            return _YELLOW, self.tr("Audiodev configurado. pactl no disponible; no se puede confirmar reproducción.")
 
         pid_path = os.path.join(vm_dir, "qemu.pid")
         qemu_pid = None
@@ -383,23 +413,27 @@ class HealthDashboardMixin:
             except Exception:
                 pass
         if not qemu_pid:
-            return _YELLOW, "Audiodev configurado, pero no hay PID de QEMU para verificar el sink."
+            return _YELLOW, self.tr("Audiodev configurado, pero no hay PID de QEMU para verificar el sink.")
 
         try:
             r = subprocess.run([pactl, "list", "sink-inputs"],
                                capture_output=True, text=True, timeout=3)
         except Exception as e:
-            return _YELLOW, f"No se pudo consultar pactl: {e}"
+            return _YELLOW, self.tr("No se pudo consultar pactl: {0}").format(e)
         if r.returncode != 0:
-            return _YELLOW, "pactl no respondió."
+            return _YELLOW, self.tr("pactl no respondió.")
 
         text = r.stdout or ""
         needle = f'application.process.id = "{qemu_pid}"'
         if needle in text or f"application.process.id = {qemu_pid}" in text:
-            return _GREEN, f"Sink activo: pactl ve al QEMU (PID {qemu_pid}) reproduciendo."
+            return _GREEN, self.tr(
+                "Sink activo: pactl ve al QEMU (PID {0}) reproduciendo."
+            ).format(qemu_pid)
         return _YELLOW, (
-            "Audiodev configurado; QEMU no está reproduciendo ahora. "
-            "Es normal si el guest no está emitiendo sonido."
+            self.tr(
+                "Audiodev configurado; QEMU no está reproduciendo ahora. "
+                "Es normal si el guest no está emitiendo sonido."
+            )
         )
 
     def _probe_display_health(self, vm_dir):
@@ -410,14 +444,16 @@ class HealthDashboardMixin:
                 vw = int(getattr(w, "vncWidth", 0) or 0)
                 vh = int(getattr(w, "vncHeight", 0) or 0)
                 if vw > 0 and vh > 0:
-                    return _GREEN, f"Framebuffer VNC {vw}×{vh}."
-                return _YELLOW, "Widget VNC conectado, esperando primer frame."
+                    return _GREEN, self.tr(
+                        "Framebuffer VNC {0}×{1}."
+                    ).format(vw, vh)
+                return _YELLOW, self.tr("Widget VNC conectado, esperando primer frame.")
             except Exception:
                 pass
 
         sw = getattr(self, "spice_widget", None)
         if sw is not None:
-            return _GREEN, "Consola SPICE embebida activa."
+            return _GREEN, self.tr("Consola SPICE embebida activa.")
 
         viewers = getattr(self, "_external_viewers", {}) or {}
         entry = viewers.get(vm_dir)
@@ -425,50 +461,60 @@ class HealthDashboardMixin:
             p = entry.get("proc")
             try:
                 if p is not None and p.poll() is None:
-                    return _GREEN, f"Visor externo activo (PID {p.pid})."
+                    return _GREEN, self.tr(
+                        "Visor externo activo (PID {0})."
+                    ).format(p.pid)
             except Exception:
                 pass
 
         run_sh = os.path.join(vm_dir, "run_temp.sh")
         if not os.path.isfile(run_sh):
-            return _GREY, "No hay script de arranque todavía."
+            return _GREY, self.tr("No hay script de arranque todavía.")
         try:
             with open(run_sh, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         except OSError:
-            return _GREY, "No se pudo leer el script de arranque."
+            return _GREY, self.tr("No se pudo leer el script de arranque.")
 
         if "-display none" in content:
             if "-vnc " in content or "-spice " in content:
                 return _YELLOW, (
-                    "Modo remoto (socket VNC/SPICE) sin widget embebido ni "
-                    "visor activo. Abre la Consola Gráfica para ver la pantalla."
+                    self.tr(
+                        "Modo remoto (socket VNC/SPICE) sin widget embebido ni "
+                        "visor activo. Abre la Consola Gráfica para ver la pantalla."
+                    )
                 )
-            return _YELLOW, "Modo headless (sin salida de pantalla)."
+            return _YELLOW, self.tr("Modo headless (sin salida de pantalla).")
         if "-display gtk" in content or "-display sdl" in content:
-            return _GREEN, "Ventana nativa de QEMU activa."
-        return _YELLOW, "Configuración de pantalla detectada en el script de arranque."
+            return _GREEN, self.tr("Ventana nativa de QEMU activa.")
+        return _YELLOW, self.tr("Configuración de pantalla detectada en el script de arranque.")
 
     def _probe_qga_health(self, vm_dir):
         run_sh = os.path.join(vm_dir, "run_temp.sh")
         if not os.path.isfile(run_sh):
-            return _GREY, "No hay script de arranque todavía."
+            return _GREY, self.tr("No hay script de arranque todavía.")
         try:
             with open(run_sh, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         except OSError:
-            return _GREY, "No se pudo leer el script de arranque."
+            return _GREY, self.tr("No se pudo leer el script de arranque.")
 
         if "org.qemu.guest_agent.0" not in content:
             return _GREY, (
-                "Guest Agent no habilitado para esta VM "
-                "(actívalo en Integración Host ↔ Guest)."
+                self.tr(
+                    "Guest Agent no habilitado para esta VM "
+                    "(actívalo en Integración Host ↔ Guest)."
+                )
             )
 
         try:
             r = self._qga_request({"execute": "guest-info"}, timeout=2)
             if r and "return" in r:
-                return _GREEN, "QEMU Guest Agent responde."
-            return _RED, "Canal QGA presente, pero el guest no responde."
+                return _GREEN, self.tr("QEMU Guest Agent responde.")
+            return _RED, self.tr("Canal QGA presente, pero el guest no responde.")
         except Exception as e:
-            return _RED, f"Canal QGA presente, sin respuesta: {e}"
+            return _RED, self.tr(
+                "Canal QGA presente, sin respuesta: {0}"
+            ).format(e)
+
+# i18n_tanda3_health_dashboard_v1

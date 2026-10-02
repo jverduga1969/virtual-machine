@@ -147,11 +147,11 @@ class SnapshotsMixin:
         self._pending_disk_only_restore_tag = None
         self._disk_only_shutdown_timer = None
         QMessageBox.warning(
-            self, "Apagado no completado",
-            "La VM no se apagó dentro del tiempo máximo (90 s).\n\n"
-            "Puede que el sistema invitado esté colgado. Usa el botón\n"
-            "'Forzar apagado' de la lista lateral, luego vuelve a intentar\n"
-            "restaurar el snapshot con la VM ya apagada."
+            self, self.tr("Apagado no completado"),
+            self.tr("La VM no se apagó dentro del tiempo máximo (90 s).\n\n"
+                    "Puede que el sistema invitado esté colgado. Usa el botón\n"
+                    "'Forzar apagado' de la lista lateral, luego vuelve a intentar\n"
+                    "restaurar el snapshot con la VM ya apagada.")
         )
 
     def _is_linked_clone(self):
@@ -196,22 +196,24 @@ class SnapshotsMixin:
         (de ahí el 'Errno 104' que ve el usuario).
         """
         QMessageBox.warning(
-            self, "No se puede restaurar este snapshot",
-            f"La VM es un clon enlazado (backing file QCOW2) y el "
-            f"snapshot '{tag}' fue creado en modo COMPLETO "
-            "(RAM + dispositivos).\n\n"
-            "QEMU no puede restaurar snapshots completos sobre un QCOW2 "
-            "con backing file: al ejecutar loadvm aborta con una aserción "
-            "interna (vmstate_load_next) y el proceso muere. De ahí el "
-            "'Conexión reinicializada' que has visto.\n\n"
-            "Qué hacer:\n"
-            "  • Los snapshots que crees A PARTIR DE AHORA en este clon "
-            "serán solo de discos (la app ya lo fuerza) y se podrán "
-            "restaurar.\n"
-            "  • Este snapshot antiguo no se puede restaurar. Elimínalo "
-            "si ya no lo necesitas.\n"
-            "  • Si necesitas snapshots completos, desenlaza el clon con "
-            "'🧬 Desenlazar' (convierte el delta en un QCOW2 autónomo)."
+            self, self.tr("No se puede restaurar este snapshot"),
+            self.tr(
+                "La VM es un clon enlazado (backing file QCOW2) y el "
+                "snapshot '{0}' fue creado en modo COMPLETO "
+                "(RAM + dispositivos).\n\n"
+                "QEMU no puede restaurar snapshots completos sobre un QCOW2 "
+                "con backing file: al ejecutar loadvm aborta con una aserción "
+                "interna (vmstate_load_next) y el proceso muere. De ahí el "
+                "'Conexión reinicializada' que has visto.\n\n"
+                "Qué hacer:\n"
+                "  • Los snapshots que crees A PARTIR DE AHORA en este clon "
+                "serán solo de discos (la app ya lo fuerza) y se podrán "
+                "restaurar.\n"
+                "  • Este snapshot antiguo no se puede restaurar. Elimínalo "
+                "si ya no lo necesitas.\n"
+                "  • Si necesitas snapshots completos, desenlaza el clon con "
+                "'🧬 Desenlazar' (convierte el delta en un QCOW2 autónomo)."
+            ).format(tag)
         )
 
     def _snapshot_candidate_disks(self):
@@ -290,10 +292,9 @@ class SnapshotsMixin:
             devices.append({"id":str(d.get("id") or ""),"name":d.get("name") or os.path.basename(path),"path":path,"device":typ,"format":fmt or "desconocido","writable":writable,"free":free,"virtual_size":virtual_size,"actual_size":actual_size,"encrypted":encrypted,"backing_file":backing_file,"exists":exists,"info_error":info_error,"running":running})
         return devices
 
-    @staticmethod
-    def _format_bytes(value):
+    def _format_bytes(self, value):
         if value is None or value < 0:
-            return "Desconocido"
+            return self.tr("Desconocido")
         n=float(value)
         for unit in ("B", "KB", "MB", "GB", "TB"):
             if n < 1024 or unit == "TB":
@@ -388,8 +389,7 @@ class SnapshotsMixin:
                 continue
         return ["\t".join(best[tag]) for tag in order]
 
-    @staticmethod
-    def _display_vm_size(raw):
+    def _display_vm_size(self, raw):
         """Texto amigable para la columna "Tamaño VM" de la lista.
 
         QEMU informa el tamaño del ESTADO de la VM (RAM + dispositivos)
@@ -410,7 +410,7 @@ class SnapshotsMixin:
             if m:
                 n = float(m.group(1))
                 if n == 0:
-                    return "(solo disco)"
+                    return self.tr("(solo disco)")
         except Exception:
             pass
         return s
@@ -513,10 +513,12 @@ class SnapshotsMixin:
         # --- Caso 2: no hay capturas ---
         if not entries:
             self.last_snap_thumbnail.setPixmap(QPixmap())
-            self.last_snap_thumbnail.setText("Sin capturas de snapshot")
+            self.last_snap_thumbnail.setText(self.tr("Sin capturas de snapshot"))
             self.last_snap_name_label.setText(
-                "Los snapshots creados con la VM en ejecución guardan una "
-                "captura de pantalla que se muestra aquí."
+                self.tr(
+                    "Los snapshots creados con la VM en ejecución guardan una "
+                    "captura de pantalla que se muestra aquí."
+                )
             )
             _clear_time_label()
             self.btn_last_snap_restore.setEnabled(False)
@@ -531,7 +533,7 @@ class SnapshotsMixin:
         pix = QPixmap(path)
         if pix.isNull():
             self.last_snap_thumbnail.setPixmap(QPixmap())
-            self.last_snap_thumbnail.setText("Captura no legible")
+            self.last_snap_thumbnail.setText(self.tr("Captura no legible"))
             self.last_snap_name_label.setText(f"'{tag}'")
             _clear_time_label()
             self.btn_last_snap_restore.setEnabled(False)
@@ -601,8 +603,8 @@ class SnapshotsMixin:
         tag = getattr(self, "_last_snapshot_tag", None)
         if not tag:
             QMessageBox.information(
-                self, "Restaurar snapshot",
-                "No hay ningún snapshot reciente para restaurar.",
+                self, self.tr("Restaurar snapshot"),
+                self.tr("No hay ningún snapshot reciente para restaurar."),
             )
             return
         # Refrescar la lista para asegurar que el item existe con la captura actual.
@@ -619,10 +621,12 @@ class SnapshotsMixin:
                     break
         if target is None:
             QMessageBox.information(
-                self, "Restaurar snapshot",
-                f"Existe una captura para '{tag}', pero ese snapshot ya no "
-                "aparece en la lista de la VM (puede haber sido eliminado). "
-                "Actualiza la pestaña Snapshots o elimínalo manualmente.",
+                self, self.tr("Restaurar snapshot"),
+                self.tr(
+                    "Existe una captura para '{0}', pero ese snapshot ya no "
+                    "aparece en la lista de la VM (puede haber sido eliminado). "
+                    "Actualiza la pestaña Snapshots o elimínalo manualmente."
+                ).format(tag),
             )
             return
         self.snapshot_list_widget.setCurrentItem(target)
@@ -869,15 +873,15 @@ class SnapshotsMixin:
         candidates = [r[1] for r in rows if r[1] and r[1] != tag]
         if not candidates:
             QMessageBox.information(
-                self, "Organigrama",
-                "No hay otros snapshots para elegir como padre.",
+                self, self.tr("Organigrama"),
+                self.tr("No hay otros snapshots para elegir como padre."),
             )
             return
         from PyQt6.QtWidgets import QInputDialog
-        candidates.insert(0, "(ninguno — mover a la raíz)")
+        candidates.insert(0, self.tr("(ninguno — mover a la raíz)"))
         item, ok = QInputDialog.getItem(
-            self, "Establecer padre",
-            f"Padre para '{tag}':",
+            self, self.tr("Establecer padre"),
+            self.tr("Padre para '{0}':").format(tag),
             candidates, 0, False,
         )
         if not ok:
@@ -909,8 +913,8 @@ class SnapshotsMixin:
             return
         from PyQt6.QtWidgets import QInputDialog
         name, ok = QInputDialog.getText(
-            self, "Nuevo snapshot hijo",
-            f"Nombre del snapshot (hijo de '{parent_tag}'):",
+            self, self.tr("Nuevo snapshot hijo"),
+            self.tr("Nombre del snapshot (hijo de '{0}'):").format(parent_tag),
         )
         if not ok or not name.strip():
             return
@@ -929,8 +933,8 @@ class SnapshotsMixin:
             self._create_snapshot_with_name(name)
         except Exception as e:
             QMessageBox.warning(
-                self, "Nuevo snapshot hijo",
-                f"No se pudo crear el snapshot.\n\n{e}",
+                self, self.tr("Nuevo snapshot hijo"),
+                self.tr("No se pudo crear el snapshot.\n\n{0}").format(e),
             )
             return
         # Refrescar el organigrama tras un pequeño delay para que el
@@ -954,7 +958,7 @@ class SnapshotsMixin:
 
     def manage_snapshots(self):
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Snapshots", "Selecciona una máquina virtual.")
+            QMessageBox.information(self, self.tr("Snapshots"), "Selecciona una máquina virtual.")
             return
         self.main_tabs.setCurrentIndex(getattr(self, "_snapshots_tab_index", 3))
         self.refresh_snapshot_page()
@@ -1004,13 +1008,13 @@ class SnapshotsMixin:
             return
         readiness=self._snapshot_readiness()
         for d in readiness["disks"]:
-            typ={"sata":"💽 SATA", "nvme":"⚡ NVMe"}.get(d["device"], d["device"])
+            typ={"sata":self.tr("💽 SATA"), "nvme":self.tr("⚡ NVMe")}.get(d["device"], d["device"])
             fmt=d["format"].upper()
-            writable="Sí" if d["writable"] else "No"
-            virtual_size=self._format_bytes(d.get("virtual_size", 0)) if d.get("virtual_size", 0) else "Desconocido"
+            writable=self.tr("Sí") if d["writable"] else self.tr("No")
+            virtual_size=self._format_bytes(d.get("virtual_size", 0)) if d.get("virtual_size", 0) else self.tr("Desconocido")
             actual_size=self._format_bytes(d.get("actual_size", -1))
             free=self._format_bytes(d["free"])
-            snap="Sí" if d in readiness["eligible"] else "No"
+            snap=self.tr("Sí") if d in readiness["eligible"] else self.tr("No")
             item=QTreeWidgetItem([f"{typ} — {d['name']}", fmt, virtual_size, actual_size, free, writable, snap])
             if d.get("info_error"):
                 item.setText(1, f"{fmt} ⚠")
@@ -1018,14 +1022,14 @@ class SnapshotsMixin:
             self.snapshot_disk_status.addTopLevelItem(item)
         state_disk=readiness["state_disk"]
         if not state_disk:
-            self.snapshot_space_label.setText("❌ No hay un QCOW2 escribible disponible para snapshots completos de VM.")
+            self.snapshot_space_label.setText(self.tr("❌ No hay un QCOW2 escribible disponible para snapshots completos de VM."))
             self.snapshot_space_label.setStyleSheet("color:#b71c1c; padding:4px;")
         else:
             reserve=self._format_bytes(readiness["reserve"])
-            self.snapshot_space_label.setText(f"✅ Disco para estado de VM: {state_disk['name']} · tamaño virtual: {self._format_bytes(state_disk.get('virtual_size', 0))} · archivo actual: {self._format_bytes(state_disk.get('actual_size', -1))} · espacio libre del sistema de archivos: {self._format_bytes(state_disk.get('free', -1))} · reserva orientativa inicial: {reserve}. El snapshot QCOW2 crece según se modifican bloques.")
+            self.snapshot_space_label.setText(self.tr("✅ Disco para estado de VM: {0} · tamaño virtual: {1} · archivo actual: {2} · espacio libre del sistema de archivos: {3} · reserva orientativa inicial: {4}. El snapshot QCOW2 crece según se modifican bloques.").format(state_disk['name'], self._format_bytes(state_disk.get('virtual_size', 0)), self._format_bytes(state_disk.get('actual_size', -1)), self._format_bytes(state_disk.get('free', -1)), reserve))
             self.snapshot_space_label.setStyleSheet("color:#2e7d32; padding:4px;")
             if readiness["problems"]:
-                self.snapshot_space_label.setText("⚠ " + " ".join(readiness["problems"]) + " El snapshot podría fallar al quedarse sin espacio.")
+                self.snapshot_space_label.setText(self.tr("⚠ {0} El snapshot podría fallar al quedarse sin espacio.").format(" ".join(readiness["problems"])))
                 self.snapshot_space_label.setStyleSheet("color:#b26a00; padding:4px;")
         for row in self._snapshot_rows():
             self.snapshot_list_widget.addTopLevelItem(QTreeWidgetItem(list(row)))
@@ -1093,7 +1097,7 @@ class SnapshotsMixin:
         if pix is None:
             try:
                 self.snapshot_preview_label.setPixmap(QPixmap())
-                self.snapshot_preview_label.setText("Sin captura de pantalla")
+                self.snapshot_preview_label.setText(self.tr("Sin captura de pantalla"))
                 self.snapshot_preview_label.resize(320, 180)
             except Exception:
                 pass
@@ -1736,21 +1740,23 @@ class SnapshotsMixin:
             return True
         mode = self._vm_graphics_mode() or "?"
         resp = QMessageBox.warning(
-            self, "Snapshot con VirtIO-GPU",
-            f"Esta VM está configurada con gráficos '{mode}', que no permiten\n"
-            "RESTAURAR snapshots completos en QEMU (RAM + dispositivos).\n"
-            "\n"
-            "El snapshot se puede crear, pero al intentar restaurarlo QEMU\n"
-            "fallará con: 'Failed to load element of type virtio for virtio'.\n"
-            "\n"
-            "Opciones:\n"
-            "  • Usar snapshot SOLO DE DISCOS (elegir 'No' en el siguiente\n"
-            "    diálogo). No guarda RAM ni estado de ventanas, pero se\n"
-            "    restaura sin problema con la VM apagada.\n"
-            "  • Cambiar Gráficos/GPU a 'Red Hat QXL 2D' o 'VMware SVGA II',\n"
-            "    reiniciar la VM y crear snapshots completos.\n"
-            "\n"
-            "¿Crear el snapshot igualmente?",
+            self, self.tr("Snapshot con VirtIO-GPU"),
+            self.tr(
+                "Esta VM está configurada con gráficos '{0}', que no permiten\n"
+                "RESTAURAR snapshots completos en QEMU (RAM + dispositivos).\n"
+                "\n"
+                "El snapshot se puede crear, pero al intentar restaurarlo QEMU\n"
+                "fallará con: 'Failed to load element of type virtio for virtio'.\n"
+                "\n"
+                "Opciones:\n"
+                "  • Usar snapshot SOLO DE DISCOS (elegir 'No' en el siguiente\n"
+                "    diálogo). No guarda RAM ni estado de ventanas, pero se\n"
+                "    restaura sin problema con la VM apagada.\n"
+                "  • Cambiar Gráficos/GPU a 'Red Hat QXL 2D' o 'VMware SVGA II',\n"
+                "    reiniciar la VM y crear snapshots completos.\n"
+                "\n"
+                "¿Crear el snapshot igualmente?"
+            ).format(mode),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1759,15 +1765,25 @@ class SnapshotsMixin:
 
     def create_snapshot_from_page(self):
         if not self._vm_is_selected():
-            QMessageBox.information(self,'Snapshots','Selecciona una máquina virtual.'); return
+            QMessageBox.information(self,self.tr('Snapshots'),self.tr('Selecciona una máquina virtual.')); return
         readiness=self._snapshot_readiness()
         if not readiness["state_disk"]:
             self._snapshot_log("[SNAPSHOT] ERROR: no hay un QCOW2 elegible para guardar el estado de la VM.")
-            QMessageBox.warning(self,'Snapshots', 'No se puede crear un snapshot completo.\n\n' + '\n'.join(readiness["problems"] or ['Se necesita al menos un disco QCOW2 escribible y no removible.']))
+            QMessageBox.warning(self,self.tr('Snapshots'), self.tr('No se puede crear un snapshot completo.\n\n') + '\n'.join(readiness["problems"] or ['Se necesita al menos un disco QCOW2 escribible y no removible.']))
             return
         if readiness["problems"]:
             details='\n'.join(readiness["problems"])
-            reply=QMessageBox.warning(self,'Espacio disponible', f"{details}\n\nQEMU puede necesitar espacio adicional a medida que cambien los bloques. ¿Quieres continuar de todos modos?", QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            reply=QMessageBox.warning(
+                self,
+                self.tr('Espacio disponible'),
+                self.tr(
+                    "{0}\n\n"
+                    "QEMU puede necesitar espacio adicional a medida que "
+                    "cambien los bloques. ¿Quieres continuar de todos modos?"
+                ).format(details),
+                QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
             if reply != QMessageBox.StandardButton.Yes:
                 return
         # Avisar si los gráficos actuales harán que el snapshot no
@@ -1777,7 +1793,7 @@ class SnapshotsMixin:
                 return
         except Exception:
             pass
-        name,ok=QInputDialog.getText(self,'Crear snapshot','Nombre del snapshot:')
+        name,ok=QInputDialog.getText(self,self.tr('Crear snapshot'),self.tr('Nombre del snapshot:'))
         if not ok or not name.strip(): return
         name=name.strip().replace(' ','_')
         state=self._runtime_state(os.path.basename(self.current_vm_dir))
@@ -1813,16 +1829,18 @@ class SnapshotsMixin:
                     try:
                         QMessageBox.information(
                             self,
-                            "Clon enlazado: snapshot solo de discos",
-                            "Esta VM es un clon enlazado (backing file QCOW2).\n\n"
-                            "QEMU no puede crear/restaurar snapshots completos\n"
-                            "(RAM + dispositivos) sobre un QCOW2 con backing\n"
-                            "file: al hacer loadvm QEMU aborta con una aserción\n"
-                            "interna (vmstate_load_next).\n\n"
-                            "Por seguridad se creará un snapshot SOLO DE DISCOS,\n"
-                            "que sí se puede restaurar con la VM apagada.\n\n"
-                            "Si necesitas un snapshot completo, desenlaza\n"
-                            "primero el clon (🧬 Desenlazar)."
+                            self.tr("Clon enlazado: snapshot solo de discos"),
+                            self.tr(
+                                "Esta VM es un clon enlazado (backing file QCOW2).\n\n"
+                                "QEMU no puede crear/restaurar snapshots completos\n"
+                                "(RAM + dispositivos) sobre un QCOW2 con backing\n"
+                                "file: al hacer loadvm QEMU aborta con una aserción\n"
+                                "interna (vmstate_load_next).\n\n"
+                                "Por seguridad se creará un snapshot SOLO DE DISCOS,\n"
+                                "que sí se puede restaurar con la VM apagada.\n\n"
+                                "Si necesitas un snapshot completo, desenlaza\n"
+                                "primero el clon (🧬 Desenlazar)."
+                            )
                         )
                     except Exception:
                         pass
@@ -1830,14 +1848,16 @@ class SnapshotsMixin:
                 else:
                     choice = QMessageBox.question(
                         self,
-                        'Snapshot con la VM encendida',
-                        "La VM está encendida.\n\n"
-                        "Un snapshot COMPLETO debe guardar la RAM y el estado de todos los dispositivos y "
-                        "puede dejar QEMU completamente ocupado durante ese proceso. En esta VM ya hemos "
-                        "observado que QEMU puede quedarse en STOP durante mucho tiempo.\n\n"
-                        "Sí = crear SNAPSHOT COMPLETO (VM + RAM + dispositivos + discos).\n"
-                        "No = crear SNAPSHOT SOLO DE DISCOS (rápido; no guarda RAM ni ventanas).\n"
-                        "Cancelar = no hacer nada.",
+                        self.tr('Snapshot con la VM encendida'),
+                        self.tr(
+                            "La VM está encendida.\n\n"
+                            "Un snapshot COMPLETO debe guardar la RAM y el estado de todos los dispositivos y "
+                            "puede dejar QEMU completamente ocupado durante ese proceso. En esta VM ya hemos "
+                            "observado que QEMU puede quedarse en STOP durante mucho tiempo.\n\n"
+                            "Sí = crear SNAPSHOT COMPLETO (VM + RAM + dispositivos + discos).\n"
+                            "No = crear SNAPSHOT SOLO DE DISCOS (rápido; no guarda RAM ni ventanas).\n"
+                            "Cancelar = no hacer nada."
+                        ),
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
                         QMessageBox.StandardButton.No,
                     )
@@ -1854,16 +1874,18 @@ class SnapshotsMixin:
                         self._snapshot_log("[SNAPSHOT] ✓ Creación finalizada. No se guardó RAM/CPU.")
                         QMessageBox.information(
                             self,
-                            'Snapshot de discos creado',
-                            f"Se creó '{name}' en {len(nodes)} QCOW2.\n\n"
-                            "Este snapshot no contiene la memoria RAM ni el estado de las ventanas. "
-                            "Para restaurarlo, la VM debe estar apagada."
+                            self.tr('Snapshot de discos creado'),
+                            self.tr(
+                                "Se creó '{0}' en {1} QCOW2.\n\n"
+                                "Este snapshot no contiene la memoria RAM ni el estado de las ventanas. "
+                                "Para restaurarlo, la VM debe estar apagada."
+                            ).format(name, len(nodes))
                         )
                         self.refresh_snapshot_page()
                     except Exception as e:
                         msg = str(e)
                         self._snapshot_log(f"[SNAPSHOT] ✗ SNAPSHOT DE DISCOS FALLIDO: {msg}")
-                        self._show_selectable_error('Error al crear snapshot de discos', msg)
+                        self._show_selectable_error(self.tr('Error al crear snapshot de discos'), msg)
                     return
 
                 self._snapshot_log("[SNAPSHOT] Modo: SNAPSHOT COMPLETO (VM + RAM + dispositivos + discos).")
@@ -1923,7 +1945,10 @@ class SnapshotsMixin:
             if 'virgl is not yet migratable' in msg.lower() or 'not migratable' in msg.lower():
                 msg += ('\n\nCausa: el dispositivo gráfico VirGL/Venus activo no permite guardar el estado migrable de la VM.\n'
                         'Si necesitas un snapshot completo, cambia temporalmente la GPU a VirtIO-GPU 2D (compatible) o VGA estándar y reinicia la VM.')
-            self._show_selectable_error('Error al crear snapshot', f'No se pudo crear el snapshot completo.\n\n{msg}')
+            self._show_selectable_error(
+                self.tr('Error al crear snapshot'),
+                self.tr('No se pudo crear el snapshot completo.\n\n{0}').format(msg),
+            )
 
     def _start_snapshot_worker(self, vm_dir, command, arguments,
                                operation_label, tag, mode):
@@ -1936,8 +1961,8 @@ class SnapshotsMixin:
         if getattr(self, "_snapshot_worker", None) is not None \
                 and self._snapshot_worker.isRunning():
             QMessageBox.information(
-                self, "Snapshots",
-                "Ya hay una operación de snapshot en curso.",
+                self, self.tr("Snapshots"),
+                self.tr("Ya hay una operación de snapshot en curso."),
             )
             return
 
@@ -1951,12 +1976,14 @@ class SnapshotsMixin:
 
         # --- Diálogo modal de progreso (mismo widget que ISO) ---
         subtitle = (
-            "La operación se ejecuta en segundo plano; la interfaz sigue "
-            "disponible mientras QEMU procesa el snapshot."
+            self.tr(
+                "La operación se ejecuta en segundo plano; la interfaz sigue "
+                "disponible mientras QEMU procesa el snapshot."
+            )
         )
         try:
             dlg = TaskProgressDialog(
-                f"Snapshot — {operation_label}",
+                self.tr("Snapshot — {0}").format(operation_label),
                 self,
                 cancelable=False,
                 show_log=True,
@@ -2007,13 +2034,13 @@ class SnapshotsMixin:
             try:
                 if ok:
                     if mode == "pause":
-                        msg = f"Estado '{tag}' guardado y VM pausada."
+                        msg = self.tr("Estado '{0}' guardado y VM pausada.").format(tag)
                     elif mode == "delete":
-                        msg = f"Snapshot '{tag}' eliminado."
+                        msg = self.tr("Snapshot '{0}' eliminado.").format(tag)
                     elif mode == "restore":
-                        msg = f"Snapshot '{tag}' restaurado."
+                        msg = self.tr("Snapshot '{0}' restaurado.").format(tag)
                     else:
-                        msg = f"Snapshot '{tag}' creado."
+                        msg = self.tr("Snapshot '{0}' creado.").format(tag)
                     dlg.finish(True, msg)
                 else:
                     dlg.finish(False, error_msg or "Operación fallida.")
@@ -2054,7 +2081,11 @@ class SnapshotsMixin:
                 if hasattr(self, "snapshot_progress_label"):
                     self.snapshot_progress_label.setText("Snapshot finalizado (100%).")
                 self.refresh_snapshot_page()
-                QMessageBox.information(self,'Snapshot creado',f"El snapshot '{tag}' fue creado y confirmado por QEMU.")
+                QMessageBox.information(
+                    self,
+                    self.tr('Snapshot creado'),
+                    self.tr("El snapshot '{0}' fue creado y confirmado por QEMU.").format(tag),
+                )
             elif mode == 'pause':
                 # El snapshot se creó correctamente; ahora pausamos la VM.
                 self._snapshot_log(f"[SNAPSHOT] ✓ Estado '{tag}' guardado en disco.")
@@ -2069,9 +2100,11 @@ class SnapshotsMixin:
                     self.snapshot_progress_label.setText("Estado guardado; VM pausada.")
                 self.refresh_snapshot_page()
                 QMessageBox.information(
-                    self, 'VM pausada',
-                    f"Estado guardado como '{tag}'.\n\nLa VM quedó pausada. "
-                    "Puedes reanudarla con el botón Pausar/Reanudar.",
+                    self, self.tr('VM pausada'),
+                    self.tr(
+                        "Estado guardado como '{0}'.\n\nLa VM quedó pausada. "
+                        "Puedes reanudarla con el botón Pausar/Reanudar."
+                    ).format(tag),
                 )
             elif mode == 'delete':
                 self._snapshot_log(f"[SNAPSHOT] ✓ Eliminación de '{tag}' finalizada.")
@@ -2080,7 +2113,10 @@ class SnapshotsMixin:
                     try: os.remove(shot)
                     except OSError: pass
                 self.refresh_snapshot_page()
-                QMessageBox.information(self,'Snapshot eliminado',f"Se eliminó '{tag}'.")
+                QMessageBox.information(
+                    self, self.tr('Snapshot eliminado'),
+                    self.tr("Se eliminó '{0}'.").format(tag),
+                )
             else:
                 self._snapshot_log(f"[SNAPSHOT] ✓ Restauración de '{tag}' finalizada.")
                 status = self._runtime_state(os.path.basename(self.current_vm_dir))
@@ -2089,7 +2125,10 @@ class SnapshotsMixin:
                     self._qmp_hmp(self.current_vm_dir, 'cont')
                     self._snapshot_log("[SNAPSHOT] ✓ VM reanudada.")
                 self.refresh_snapshot_page()
-                QMessageBox.information(self,'Snapshot restaurado',f"Se restauró '{tag}'.")
+                QMessageBox.information(
+                    self, self.tr('Snapshot restaurado'),
+                    self.tr("Se restauró '{0}'.").format(tag),
+                )
         except Exception as e:
             self._snapshot_worker_failed(str(e))
 
@@ -2100,13 +2139,13 @@ class SnapshotsMixin:
         self._finish_snapshot_progress_dialog(False, tag, mode,
                                                error_msg=str(message))
         if mode == 'create':
-            title, action = 'Error al crear snapshot', 'CREACIÓN'
+            title, action = self.tr('Error al crear snapshot'), self.tr('CREACIÓN')
         elif mode == 'delete':
-            title, action = 'Error al eliminar snapshot', 'ELIMINACIÓN'
+            title, action = 'Error al eliminar snapshot', self.tr('ELIMINACIÓN')
         elif mode == 'pause':
-            title, action = 'Error al guardar estado', 'GUARDADO'
+            title, action = 'Error al guardar estado', self.tr('GUARDADO')
         else:
-            title, action = 'Error al restaurar snapshot', 'RESTAURACIÓN'
+            title, action = 'Error al restaurar snapshot', self.tr('RESTAURACIÓN')
         self._snapshot_log(f"[SNAPSHOT] ✗ {action} FALLIDA: {message}")
         if hasattr(self, "snapshot_progress_label"):
             self.snapshot_progress_label.setText(f"{action.capitalize()} fallida")
@@ -2147,14 +2186,20 @@ class SnapshotsMixin:
         if 'virgl is not yet migratable' in msg.lower() or 'not migratable' in msg.lower():
             msg += ('\n\nCausa: el dispositivo gráfico VirGL/Venus activo no permite guardar el estado migrable de la VM.\n'
                     'Cambia Gráficos/GPU a VirtIO-GPU 2D (compatible) o VGA estándar y reinicia la VM antes de intentarlo de nuevo.')
-        self._show_selectable_error(title, f"No se pudo completar la operación de snapshot '{tag}'.\n\n{msg}")
+        self._show_selectable_error(
+            title,
+            self.tr("No se pudo completar la operación de snapshot '{0}'.\n\n{1}").format(tag, msg),
+        )
         self.refresh_snapshot_page()
 
     def restore_snapshot_from_page(self):
         tag=self._selected_snapshot_tag()
         if not tag:
-            QMessageBox.information(self,'Snapshots','Selecciona un snapshot.'); return
-        if QMessageBox.warning(self,'Restaurar snapshot',f"¿Restaurar '{tag}'?\n\nLa VM volverá al estado del snapshot.",QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            QMessageBox.information(self,self.tr('Snapshots'),'Selecciona un snapshot.'); return
+        _confirm_txt = self.tr("¿Restaurar '{0}'?\n\nLa VM volverá al estado del snapshot.").format(tag)
+        if QMessageBox.warning(self, self.tr('Restaurar snapshot'), _confirm_txt,
+                QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
         self._snapshot_log("\n========== RESTAURACIÓN DE SNAPSHOT ==========")
         self._snapshot_log(f"[SNAPSHOT] Iniciando restauración de '{tag}'...")
@@ -2171,11 +2216,13 @@ class SnapshotsMixin:
             # linked_clone_snapshot_v1 + disk_only_restore_v1).
             if state in ('running', 'paused') and self._snapshot_is_disk_only(tag):
                 resp = QMessageBox.question(
-                    self, "Snapshot solo de discos",
-                    f"El snapshot '{tag}' es solo de discos (no contiene RAM).\n\n"
-                    "Para restaurarlo hay que apagar la VM primero.\n"
-                    "La VM volverá al estado del snapshot.\n\n"
-                    "¿Apagar la VM ahora y restaurar el snapshot?",
+                    self, self.tr("Snapshot solo de discos"),
+                    self.tr(
+                        "El snapshot '{0}' es solo de discos (no contiene RAM).\n\n"
+                        "Para restaurarlo hay que apagar la VM primero.\n"
+                        "La VM volverá al estado del snapshot.\n\n"
+                        "¿Apagar la VM ahora y restaurar el snapshot?"
+                    ).format(tag),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
                 )
@@ -2196,8 +2243,8 @@ class SnapshotsMixin:
                     self._qmp_hmp(self.current_vm_dir, 'system_powerdown')
                 except Exception as _pw_err:
                     QMessageBox.warning(
-                        self, "Apagar la VM",
-                        f"No se pudo enviar la orden de apagado.\n\n{_pw_err}"
+                        self, self.tr("Apagar la VM"),
+                        self.tr("No se pudo enviar la orden de apagado.\n\n{0}").format(_pw_err)
                     )
                 return
 
@@ -2236,7 +2283,10 @@ class SnapshotsMixin:
                     self._qmp_hmp(self.current_vm_dir, 'cont')
                     self._snapshot_log("[SNAPSHOT] ✓ VM reanudada.")
                 self._snapshot_log(f"[SNAPSHOT] ✓ Restauración de '{tag}' finalizada.")
-                QMessageBox.information(self,'Snapshot restaurado',f"Se restauró '{tag}' mediante snapshot-load.")
+                QMessageBox.information(
+                    self, self.tr('Snapshot restaurado'),
+                    self.tr("Se restauró '{0}' mediante snapshot-load.").format(tag),
+                )
             else:
                 restored=0; errors=[]
                 candidates=[d for d in self._snapshot_candidate_disks() if d.get("format")=="qcow2" and d.get("path") and d.get("exists")]
@@ -2255,9 +2305,16 @@ class SnapshotsMixin:
                     raise RuntimeError("No se pudo restaurar el snapshot en ningún QCOW2.\n\n" + "\n".join(errors))
                 self._snapshot_log(f"[SNAPSHOT] ✓ Restauración de discos finalizada: {restored} OK / {len(errors)} con error.")
                 if errors:
-                    self._show_selectable_error('Restauración parcial', 'El snapshot se restauró en algunos discos, pero falló en otros:\n\n' + "\n".join(errors))
+                    self._show_selectable_error(
+                        self.tr('Restauración parcial'),
+                        self.tr('El snapshot se restauró en algunos discos, pero falló en otros:\n\n') + "\n".join(errors),
+                    )
                 else:
-                    QMessageBox.information(self,'Snapshot restaurado','Se restauró el snapshot de disco en los QCOW2 elegibles. Con la VM apagada no se restaura el estado de RAM/CPU.')
+                    QMessageBox.information(
+                        self, self.tr('Snapshot restaurado'),
+                        self.tr('Se restauró el snapshot de disco en los QCOW2 elegibles. '
+                                'Con la VM apagada no se restaura el estado de RAM/CPU.'),
+                    )
         except Exception as e:
             msg = str(e)
             # Caso especial: snapshot solo-disco con VM encendida.
@@ -2272,12 +2329,14 @@ class SnapshotsMixin:
                     'restaurar con la VM encendida.'
                 )
                 QMessageBox.information(
-                    self, "Snapshot solo de discos",
-                    f"El snapshot '{tag}' es solo de discos "
-                    "(no contiene RAM).\n\n"
-                    "Para restaurarlo hay que apagar la VM y volver "
-                    "a intentarlo. QEMU no puede restaurar snapshots "
-                    "sin vmstate con la VM encendida."
+                    self, self.tr("Snapshot solo de discos"),
+                    self.tr(
+                        "El snapshot '{0}' es solo de discos "
+                        "(no contiene RAM).\n\n"
+                        "Para restaurarlo hay que apagar la VM y volver "
+                        "a intentarlo. QEMU no puede restaurar snapshots "
+                        "sin vmstate con la VM encendida."
+                    ).format(tag),
                 )
                 self.refresh_snapshot_page()
                 return
@@ -2326,13 +2385,23 @@ class SnapshotsMixin:
                                 self._snapshot_log("[SNAPSHOT] ✓ VM reanudada después de la restauración.")
                             except Exception:
                                 pass
-                        QMessageBox.information(self,'Snapshot restaurado',f"La VM volvió a un estado operativo después de restaurar '{tag}'.\n\nQEMU no confirmó el fin del job dentro del tiempo de espera, pero la restauración se aplicó.")
+                        QMessageBox.information(
+                            self, self.tr('Snapshot restaurado'),
+                            self.tr(
+                                "La VM volvió a un estado operativo después de restaurar '{0}'.\n\n"
+                                "QEMU no confirmó el fin del job dentro del tiempo de espera, "
+                                "pero la restauración se aplicó."
+                            ).format(tag),
+                        )
                         self.refresh_snapshot_page()
                         return
                 except Exception as verify_error:
                     self._snapshot_log(f"[SNAPSHOT] No se pudo verificar el estado tras timeout: {verify_error}")
             self._snapshot_log(f"[SNAPSHOT] ✗ RESTAURACIÓN FALLIDA: {msg}")
-            self._show_selectable_error('Error al restaurar snapshot', f'No se pudo restaurar el snapshot.\n\n{msg}')
+            self._show_selectable_error(
+                self.tr('Error al restaurar snapshot'),
+                self.tr('No se pudo restaurar el snapshot.\n\n{0}').format(msg),
+            )
         self.refresh_snapshot_page()
 
     @staticmethod
@@ -2352,28 +2421,34 @@ class SnapshotsMixin:
         virtio-gpu. Ofrece continuar sin más (no cambia nada)."""
         mode = self._vm_graphics_mode() or "?"
         QMessageBox.warning(
-            self, "No se puede restaurar este snapshot",
-            f"QEMU no puede restaurar el snapshot por un problema conocido "
-            "con el dispositivo VirtIO-GPU.\n\n"
-            "Detalle técnico:\n"
-            "  VirtIO-GPU guarda un estado interno que no es serializable "
-            "de forma fiable. QEMU intenta reconstruirlo al restaurar y "
-            "falla. No es un bug de la app, es una limitación del motor.\n\n"
-            "Cómo resolverlo:\n"
-            "  1. Abre Configuración → Pantalla.\n"
-            "  2. Cambia 'Gráficos / GPU' de '{mode}' a 'Red Hat QXL 2D'.\n"
-            "  3. Reinicia la VM (apágala y vuelve a arrancarla).\n"
-            "  4. Crea snapshots nuevos a partir de ese momento: se podrán "
-            "restaurar sin problemas.\n\n"
-            "Los snapshots antiguos creados con virtio-gpu no se pueden "
-            "recuperar (QEMU no puede reconstruir su estado). Si ya no los "
-            "necesitas, elimínalos.",
+            self, self.tr("No se puede restaurar este snapshot"),
+            self.tr(
+                "QEMU no puede restaurar el snapshot por un problema conocido "
+                "con el dispositivo VirtIO-GPU.\n\n"
+                "Detalle técnico:\n"
+                "  VirtIO-GPU guarda un estado interno que no es serializable "
+                "de forma fiable. QEMU intenta reconstruirlo al restaurar y "
+                "falla. No es un bug de la app, es una limitación del motor.\n\n"
+                "Cómo resolverlo:\n"
+                "  1. Abre Configuración → Pantalla.\n"
+                "  2. Cambia 'Gráficos / GPU' de '{0}' a 'Red Hat QXL 2D'.\n"
+                "  3. Reinicia la VM (apágala y vuelve a arrancarla).\n"
+                "  4. Crea snapshots nuevos a partir de ese momento: se podrán "
+                "restaurar sin problemas.\n\n"
+                "Los snapshots antiguos creados con virtio-gpu no se pueden "
+                "recuperar (QEMU no puede reconstruir su estado). Si ya no los "
+                "necesitas, elimínalos."
+            ).format(mode),
         )
 
     def delete_snapshot_from_page(self):
         tag=self._selected_snapshot_tag()
-        if not tag: QMessageBox.information(self,'Snapshots','Selecciona un snapshot.'); return
-        if QMessageBox.question(self,'Eliminar snapshot',f"¿Eliminar '{tag}'?",QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes: return
+        if not tag: QMessageBox.information(self,self.tr('Snapshots'),'Selecciona un snapshot.'); return
+        _confirm_del = self.tr("¿Eliminar '{0}'?").format(tag)
+        if QMessageBox.question(self, self.tr('Eliminar snapshot'), _confirm_del,
+                QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
         try:
             state=self._runtime_state(os.path.basename(self.current_vm_dir))
             if state in ('running','paused'):
@@ -2401,21 +2476,32 @@ class SnapshotsMixin:
                 if deleted == 0 and errors:
                     raise RuntimeError("No se pudo eliminar el snapshot.\n\n" + "\n".join(errors))
                 if errors:
-                    self._show_selectable_error('Eliminación parcial', 'El snapshot se eliminó de algunos discos, pero falló en otros:\n\n' + "\n".join(errors))
+                    self._show_selectable_error(
+                        self.tr('Eliminación parcial'),
+                        self.tr('El snapshot se eliminó de algunos discos, pero falló en otros:\n\n') + "\n".join(errors),
+                    )
             self.refresh_snapshot_page()
         except Exception as e:
-            self._show_selectable_error('Error al eliminar snapshot', f'No se pudo eliminar el snapshot.\n\n{e}')
+            self._show_selectable_error(
+                self.tr('Error al eliminar snapshot'),
+                self.tr('No se pudo eliminar el snapshot.\n\n{0}').format(e),
+            )
 
     def rename_snapshot_from_page(self):
         old=self._selected_snapshot_tag()
-        if not old: QMessageBox.information(self,'Snapshots','Selecciona un snapshot.'); return
-        new,ok=QInputDialog.getText(self,'Cambiar nombre',f"Nuevo nombre para '{old}':")
+        if not old: QMessageBox.information(self,self.tr('Snapshots'),'Selecciona un snapshot.'); return
+        _ren_prompt = self.tr("Nuevo nombre para '{0}':").format(old)
+        new,ok=QInputDialog.getText(self, self.tr('Cambiar nombre'), _ren_prompt)
         if not ok or not new.strip(): return
         new=new.strip().replace(' ','_')
         if new == old: return
-        reply=QMessageBox.warning(self,'Cambiar nombre de snapshot',
-            'QEMU no proporciona un renombrado interno directo. Esta acción creará un snapshot nuevo con el estado ACTUAL de la VM y eliminará el anterior.\n\n¿Continuar?',
-            QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
+        reply=QMessageBox.warning(
+            self, self.tr('Cambiar nombre de snapshot'),
+            self.tr('QEMU no proporciona un renombrado interno directo. '
+                    'Esta acción creará un snapshot nuevo con el estado ACTUAL '
+                    'de la VM y eliminará el anterior.\n\n¿Continuar?'),
+            QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes: return
         try:
             state=self._runtime_state(os.path.basename(self.current_vm_dir))
@@ -2439,7 +2525,10 @@ class SnapshotsMixin:
                 if created == 0:
                     raise RuntimeError("No se pudo renombrar el snapshot en ningún QCOW2.\n\n" + "\n".join(errors))
                 if errors:
-                    self._show_selectable_error('Cambio de nombre parcial', 'El nuevo snapshot se creó en algunos discos, pero hubo errores:\n\n' + "\n".join(errors))
+                    self._show_selectable_error(
+                        self.tr('Cambio de nombre parcial'),
+                        self.tr('El nuevo snapshot se creó en algunos discos, pero hubo errores:\n\n') + "\n".join(errors),
+                    )
             old_shot = self._snapshot_screenshot_path(old) if self.current_vm_dir else ""
             new_shot = self._snapshot_screenshot_path(new) if self.current_vm_dir else ""
             if old_shot and os.path.isfile(old_shot):
@@ -2449,5 +2538,8 @@ class SnapshotsMixin:
                     pass
             self.refresh_snapshot_page()
         except Exception as e:
-            self._show_selectable_error('Error al cambiar nombre', f'No se pudo cambiar el nombre.\n\n{e}')
+            self._show_selectable_error(
+                self.tr('Error al cambiar nombre'),
+                self.tr('No se pudo cambiar el nombre.\n\n{0}').format(e),
+            )
 

@@ -171,20 +171,26 @@ class DiagnosticsMixin:
 
     def show_full_log(self):
         if not self.current_vm_dir:
-            QMessageBox.information(self, "Ver log completo", "Selecciona una VM primero.")
+            QMessageBox.information(self, self.tr("Ver log completo"), self.tr("Selecciona una VM primero."))
             return
         log_path = os.path.join(self.current_vm_dir, "launch.log")
         if not os.path.isfile(log_path):
-            QMessageBox.information(self, "Ver log completo", "Todavía no hay historial guardado para esta VM.")
+            QMessageBox.information(self, self.tr("Ver log completo"), self.tr("Todavía no hay historial guardado para esta VM."))
             return
         try:
             with open(log_path, encoding="utf-8", errors="replace") as f:
                 content = f.read()
         except OSError as e:
-            QMessageBox.warning(self, "Ver log completo", f"No se pudo leer el log: {e}")
+            QMessageBox.warning(
+                self, self.tr("Ver log completo"),
+                self.tr("No se pudo leer el log: {0}").format(e),
+            )
             return
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Log completo — {os.path.basename(self.current_vm_dir)}")
+        dlg.setWindowTitle(
+            self.tr("Log completo — {0}").format(
+                os.path.basename(self.current_vm_dir))
+        )
         dlg.resize(800, 500)
         lay = QVBoxLayout(dlg)
         viewer = QTextEdit()
@@ -195,7 +201,7 @@ class DiagnosticsMixin:
         lay.addWidget(viewer)
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
-        btn_close = QPushButton("Cerrar")
+        btn_close = QPushButton(self.tr("Cerrar"))
         btn_close.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_close)
         lay.addLayout(btn_row)
@@ -203,21 +209,27 @@ class DiagnosticsMixin:
 
     def export_full_log(self):
         if not self.current_vm_dir:
-            QMessageBox.information(self, "Exportar log", "Selecciona una VM primero.")
+            QMessageBox.information(self, self.tr("Exportar log"), self.tr("Selecciona una VM primero."))
             return
         log_path = os.path.join(self.current_vm_dir, "launch.log")
         if not os.path.isfile(log_path):
-            QMessageBox.information(self, "Exportar log", "Todavía no hay historial guardado para esta VM.")
+            QMessageBox.information(self, self.tr("Exportar log"), self.tr("Todavía no hay historial guardado para esta VM."))
             return
         suggested = f"{os.path.basename(self.current_vm_dir)}-log.txt"
-        dest, _ = QFileDialog.getSaveFileName(self, "Exportar log", suggested, "Texto (*.txt);;Todos los archivos (*)")
+        dest, _ = QFileDialog.getSaveFileName(self, self.tr("Exportar log"), suggested, "Texto (*.txt);;Todos los archivos (*)")
         if not dest:
             return
         try:
             shutil.copyfile(log_path, dest)
-            QMessageBox.information(self, "Exportar log", f"Log exportado a:\n{dest}")
+            QMessageBox.information(
+                self, self.tr("Exportar log"),
+                self.tr("Log exportado a:\n{0}").format(dest),
+            )
         except OSError as e:
-            QMessageBox.warning(self, "Exportar log", f"No se pudo exportar el log: {e}")
+            QMessageBox.warning(
+                self, self.tr("Exportar log"),
+                self.tr("No se pudo exportar el log: {0}").format(e),
+            )
 
     def show_vm_health_check(self):
         """Reúne en un solo diálogo lo que hoy exige abrir una terminal y
@@ -225,15 +237,19 @@ class DiagnosticsMixin:
         Guest Agent responde, y el estado de cada carpeta compartida y de
         virtiofsd/swtpm asociados a esta VM."""
         if not self.current_vm_dir:
-            QMessageBox.information(self, "Salud de la VM", "Selecciona una VM primero.")
+            QMessageBox.information(self, self.tr("Salud de la VM"), self.tr("Selecciona una VM primero."))
             return
         vm_name = os.path.basename(self.current_vm_dir)
-        lines = [f"VM: {vm_name}", f"Carpeta: {self.current_vm_dir}", ""]
+        lines = [
+            self.tr("VM: {0}").format(vm_name),
+            self.tr("Carpeta: {0}").format(self.current_vm_dir),
+            "",
+        ]
 
         state = self._runtime_state(vm_name)
         pid_path, qmp_path = self._runtime_paths(self.current_vm_dir)
         if state == "stopped":
-            lines.append("● QEMU: detenido.")
+            lines.append(self.tr("● QEMU: detenido."))
         else:
             pid_txt = ""
             try:
@@ -241,19 +257,23 @@ class DiagnosticsMixin:
                     pid_txt = f" (PID {f.read().strip()})"
             except OSError:
                 pass
-            lines.append(f"● QEMU: {state}{pid_txt}.")
+            lines.append(self.tr("● QEMU: {0}{1}.").format(state, pid_txt))
 
         # Guest Agent
         if state == "stopped":
-            lines.append("● Guest Agent: no aplica (VM apagada).")
+            lines.append(self.tr("● Guest Agent: no aplica (VM apagada)."))
         else:
             try:
                 result = self._qga_request({"execute": "guest-info"}, timeout=3)
                 info = (result or {}).get("return") or {}
                 ver = info.get("version") or "desconocida"
-                lines.append(f"● Guest Agent: responde (v{ver}).")
+                lines.append(self.tr("● Guest Agent: responde (v{0}).").format(ver))
             except Exception as e:
-                lines.append(f"● Guest Agent: sin respuesta ({e}). Verifica que qemu-guest-agent esté instalado y corriendo en el guest.")
+                lines.append(self.tr(
+                    "● Guest Agent: sin respuesta ({0}). "
+                    "Verifica que qemu-guest-agent esté instalado y "
+                    "corriendo en el guest."
+                ).format(e))
 
         # Carpetas compartidas VirtioFS: proceso virtiofsd vivo por cada una.
         try:
@@ -264,9 +284,9 @@ class DiagnosticsMixin:
             folders = []
         virtiofs_folders = [f for f in folders if isinstance(f, dict) and str(f.get("method", "")).lower() == "virtiofs"]
         if not virtiofs_folders:
-            lines.append("● Carpetas compartidas (VirtioFS): ninguna configurada.")
+            lines.append(self.tr("● Carpetas compartidas (VirtioFS): ninguna configurada."))
         else:
-            lines.append("● Carpetas compartidas (VirtioFS):")
+            lines.append(self.tr("● Carpetas compartidas (VirtioFS):"))
             for i, f in enumerate(virtiofs_folders):
                 guest = f.get("guest") or f"share{i}"
                 pidfile = os.path.join(self.current_vm_dir, f"virtiofs-{i}.pid")
@@ -280,14 +300,22 @@ class DiagnosticsMixin:
                 except Exception:
                     alive = False
                 if state == "stopped":
-                    lines.append(f"    - {guest}: no aplica (VM apagada).")
+                    lines.append(
+                    self.tr("    - {0}: no aplica (VM apagada).").format(guest)
+                )
                 elif alive:
-                    lines.append(f"    - {guest}: virtiofsd activo (PID {pid_val}).")
+                    lines.append(
+                    self.tr("    - {0}: virtiofsd activo (PID {1}).").format(
+                        guest, pid_val)
+                )
                 else:
                     log_path = os.path.join(self.current_vm_dir, f"virtiofsd_{i}.log")
-                    lines.append(f"    - {guest}: NO está activo. Revisa {log_path} si esperabas que funcionara.")
+                    lines.append(self.tr(
+                        "    - {0}: NO está activo. Revisa {1} si "
+                        "esperabas que funcionara."
+                    ).format(guest, log_path))
 
-        QMessageBox.information(self, "Salud de la VM", "\n".join(lines))
+        QMessageBox.information(self, self.tr("Salud de la VM"), "\n".join(lines))
 
     def clean_orphan_processes(self):
         """Busca procesos qemu-system-x86_64 / virtiofsd / swtpm que quedaron
@@ -329,22 +357,22 @@ class DiagnosticsMixin:
         running_qemu = [c for c in candidates if c[1] == "QEMU"]
 
         if not candidates:
-            QMessageBox.information(self, "Limpiar procesos huérfanos", "No se encontraron procesos QEMU/virtiofsd colgados de sesiones anteriores.")
+            QMessageBox.information(self, self.tr("Limpiar procesos huérfanos"), self.tr("No se encontraron procesos QEMU/virtiofsd colgados de sesiones anteriores."))
             return
 
         lines = []
         if running_qemu:
-            lines.append("VMs con QEMU corriendo (no se tocan aquí, usa 'Detener VM' si quieres apagarlas):")
+            lines.append(self.tr("VMs con QEMU corriendo (no se tocan aquí, usa 'Detener VM' si quieres apagarlas):"))
             for pid, _kind, vm_name, _ in running_qemu:
-                lines.append(f"  - {vm_name} (PID {pid})")
+                lines.append(self.tr("  - {0} (PID {1})").format(vm_name, pid))
             lines.append("")
         if aux_orphans:
-            lines.append("Procesos virtiofsd huérfanos encontrados:")
+            lines.append(self.tr("Procesos virtiofsd huérfanos encontrados:"))
             for pid, _kind, vm_name, _ in aux_orphans:
-                lines.append(f"  - {vm_name}: virtiofsd PID {pid}")
+                lines.append(self.tr("  - {0}: virtiofsd PID {1}").format(vm_name, pid))
             lines.append("\n¿Deseas detenerlos ahora?")
             answer = QMessageBox.question(
-                self, "Limpiar procesos huérfanos", "\n".join(lines),
+                self, self.tr("Limpiar procesos huérfanos"), "\n".join(lines),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -360,15 +388,18 @@ class DiagnosticsMixin:
                             pass
                     except OSError as e:
                         failed.append(f"{vm_name} (PID {pid}): {e}")
-                msg = f"Se detuvieron {killed} proceso(s) huérfano(s)."
+                msg = self.tr("Se detuvieron {0} proceso(s) huérfano(s).").format(killed)
                 if failed:
-                    msg += "\n\nNo se pudieron detener:\n" + "\n".join(failed)
-                QMessageBox.information(self, "Limpiar procesos huérfanos", msg)
+                    msg += self.tr("\n\nNo se pudieron detener:\n")
+                    msg += "\n".join(failed)
+                QMessageBox.information(self, self.tr("Limpiar procesos huérfanos"), msg)
         else:
-            QMessageBox.information(self, "Limpiar procesos huérfanos", "\n".join(lines) if lines else "Nada que limpiar.")
+            QMessageBox.information(self, self.tr("Limpiar procesos huérfanos"), "\n".join(lines) if lines else self.tr("Nada que limpiar."))
 
     def _set_status_label(self, label, name, ok, detail=""):
-        label.setText(f"{name}: {'OK' if ok else 'FALTA'}" + (f" ({detail})" if detail else ""))
+        status = self.tr("OK") if ok else self.tr("FALTA")
+        suffix = self.tr(" ({0})").format(detail) if detail else ""
+        label.setText(f"{name}: {status}{suffix}")
         self._set_status_color(label, bool(ok))
 
     def _set_status_color(self, label, state):
@@ -389,47 +420,88 @@ class DiagnosticsMixin:
             (self.status_audio, "Audio"),
         ]
         for label, name in labels:
-            label.setText(f"{name}: SIN COMPROBAR")
+            label.setText(f"{name}: {self.tr('SIN COMPROBAR')}")
             self._set_status_color(label, None)
-        self.header_host_status.setText("Virtualización: sin comprobar")
+        self.header_host_status.setText(self.tr("Virtualización: sin comprobar"))
         self.header_host_status.setStyleSheet("color: #757575; font-weight: bold;")
-        self.header_host_status.setToolTip("Pulsa 'Comprobar dependencias' para realizar el diagnóstico completo del sistema.")
+        self.header_host_status.setToolTip(self.tr("Pulsa 'Comprobar dependencias' para realizar el diagnóstico completo del sistema."))
 
     def refresh_dependency_status(self):
         """Actualiza el panel sin modificar la configuración de la VM."""
         try:
             st = get_virtualization_dependency_status()
-            self.label_host_distro.setText(f"Distribución: {st['distro']}")
-            self.label_host_manager.setText(f"Gestor de paquetes: {st['package_manager']}")
-            self._set_status_label(self.status_qemu, "QEMU", st["qemu"], st["qemu_path"] or "no encontrado")
+            self.label_host_distro.setText(
+                self.tr("Distribución: {0}").format(st['distro'])
+            )
+            self.label_host_manager.setText(
+                self.tr("Gestor de paquetes: {0}").format(st['package_manager'])
+            )
+            self._set_status_label(
+                self.status_qemu, "QEMU", st["qemu"],
+                st["qemu_path"] or self.tr("no encontrado"),
+            )
             self._set_status_label(self.status_kvm, "KVM", st["kvm"], "/dev/kvm" if st["kvm"] else "sin /dev/kvm")
             self._set_status_label(self.status_ovmf, "OVMF", st["ovmf"])
-            self._set_status_label(self.status_swtpm, "swtpm", st["swtpm"], st["swtpm_path"] or "no encontrado")
-            self._set_status_label(self.status_secure, "Secure Boot", st["secure_boot"], "firmware disponible" if st["secure_boot"] else "sin plantilla Secure Boot")
-            self._set_status_label(self.status_virtio, "VirtIO", st["virtio"], "módulos" if st["virtio"] else "módulo no cargado")
+            self._set_status_label(
+                self.status_swtpm, "swtpm", st["swtpm"],
+                st["swtpm_path"] or self.tr("no encontrado"),
+            )
+            self._set_status_label(
+                self.status_secure, "Secure Boot", st["secure_boot"],
+                self.tr("firmware disponible") if st["secure_boot"]
+                else self.tr("sin plantilla Secure Boot"),
+            )
+            self._set_status_label(
+                self.status_virtio, "VirtIO", st["virtio"],
+                self.tr("módulos") if st["virtio"]
+                else self.tr("módulo no cargado"),
+            )
             if hasattr(self, "status_audio"):
                 self._set_status_label(self.status_audio, "Audio", st["audio"], st["audio_backend"])
             ok_core = st["qemu"] and st["kvm"]
+            _mark = lambda b: "✓" if b else "✗"
             self.header_host_status.setText(
-                f"Virtualización: {'OK' if ok_core else 'REVISAR'} | "
-                f"QEMU {'✓' if st['qemu'] else '✗'} | "
-                f"KVM {'✓' if st['kvm'] else '✗'} | "
-                f"OVMF {'✓' if st['ovmf'] else '✗'} | "
-                f"TPM {'✓' if st['swtpm'] else '✗'} | "
-                f"Audio {'✓' if st['audio'] else '✗'} | "
-                f"GPU {'✓' if st['graphics']['gpu'] != 'No detectada' else '✗'}"
+                self.tr(
+                    "Virtualización: {0} | QEMU {1} | KVM {2} | OVMF {3} | "
+                    "TPM {4} | Audio {5} | GPU {6}"
+                ).format(
+                    self.tr("OK") if ok_core else self.tr("REVISAR"),
+                    _mark(st['qemu']),
+                    _mark(st['kvm']),
+                    _mark(st['ovmf']),
+                    _mark(st['swtpm']),
+                    _mark(st['audio']),
+                    _mark(st['graphics']['gpu'] != 'No detectada'),
+                )
             )
             self.header_host_status.setStyleSheet(
                 "color: #2e7d32; font-weight: bold;" if ok_core else
                 "color: #c62828; font-weight: bold;"
             )
+            _yn = lambda b: self.tr("sí") if b else self.tr("no")
             self.header_host_status.setToolTip(
-                f"Distribución: {st['distro']}\nGestor de paquetes: {st['package_manager']}\n"
-                f"Secure Boot: {'disponible' if st['secure_boot'] else 'no disponible'}\n"
-                f"VirtIO: {'disponible' if st['virtio'] else 'no detectado'}\n"
-                f"Audio: {st['audio_backend']}\n"
-                f"GPU: {st['graphics']['gpu']}\n"
-                f"OpenGL: {'sí' if st['graphics']['opengl'] else 'no'} | Vulkan: {'sí' if st['graphics']['vulkan'] else 'no'} | VirGL: {'sí' if st['graphics']['virgl'] else 'no'} | VFIO: {'sí' if st['graphics']['vfio'] else 'no'}"
+                self.tr(
+                    "Distribución: {0}\n"
+                    "Gestor de paquetes: {1}\n"
+                    "Secure Boot: {2}\n"
+                    "VirtIO: {3}\n"
+                    "Audio: {4}\n"
+                    "GPU: {5}\n"
+                    "OpenGL: {6} | Vulkan: {7} | VirGL: {8} | VFIO: {9}"
+                ).format(
+                    st['distro'],
+                    st['package_manager'],
+                    self.tr("disponible") if st["secure_boot"]
+                    else self.tr("no disponible"),
+                    self.tr("disponible") if st["virtio"]
+                    else self.tr("no detectado"),
+                    st['audio_backend'],
+                    st['graphics']['gpu'],
+                    _yn(st['graphics']['opengl']),
+                    _yn(st['graphics']['vulkan']),
+                    _yn(st['graphics']['virgl']),
+                    _yn(st['graphics']['vfio']),
+                )
             )
             return st
         except Exception as e:
@@ -455,8 +527,15 @@ class DiagnosticsMixin:
             )
             self.log_message("==> Comprobación/Reparación finalizada.")
             self.refresh_dependency_status()
-            QMessageBox.information(self, "Dependencias", "La comprobación/reparación terminó correctamente.")
+            QMessageBox.information(self, self.tr("Dependencias"), self.tr("La comprobación/reparación terminó correctamente."))
         except Exception as e:
             self.refresh_dependency_status()
-            QMessageBox.critical(self, "Dependencias", f"No se pudieron reparar todas las dependencias.\n\n{e}")
+            QMessageBox.critical(
+                self, self.tr("Dependencias"),
+                self.tr(
+                    "No se pudieron reparar todas las dependencias.\n\n{0}"
+                ).format(e),
+            )
 
+
+# i18n_tanda3_diagnostics_v1

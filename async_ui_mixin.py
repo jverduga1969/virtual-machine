@@ -60,7 +60,7 @@ class AsyncUiMixin:
                         except Exception:
                             pass
             else:
-                dlg.finish(True, "Completado.")
+                dlg.finish(True, self.tr("Completado."))
                 if on_success is not None:
                     try:
                         on_success(result)

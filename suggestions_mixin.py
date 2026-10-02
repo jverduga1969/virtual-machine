@@ -110,22 +110,27 @@ def _log_size_mb(vm_dir):
         return None
 
 
-def compute_suggestions(vm_dir, host_ram_gb=None):
+def compute_suggestions(vm_dir, host_ram_gb=None, tr=None):
     """Analiza el estado de una VM y devuelve una lista de tuplas (nivel, texto).
 
     Niveles: "info" (ℹ️), "warn" (⚠️), "ok" (✅).
     Esta función es pura (respecto a la UI): no toca PyQt. Sí lee el sistema
     de archivos y /proc, pero no modifica nada.
+
+    i18n_tanda4a2_6_v1: recibe `tr` opcional. Si no se pasa, se identifica
+    a si mismo (devuelve las cadenas en español, el idioma fuente).
+    El mixin lo llama con tr=self.tr para traducir al idioma activo.
     """
+    _ = tr if callable(tr) else (lambda s, *a, **k: s)
     suggestions = []
 
     if not vm_dir or not os.path.isdir(vm_dir):
-        return [("info", "Selecciona una VM para ver sugerencias.")]
+        return [("info", _("Selecciona una VM para ver sugerencias."))]
 
     try:
         cfg = load_vm_config(vm_dir)
     except Exception as e:
-        return [("warn", f"No se pudo leer la configuración: {e}")]
+        return [("warn", _("No se pudo leer la configuración: {0}").format(e))]
 
     extra = cfg.get("extra") or {}
 
@@ -137,14 +142,16 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
         if used_pct >= DISK_CRIT_PCT:
             suggestions.append((
                 "warn",
-                f"Disco del host al {used_pct:.0f}% — crítico. "
-                f"Quedan solo {_fmt_size(free_bytes)}. Amplía el disco o mueve archivos."
+                _("Disco del host al {0}% — crítico. "
+                  "Quedan solo {1}. Amplía el disco o mueve archivos.").format(
+                      f"{used_pct:.0f}", _fmt_size(free_bytes))
             ))
         elif used_pct >= DISK_WARN_PCT:
             suggestions.append((
                 "warn",
-                f"Disco del host al {used_pct:.0f}%. "
-                f"Quedan {_fmt_size(free_bytes)}. Considera ampliarlo o limpiar."
+                _("Disco del host al {0}%. "
+                  "Quedan {1}. Considera ampliarlo o limpiar.").format(
+                      f"{used_pct:.0f}", _fmt_size(free_bytes))
             ))
 
     # ============================================================
@@ -160,8 +167,9 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
             if pct > RAM_HOST_MAX_PCT:
                 suggestions.append((
                     "warn",
-                    f"RAM de la VM ({ram_gb:.0f} GB) es el {pct:.0f}% de la del host "
-                    f"({host_ram_gb:.0f} GB). Riesgo de swap."
+                    _("RAM de la VM ({0} GB) es el {1}% de la del host "
+                      "({2} GB). Riesgo de swap.").format(
+                          f"{ram_gb:.0f}", f"{pct:.0f}", f"{host_ram_gb:.0f}")
                 ))
     except (ValueError, AttributeError):
         pass
@@ -174,14 +182,16 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
         if age_days > SNAPSHOT_OLD_DAYS:
             suggestions.append((
                 "info",
-                f"El último snapshot tiene {age_days:.0f} días ({snap_count} en total). "
-                f"Puedes crear uno nuevo o limpiar los antiguos."
+                _("El último snapshot tiene {0} días ({1} en total). "
+                  "Puedes crear uno nuevo o limpiar los antiguos.").format(
+                      f"{age_days:.0f}", snap_count)
             ))
         if snap_count >= SNAPSHOT_MANY_COUNT:
             suggestions.append((
                 "warn",
-                f"Hay {snap_count} snapshots acumulados ocupando {_fmt_size(snap_bytes)}. "
-                f"Considera eliminar los que ya no necesites."
+                _("Hay {0} snapshots acumulados ocupando {1}. "
+                  "Considera eliminar los que ya no necesites.").format(
+                      snap_count, _fmt_size(snap_bytes))
             ))
 
     # ============================================================
@@ -194,9 +204,9 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
     if virtio_folders and not guest_agent:
         suggestions.append((
             "info",
-            f"Hay {len(virtio_folders)} carpeta(s) VirtioFS configuradas "
-            f"pero el Guest Agent está desactivado. Algunas funciones de "
-            f"automontaje no funcionarán."
+            _("Hay {0} carpeta(s) VirtioFS configuradas "
+              "pero el Guest Agent está desactivado. Algunas funciones de "
+              "automontaje no funcionarán.").format(len(virtio_folders))
         ))
 
     # ============================================================
@@ -212,8 +222,9 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
     if broken_folders:
         suggestions.append((
             "warn",
-            f"{len(broken_folders)} carpeta(s) compartida(s) apuntan a rutas "
-            f"que ya no existen en el host: {', '.join(broken_folders[:3])}"
+            _("{0} carpeta(s) compartida(s) apuntan a rutas "
+              "que ya no existen en el host: {1}").format(
+                  len(broken_folders), ', '.join(broken_folders[:3]))
             + ("..." if len(broken_folders) > 3 else "")
         ))
 
@@ -226,8 +237,8 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
         if not _check_iommu_active():
             suggestions.append((
                 "warn",
-                f"Hay {len(pci_devices)} dispositivo(s) PCI en passthrough pero "
-                f"IOMMU no parece estar activo en el kernel. La VM puede no arrancar."
+                _("Hay {0} dispositivo(s) PCI en passthrough pero "
+                  "IOMMU no parece estar activo en el kernel. La VM puede no arrancar.").format(len(pci_devices))
             ))
 
     # ============================================================
@@ -240,12 +251,12 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
     if is_win11 and firmware != "uefi":
         suggestions.append((
             "warn",
-            "Windows 11 requiere UEFI + Secure Boot. Cambia el firmware a UEFI."
+            _("Windows 11 requiere UEFI + Secure Boot. Cambia el firmware a UEFI.")
         ))
     elif os_type == "macos" and firmware != "uefi":
         suggestions.append((
             "warn",
-            "macOS/OSX-KVM requiere UEFI (OVMF). Cambia el firmware a UEFI."
+            _("macOS/OSX-KVM requiere UEFI (OVMF). Cambia el firmware a UEFI.")
         ))
 
     # ============================================================
@@ -256,8 +267,8 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
         if disk_format == "raw":
             suggestions.append((
                 "info",
-                "El disco principal está en formato RAW. No admite snapshots internos "
-                "ni crece dinámicamente. Considera convertir a QCOW2 si necesitas snapshots."
+                _("El disco principal está en formato RAW. No admite snapshots internos "
+                  "ni crece dinámicamente. Considera convertir a QCOW2 si necesitas snapshots.")
             ))
     except Exception:
         pass
@@ -269,8 +280,9 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
     if log_mb is not None and log_mb > LOG_WARN_SIZE_MB:
         suggestions.append((
             "info",
-            f"El log de la VM ({log_mb:.0f} MB) es grande. Puedes exportarlo y "
-            f"borrarlo desde 'Ver log completo' → 'Exportar log'."
+            _("El log de la VM ({0} MB) es grande. Puedes exportarlo y "
+              "borrarlo desde 'Ver log completo' → 'Exportar log'.").format(
+                  f"{log_mb:.0f}")
         ))
 
     # ============================================================
@@ -282,8 +294,8 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
         if idle_days > VM_IDLE_DAYS:
             suggestions.append((
                 "info",
-                f"La configuración no se ha modificado en {idle_days:.0f} días. "
-                f"¿Sigue siendo útil esta VM?"
+                _("La configuración no se ha modificado en {0} días. "
+                  "¿Sigue siendo útil esta VM?").format(f"{idle_days:.0f}")
             ))
     except Exception:
         pass
@@ -299,15 +311,15 @@ def compute_suggestions(vm_dir, host_ram_gb=None):
         if not has_backend and not has_pactl:
             suggestions.append((
                 "warn",
-                "La VM tiene audio configurado pero el host no tiene /dev/snd ni "
-                "PulseAudio/PipeWire (pactl). QEMU puede fallar al arrancar con audio."
+                _("La VM tiene audio configurado pero el host no tiene /dev/snd ni "
+                  "PulseAudio/PipeWire (pactl). QEMU puede fallar al arrancar con audio.")
             ))
 
     # ============================================================
     # 12. Si no hay nada, mostrar OK
     # ============================================================
     if not suggestions:
-        suggestions.append(("ok", "Todo en orden. No hay sugerencias pendientes."))
+        suggestions.append(("ok", _("Todo en orden. No hay sugerencias pendientes.")))
 
     return suggestions
 
@@ -325,7 +337,7 @@ class SuggestionsMixin:
         from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QLabel
         from PyQt6.QtCore import Qt
 
-        box = QGroupBox("💡 Sugerencias")
+        box = QGroupBox(self.tr("💡 Sugerencias"))
         layout = QVBoxLayout(box)
         layout.setContentsMargins(8, 8, 8, 8)
         self.suggestions_label = QLabel("—")
@@ -344,7 +356,7 @@ class SuggestionsMixin:
         if not hasattr(self, "suggestions_label"):
             return
         try:
-            suggestions = compute_suggestions(self.current_vm_dir)
+            suggestions = compute_suggestions(self.current_vm_dir, tr=self.tr)
         except Exception as e:
             self.suggestions_label.setText(
                 f"<span style='color:#c62828;'>⚠️ Error al analizar: {e}</span>"

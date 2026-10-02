@@ -698,20 +698,20 @@ class ApiMixin:
 
     def _build_api_ui(self, parent_layout):
         """Construye la sección 'API REST local' en Configuración Host."""
-        group = QGroupBox("API REST local")
+        group = QGroupBox(self.tr("API REST local"))
         lay = QFormLayout(group)
 
-        info = QLabel(
+        info = QLabel(self.tr(
             "Expone una API HTTP mínima en <b>127.0.0.1</b> para controlar "
             "VMs desde scripts, dashboards o CI. Todo se autentica con un "
             "token local; <b>no</b> es accesible desde la red."
-        )
+        ))
         info.setTextFormat(Qt.TextFormat.RichText)
         info.setWordWrap(True)
         info.setStyleSheet("color:#888; font-size:11px;")
         lay.addRow("", info)
 
-        self.chk_api_enabled = QCheckBox("Activar API REST local")
+        self.chk_api_enabled = QCheckBox(self.tr("Activar API REST local"))
         _s = QSettings()
         self.chk_api_enabled.setChecked(bool(_s.value("api/enabled", False, type=bool)))
         self.chk_api_enabled.toggled.connect(self._on_api_enabled_toggled)
@@ -720,17 +720,17 @@ class ApiMixin:
         self.spin_api_port = QSpinBox()
         self.spin_api_port.setRange(1024, 65535)
         self.spin_api_port.setValue(int(_s.value("api/port", DEFAULT_API_PORT) or DEFAULT_API_PORT))
-        self.spin_api_port.setToolTip(
+        self.spin_api_port.setToolTip(self.tr(
             "Puerto TCP donde escucha el servidor. Solo 127.0.0.1.\n"
             "Cambios requieren apagar y volver a encender la API."
-        )
+        ))
         self.spin_api_port.valueChanged.connect(self._on_api_port_changed)
-        lay.addRow("Puerto:", self.spin_api_port)
+        lay.addRow(self.tr("Puerto:"), self.spin_api_port)
 
         self.lbl_api_url = QLabel("")
         self.lbl_api_url.setTextFormat(Qt.TextFormat.RichText)
         self.lbl_api_url.setStyleSheet("font-family: monospace; font-size: 11px;")
-        lay.addRow("URL:", self.lbl_api_url)
+        lay.addRow(self.tr("URL:"), self.lbl_api_url)
 
         # Token
         token_row = QHBoxLayout()
@@ -742,36 +742,36 @@ class ApiMixin:
         token_row.addWidget(self.input_api_token, 1)
         self.btn_api_toggle_token = QPushButton("👁")
         self.btn_api_toggle_token.setMaximumWidth(36)
-        self.btn_api_toggle_token.setToolTip("Mostrar / ocultar el token")
+        self.btn_api_toggle_token.setToolTip(self.tr("Mostrar / ocultar el token"))
         self.btn_api_toggle_token.clicked.connect(self._on_api_toggle_token)
         token_row.addWidget(self.btn_api_toggle_token)
-        self.btn_api_copy_token = QPushButton("Copiar")
+        self.btn_api_copy_token = QPushButton(self.tr("Copiar"))
         self.btn_api_copy_token.clicked.connect(self._on_api_copy_token)
         token_row.addWidget(self.btn_api_copy_token)
-        self.btn_api_regen_token = QPushButton("Regenerar")
-        self.btn_api_regen_token.setToolTip(
+        self.btn_api_regen_token = QPushButton(self.tr("Regenerar"))
+        self.btn_api_regen_token.setToolTip(self.tr(
             "Genera un token nuevo. Las peticiones con el token anterior\n"
             "dejarán de funcionar."
-        )
+        ))
         self.btn_api_regen_token.clicked.connect(self._on_api_regen_token)
         token_row.addWidget(self.btn_api_regen_token)
-        lay.addRow("Token:", token_row)
+        lay.addRow(self.tr("Token:"), token_row)
 
         # Estado + peticiones
         status_row = QHBoxLayout()
         self.lbl_api_status = QLabel("—")
         status_row.addWidget(self.lbl_api_status)
         status_row.addStretch(1)
-        self.btn_api_view_requests = QPushButton("Ver peticiones recientes")
+        self.btn_api_view_requests = QPushButton(self.tr("Ver peticiones recientes"))
         self.btn_api_view_requests.clicked.connect(self._on_api_view_requests)
         status_row.addWidget(self.btn_api_view_requests)
         lay.addRow("", status_row)
 
-        hint = QLabel(
+        hint = QLabel(self.tr(
             "Ejemplo de uso desde terminal:<br>"
             "<code>curl -H 'X-API-Token: &lt;tu-token&gt;' "
             "http://127.0.0.1:8730/api/vms</code>"
-        )
+        ))
         hint.setTextFormat(Qt.TextFormat.RichText)
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#666; font-size:11px;")
@@ -792,12 +792,13 @@ class ApiMixin:
             if self.lbl_api_status is not None:
                 if srv is not None and srv.is_running():
                     self.lbl_api_status.setText(
-                        f"<b style='color:#2e7d32;'>Activa</b> — "
-                        f"{srv.requests_handled} peticiones desde el arranque"
+                        self.tr("<b style='color:#2e7d32;'>Activa</b> — "
+                                "{0} peticiones desde el arranque").format(
+                            srv.requests_handled)
                     )
                 else:
                     self.lbl_api_status.setText(
-                        "<b style='color:#888;'>Detenida</b>"
+                        self.tr("<b style='color:#888;'>Detenida</b>")
                     )
         except Exception:
             pass
@@ -812,8 +813,8 @@ class ApiMixin:
                 self._api_start_server()
             except Exception as e:
                 QMessageBox.warning(
-                    self, "API REST",
-                    f"No se pudo arrancar la API REST.\n\n{e}"
+                    self, self.tr("API REST"),
+                    self.tr("No se pudo arrancar la API REST.\n\n{0}").format(e)
                 )
                 self.chk_api_enabled.blockSignals(True)
                 self.chk_api_enabled.setChecked(False)
@@ -854,9 +855,9 @@ class ApiMixin:
 
     def _on_api_regen_token(self):
         resp = QMessageBox.question(
-            self, "Regenerar token",
-            "Se generará un token nuevo y el anterior dejará de funcionar.\n\n"
-            "¿Continuar?",
+            self, self.tr("Regenerar token"),
+            self.tr("Se generará un token nuevo y el anterior dejará de funcionar.\n\n"
+                    "¿Continuar?"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -878,19 +879,20 @@ class ApiMixin:
             try:
                 self._api_start_server()
             except Exception as e:
-                QMessageBox.warning(self, "API REST", f"Se regeneró el token "
-                                    f"pero no se pudo reiniciar la API:\n\n{e}")
+                QMessageBox.warning(self, self.tr("API REST"),
+                                    self.tr("Se regeneró el token "
+                                            "pero no se pudo reiniciar la API:\n\n{0}").format(e))
         self._refresh_api_ui()
 
     def _on_api_view_requests(self):
         srv = getattr(self, "_api_server", None)
         dlg = QDialog(self)
-        dlg.setWindowTitle("Peticiones recientes a la API")
+        dlg.setWindowTitle(self.tr("Peticiones recientes a la API"))
         dlg.resize(720, 420)
         lay = QVBoxLayout(dlg)
         info = QLabel(
-            "Últimas peticiones atendidas por la API. Se conservan las "
-            "50 más recientes."
+            self.tr("Últimas peticiones atendidas por la API. Se conservan las "
+                    "50 más recientes.")
         )
         info.setWordWrap(True)
         lay.addWidget(info)
@@ -909,9 +911,9 @@ class ApiMixin:
                     )
                 except Exception:
                     continue
-        edit.setPlainText("\n".join(lines) or "(sin peticiones todavía)")
+        edit.setPlainText("\n".join(lines) or self.tr("(sin peticiones todavía)"))
         lay.addWidget(edit, 1)
-        btn = QPushButton("Cerrar")
+        btn = QPushButton(self.tr("Cerrar"))
         btn.clicked.connect(dlg.accept)
         row = QHBoxLayout()
         row.addStretch(1)

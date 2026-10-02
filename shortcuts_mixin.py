@@ -162,18 +162,18 @@ class ShortcutsMixin:
     def _build_shortcuts_ui(self, parent_layout):
         """Anade el boton 'Configurar atajos...' al layout indicado."""
         from PyQt6.QtWidgets import QGroupBox, QFormLayout
-        group = QGroupBox("Atajos de teclado")
+        group = QGroupBox(self.tr("Atajos de teclado"))
         lay = QFormLayout(group)
 
-        info = QLabel(
+        info = QLabel(self.tr(
             "Reasigna los atajos globales de la aplicacion. Los cambios\n"
             "se aplican al instante, sin reiniciar."
-        )
+        ))
         info.setWordWrap(True)
         info.setStyleSheet("color:#888; font-size:11px;")
         lay.addRow("", info)
 
-        self.btn_configure_shortcuts = QPushButton("Configurar atajos...")
+        self.btn_configure_shortcuts = QPushButton(self.tr("Configurar atajos..."))
         self.btn_configure_shortcuts.clicked.connect(
             self._open_shortcuts_dialog
         )
@@ -206,7 +206,7 @@ class _ShortcutsDialog(QDialog):
     def __init__(self, app, parent=None):
         super().__init__(parent or app)
         self.app = app
-        self.setWindowTitle("Configurar atajos de teclado")
+        self.setWindowTitle(self.tr("Configurar atajos de teclado"))
         self.setModal(True)
         self.resize(660, 380)
 
@@ -216,17 +216,17 @@ class _ShortcutsDialog(QDialog):
         lay = QVBoxLayout(self)
 
         info = QLabel(
-            "Haz clic en <b>Cambiar...</b> para capturar una nueva\n"
-            "combinacion de teclas. Pulsa <b>Escape</b> durante la\n"
-            "captura para cancelarla. Usa <b>Supr</b> o <b>Retroceso</b>\n"
-            "para deshabilitar un atajo."
+            self.tr("Haz clic en <b>Cambiar...</b> para capturar una nueva\n"
+                    "combinacion de teclas. Pulsa <b>Escape</b> durante la\n"
+                    "captura para cancelarla. Usa <b>Supr</b> o <b>Retroceso</b>\n"
+                    "para deshabilitar un atajo.")
         )
         info.setTextFormat(Qt.TextFormat.RichText)
         info.setWordWrap(True)
         lay.addWidget(info)
 
         self.table = QTableWidget(len(app._SHORTCUT_DEFS), 3)
-        self.table.setHorizontalHeaderLabels(["Accion", "Atajo", ""])
+        self.table.setHorizontalHeaderLabels([self.tr("Accion"), self.tr("Atajo"), ""])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -239,20 +239,20 @@ class _ShortcutsDialog(QDialog):
         for row, (key, label, _default, _slot) in enumerate(app._SHORTCUT_DEFS):
             self._row_keys.append(key)
 
-            item_label = QTableWidgetItem(label)
+            item_label = QTableWidgetItem(self.tr(label))
             self.table.setItem(row, 0, item_label)
 
             item_seq = QTableWidgetItem(self._display(key))
             self.table.setItem(row, 1, item_seq)
 
-            btn = QPushButton("Cambiar...")
+            btn = QPushButton(self.tr("Cambiar..."))
             btn.clicked.connect(lambda _checked=False, r=row: self._on_change(r))
             self.table.setCellWidget(row, 2, btn)
 
         lay.addWidget(self.table, 1)
 
         bottom = QHBoxLayout()
-        self.btn_reset = QPushButton("Restaurar todos por defecto")
+        self.btn_reset = QPushButton(self.tr("Restaurar todos por defecto"))
         self.btn_reset.clicked.connect(self._on_reset)
         bottom.addWidget(self.btn_reset)
         bottom.addStretch(1)
@@ -269,7 +269,7 @@ class _ShortcutsDialog(QDialog):
     def _display(self, key):
         v = self._values.get(key, "")
         if not v:
-            return "(sin atajo)"
+            return self.tr("(sin atajo)")
         try:
             return QKeySequence(v).toString(QKeySequence.SequenceFormat.NativeText)
         except Exception:
@@ -298,10 +298,11 @@ class _ShortcutsDialog(QDialog):
                     continue
                 if self._values.get(other_key, "") == new_seq:
                     QMessageBox.warning(
-                        self, "Conflicto de atajos",
-                        f"El atajo {QKeySequence(new_seq).toString(QKeySequence.SequenceFormat.NativeText)} "
-                        f"ya esta asignado a:\n\n  {other_label}\n\n"
-                        "Elige otro o cambia primero el otro atajo."
+                        self, self.tr("Conflicto de atajos"),
+                        self.tr("El atajo {0} ya esta asignado a:\n\n  {1}\n\n"
+                                "Elige otro o cambia primero el otro atajo.").format(
+                            QKeySequence(new_seq).toString(QKeySequence.SequenceFormat.NativeText),
+                            self.tr(other_label))
                     )
                     return
 
@@ -310,8 +311,8 @@ class _ShortcutsDialog(QDialog):
 
     def _on_reset(self):
         resp = QMessageBox.question(
-            self, "Restaurar atajos",
-            "¿Restaurar los cuatro atajos a sus valores por defecto?",
+            self, self.tr("Restaurar atajos"),
+            self.tr("¿Restaurar los cuatro atajos a sus valores por defecto?"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -331,21 +332,21 @@ class _ShortcutCaptureDialog(QDialog):
 
     def __init__(self, parent, current_seq=""):
         super().__init__(parent)
-        self.setWindowTitle("Pulsa la nueva combinacion")
+        self.setWindowTitle(self.tr("Pulsa la nueva combinacion"))
         self.setModal(True)
         self.resize(460, 220)
         self._seq = None  # None = cancelado
 
         lay = QVBoxLayout(self)
         title = QLabel(
-            "<b>Pulsa la combinacion de teclas que quieras asignar.</b>"
+            self.tr("<b>Pulsa la combinacion de teclas que quieras asignar.</b>")
         )
         title.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(title)
 
         self.lbl_state = QLabel(
-            "Esperando pulsacion...\n\n"
-            "Escape cancela. Supr o Retroceso deshabilita el atajo."
+            self.tr("Esperando pulsacion...\n\n"
+                    "Escape cancela. Supr o Retroceso deshabilita el atajo.")
         )
         self.lbl_state.setWordWrap(True)
         self.lbl_state.setStyleSheet("font-size: 11px; color: #888;")
@@ -358,7 +359,7 @@ class _ShortcutCaptureDialog(QDialog):
                     QKeySequence.SequenceFormat.NativeText)
             except Exception:
                 cur = current_seq
-        self.lbl_current = QLabel(f"Atajo actual: <b>{cur or '(sin atajo)'}</b>")
+        self.lbl_current = QLabel(self.tr("Atajo actual: <b>{0}</b>").format(cur or self.tr("(sin atajo)")))
         self.lbl_current.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(self.lbl_current)
 
@@ -390,8 +391,8 @@ class _ShortcutCaptureDialog(QDialog):
             Qt.Key.Key_Alt, Qt.Key.Key_Meta,
         ):
             self.lbl_state.setText(
-                "Solo has pulsado un modificador. Anade una tecla normal.\n\n"
-                "Escape cancela. Supr o Retroceso deshabilita el atajo."
+                self.tr("Solo has pulsado un modificador. Anade una tecla normal.\n\n"
+                        "Escape cancela. Supr o Retroceso deshabilita el atajo.")
             )
             return
 

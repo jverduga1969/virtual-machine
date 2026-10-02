@@ -13,6 +13,14 @@ import os
 import shutil
 import urllib.parse
 
+# i18n_tanda2d2b: import opcional de QCoreApplication para traducir
+# los textos de describe_requirements(). El modulo se diseno como
+# 'puro' (sin PyQt); este import es barato y solo se usa para i18n.
+try:
+    from PyQt6.QtCore import QCoreApplication as _QCA
+except Exception:
+    _QCA = None
+
 # Silenciar el aviso benigno de GTK al inicializarse en sesiones
 # Wayland/KDE sin appmenu-gtk-module instalado:
 #   Gtk-Message: Failed to load module "appmenu-gtk-module"
@@ -35,6 +43,18 @@ ALL_MODES = (MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID, MODE_HYBRID
 
 DEFAULT_PROTOCOL = PROTOCOL_VNC
 DEFAULT_MODE = MODE_EMBEDDED
+
+def _tr(text):
+    """Atajo de traduccion para textos de UI de este modulo.
+
+    pylupdate6 no reconoce este wrapper por nombre, asi que los
+    strings importantes se envuelven ademas con
+    QCoreApplication.translate('VirtualMachineManagerApp', ...)
+    directamente en describe_requirements().
+    """
+    if _QCA is None:
+        return text
+    return _QCA.translate('VirtualMachineManagerApp', text)
 
 
 # --- Sockets por VM ----------------------------------------------------------
@@ -287,33 +307,65 @@ def embedded_spice_available() -> bool:
 
 
 def describe_requirements(protocol: str, mode: str) -> str:
+    """Texto de ayuda segun protocolo/modo (i18n_tanda2d2b)."""
     if mode == MODE_NATIVE:
-        return ("QEMU abre su propia ventana (GTK/SDL). No hace falta visor "
-                "externo ni cliente; a cambio, la VM no aparece dentro de la app.")
+        return _QCA.translate(
+            "VirtualMachineManagerApp",
+            "QEMU abre su propia ventana (GTK/SDL). No hace falta visor "
+            "externo ni cliente; a cambio, la VM no aparece dentro de la app.") \
+            if _QCA else ("QEMU abre su propia ventana (GTK/SDL). No hace falta visor "
+                          "externo ni cliente; a cambio, la VM no aparece dentro de la app.")
     if mode == MODE_HYBRID:
-        return ("Híbrida: VNC se muestra dentro de la app (funciona en "
-                "Wayland y X11) y SPICE se abre en una ventana externa "
-                "con spicy o remote-viewer. Lo mejor de ambos: "
-                "embebido para tenerlo a mano, SPICE para rendimiento y "
-                "clipboard avanzado.")
+        return _QCA.translate(
+            "VirtualMachineManagerApp",
+            "Híbrida: VNC se muestra dentro de la app (funciona en "
+            "Wayland y X11) y SPICE se abre en una ventana externa "
+            "con spicy o remote-viewer. Lo mejor de ambos: "
+            "embebido para tenerlo a mano, SPICE para rendimiento y "
+            "clipboard avanzado.") \
+            if _QCA else ("Híbrida: VNC se muestra dentro de la app (funciona en "
+                          "Wayland y X11) y SPICE se abre en una ventana externa "
+                          "con spicy o remote-viewer. Lo mejor de ambos: "
+                          "embebido para tenerlo a mano, SPICE para rendimiento y "
+                          "clipboard avanzado.")
     if protocol == PROTOCOL_VNC and mode == MODE_EMBEDDED:
-        return "VNC embebido en la app. Sin dependencias adicionales."
+        return _QCA.translate(
+            "VirtualMachineManagerApp",
+            "VNC embebido en la app. Sin dependencias adicionales.") \
+            if _QCA else "VNC embebido en la app. Sin dependencias adicionales."
     if protocol == PROTOCOL_VNC and mode == MODE_EXTERNAL:
-        return ("VNC en ventana externa. Necesitas vncviewer (tigervnc), "
-                "gvncviewer o remmina instalado.")
+        return _QCA.translate(
+            "VirtualMachineManagerApp",
+            "VNC en ventana externa. Necesitas vncviewer (tigervnc), "
+            "gvncviewer o remmina instalado.") \
+            if _QCA else ("VNC en ventana externa. Necesitas vncviewer (tigervnc), "
+                          "gvncviewer o remmina instalado.")
     if protocol == PROTOCOL_SPICE and mode == MODE_EMBEDDED:
         if embedded_spice_available():
-            return ("SPICE embebido en la app (Gtk.SpiceDisplay vía XEmbed). "
-                    "Requiere sesión X11; en Wayland cae a visor externo.")
-        return ("SPICE embebido solicitado, pero spice-gtk no tiene binding "
-                "Python. Se usará visor externo como respaldo. Instala "
-                "python3-gi + gir1.2-spiceclientgtk-3.0 (Debian/Ubuntu) o "
-                "python-gobject + spice-gtk (Arch).")
+            return _QCA.translate(
+                "VirtualMachineManagerApp",
+                "SPICE embebido en la app (Gtk.SpiceDisplay vía XEmbed). "
+                "Requiere sesión X11; en Wayland cae a visor externo.") \
+                if _QCA else ("SPICE embebido en la app (Gtk.SpiceDisplay vía XEmbed). "
+                              "Requiere sesión X11; en Wayland cae a visor externo.")
+        return _QCA.translate(
+            "VirtualMachineManagerApp",
+            "SPICE embebido solicitado, pero spice-gtk no tiene binding "
+            "Python. Se usará visor externo como respaldo. Instala "
+            "python3-gi + gir1.2-spiceclientgtk-3.0 (Debian/Ubuntu) o "
+            "python-gobject + spice-gtk (Arch).") \
+            if _QCA else ("SPICE embebido solicitado, pero spice-gtk no tiene binding "
+                          "Python. Se usará visor externo como respaldo. Instala "
+                          "python3-gi + gir1.2-spiceclientgtk-3.0 (Debian/Ubuntu) o "
+                          "python-gobject + spice-gtk (Arch).")
     if protocol == PROTOCOL_SPICE and mode == MODE_EXTERNAL:
-        return ("SPICE en ventana externa. Necesitas spicy (spice-gtk) o "
-                "remote-viewer (virt-viewer).")
+        return _QCA.translate(
+            "VirtualMachineManagerApp",
+            "SPICE en ventana externa. Necesitas spicy (spice-gtk) o "
+            "remote-viewer (virt-viewer).") \
+            if _QCA else ("SPICE en ventana externa. Necesitas spicy (spice-gtk) o "
+                          "remote-viewer (virt-viewer).")
     return ""
-
 
 # ---------------------------------------------------------------------------
 # Detección de capacidades para elegir entre embed y visor externo

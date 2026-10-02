@@ -539,33 +539,33 @@ class StorageMixin:
         if modify_btn is not None:
             try:
                 if not is_device:
-                    modify_btn.setText("✏ Modificar")
+                    modify_btn.setText(self.tr("✏ Modificar"))
                     modify_btn.setEnabled(False)
                     modify_btn.setToolTip("")
                 elif kind == "cdrom":
-                    modify_btn.setText("✏ Modificar")
+                    modify_btn.setText(self.tr("✏ Modificar"))
                     modify_btn.setEnabled(True)
-                    modify_btn.setToolTip(
+                    modify_btn.setToolTip(self.tr(
                         "Cambiar el medio de esta unidad CD/DVD."
-                    )
+                    ))
                 elif kind == "disk":
                     dev = (meta or {}).get("device") or "sata"
                     if dev == "floppy":
-                        modify_btn.setText("✏ Modificar")
+                        modify_btn.setText(self.tr("✏ Modificar"))
                         modify_btn.setEnabled(False)
-                        modify_btn.setToolTip(
+                        modify_btn.setToolTip(self.tr(
                             "Los disquetes no se pueden redimensionar.\n"
                             "Elimina este y crea otro si necesitas otro tamaño."
-                        )
+                        ))
                     else:
-                        modify_btn.setText("↗ Expandir")
+                        modify_btn.setText(self.tr("↗ Expandir"))
                         modify_btn.setEnabled(True)
-                        modify_btn.setToolTip(
+                        modify_btn.setToolTip(self.tr(
                             "Aumentar el tamaño virtual de este disco.\n"
                             "El disco solo puede CRECER."
-                        )
+                        ))
                 else:
-                    modify_btn.setText("✏ Modificar")
+                    modify_btn.setText(self.tr("✏ Modificar"))
                     modify_btn.setEnabled(False)
             except Exception:
                 pass
@@ -982,10 +982,10 @@ class StorageMixin:
             # visual ("Disco Duro"). El bus real lo decide workers.py
             # según el SO invitado.
             groups = {
-                "sata": QTreeWidgetItem(["💽 Disco Duro", "Disco"]),
+                "sata": QTreeWidgetItem([self.tr("💽 Disco Duro"), self.tr("Disco")]),
                 "nvme": None,  # se muestra dentro del grupo "sata"
-                "floppy": QTreeWidgetItem(["💾 Disquetera", "FDC"]),
-                "cdrom": QTreeWidgetItem(["📀 Unidades ópticas", "CD/DVD"]),
+                "floppy": QTreeWidgetItem([self.tr("💾 Disquetera"), self.tr("FDC")]),
+                "cdrom": QTreeWidgetItem([self.tr("📀 Unidades ópticas"), self.tr("CD/DVD")]),
             }
             for d in self._storage_devices_all(self.current_vm_dir):
                 typ=d.get("device","sata"); name=d.get("name") or os.path.basename(d.get("path","")) or typ.upper()
@@ -993,14 +993,14 @@ class StorageMixin:
                 if typ == "cdrom":
                     source = str(d.get("source") or "")
                     if source == "installer":
-                        media_label = "🌐 Descargar instalador de Internet al iniciar"
-                        detail_label = "🌐 Instalador por Internet (se descargará al iniciar)"
+                        media_label = self.tr("🌐 Descargar instalador de Internet al iniciar")
+                        detail_label = self.tr("🌐 Instalador por Internet (se descargará al iniciar)")
                     elif source == "recovery":
-                        media_label = "🌐 Descargar System Recovery al iniciar"
-                        detail_label = "🌐 System Recovery (se descargará al iniciar)"
+                        media_label = self.tr("🌐 Descargar System Recovery al iniciar")
+                        detail_label = self.tr("🌐 System Recovery (se descargará al iniciar)")
                     else:
-                        media_label = os.path.basename(path) if path else "vacío"
-                        detail_label = path or "Sin medio"
+                        media_label = os.path.basename(path) if path else self.tr("vacío")
+                        detail_label = path or self.tr("Sin medio")
                     label=f"{name} — {media_label}"
                     size_col = self._device_size_label(d)
                     item=QTreeWidgetItem([label, detail_label, size_col])
@@ -1510,9 +1510,9 @@ class StorageMixin:
             if os.path.abspath(dpath) == os.path.abspath(path):
                 info = (name, typ, dpath); break
         if not info:
-            QMessageBox.information(self, 'Expandir disco',
-                                    'No se encontro la informacion del '
-                                    'dispositivo seleccionado.')
+            QMessageBox.information(self, self.tr('Expandir disco'),
+                                    self.tr('No se encontro la informacion del '
+                                            'dispositivo seleccionado.'))
             return
         old_name, devtype, old_path = info
 
@@ -1522,9 +1522,9 @@ class StorageMixin:
         # disco principal podia romper el arranque).
         if devtype == "floppy":
             QMessageBox.information(
-                self, "Expandir disco",
-                "Los disquetes no se pueden redimensionar.\n\n"
-                "Eliminalo y crea otro si necesitas otro tamano."
+                self, self.tr("Expandir disco"),
+                self.tr("Los disquetes no se pueden redimensionar.\n\n"
+                        "Eliminalo y crea otro si necesitas otro tamano.")
             )
             return
 
@@ -1564,25 +1564,25 @@ class StorageMixin:
         _current_qemu = _bytes_to_qemu_size(_current_bytes)
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("\u2197 Expandir disco")
+        dialog.setWindowTitle(self.tr("\u2197 Expandir disco"))
         dialog.resize(520, 280)
         lay = QVBoxLayout(dialog)
         form = QFormLayout()
-        form.addRow("Dispositivo:", QLabel(devtype.upper()))
-        form.addRow("Archivo:", QLabel(os.path.basename(old_path)))
-        form.addRow("Tamano actual:", QLabel(_current_txt))
+        form.addRow(self.tr("Dispositivo:"), QLabel(devtype.upper()))
+        form.addRow(self.tr("Archivo:"), QLabel(os.path.basename(old_path)))
+        form.addRow(self.tr("Tamano actual:"), QLabel(_current_txt))
         size_edit = QLineEdit(_current_qemu)
-        size_edit.setPlaceholderText("Ejemplo: 120G (solo crecer)")
-        form.addRow("Nuevo tamano:", size_edit)
+        size_edit.setPlaceholderText(self.tr("Ejemplo: 120G (solo crecer)"))
+        form.addRow(self.tr("Nuevo tamano:"), size_edit)
         lay.addLayout(form)
 
-        hint = QLabel(
+        hint = QLabel(self.tr(
             "El disco solo puede CRECER. Si escribes un valor menor al "
             "actual, se rechaza y el campo vuelve al tamano original.\n\n"
             "Agrandar el archivo NO agranda la particion dentro del guest: "
             "tras aplicar el cambio, amplia tambien la particion/volumen "
             "desde el sistema invitado."
-        )
+))
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#666;")
         lay.addWidget(hint)
@@ -1653,6 +1653,6 @@ class StorageMixin:
                 pass
         except Exception as e:
             QMessageBox.critical(
-                self, "Expandir disco",
-                f"No se pudo expandir el disco.\n\n{e}"
+                self, self.tr("Expandir disco"),
+                self.tr("No se pudo expandir el disco.\n\n{0}").format(e)
             )

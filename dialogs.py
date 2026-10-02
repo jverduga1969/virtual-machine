@@ -99,35 +99,35 @@ class RealtimePerformanceGraph(QWidget):
 class NetworkDeviceDialog(QDialog):
     def __init__(self, parent=None, data=None):
         super().__init__(parent)
-        self.setWindowTitle("Adaptador de red virtual")
+        self.setWindowTitle(self.tr("Adaptador de red virtual"))
         self.setModal(True); self.resize(520, 300)
         data=data or {}
         form=QFormLayout(self)
-        self.name=QLineEdit(data.get("name", "Red 1"))
+        self.name=QLineEdit(data.get("name", self.tr("Red 1")))
         self.model=QComboBox()
         for label,val in (("VirtIO", "virtio-net-pci"),("Intel E1000","e1000"),("Realtek RTL8139","rtl8139"),("VMware VMXNET3","vmxnet3")):
             self.model.addItem(label,val)
         i=self.model.findData(data.get("model","virtio-net-pci")); self.model.setCurrentIndex(max(0,i))
         self.mode=QComboBox()
-        for label,val in (("NAT / Internet","nat"),("Bridge existente","bridge"),("TAP","tap")):
+        for label,val in ((self.tr("NAT / Internet"),"nat"),(self.tr("Bridge existente"),"bridge"),("TAP","tap")):
             self.mode.addItem(label,val)
         i=self.mode.findData(data.get("mode","nat")); self.mode.setCurrentIndex(max(0,i))
         self.target=QComboBox(); self.target.setEditable(True)
-        self.mac=QLineEdit(data.get("mac","")); self.mac.setPlaceholderText("Opcional: 52:54:00:xx:xx:xx")
+        self.mac=QLineEdit(data.get("mac","")); self.mac.setPlaceholderText(self.tr("Opcional: 52:54:00:xx:xx:xx"))
         # Reglas de reenvío de puertos NAT (solo aplican al backend NAT).
         # El usuario las edita desde el botón "🔀 Reglas NAT…" que aparece
         # cuando el modo es NAT. Se persisten en network_devices[i]["hostfwd"].
         self._hostfwd = [dict(r) for r in (data.get("hostfwd") or []) if isinstance(r, dict)]
         self.mode.currentIndexChanged.connect(self.update_target)
-        form.addRow("Nombre:", self.name); form.addRow("Modelo:", self.model); form.addRow("Backend:", self.mode); form.addRow("Bridge / TAP:", self.target); form.addRow("MAC:", self.mac)
-        self.btn_nat_rules = QPushButton("🔀 Reglas NAT…")
-        self.btn_nat_rules.setToolTip(
+        form.addRow(self.tr("Nombre:"), self.name); form.addRow(self.tr("Modelo:"), self.model); form.addRow(self.tr("Backend:"), self.mode); form.addRow(self.tr("Bridge / TAP:"), self.target); form.addRow(self.tr("MAC:"), self.mac)
+        self.btn_nat_rules = QPushButton(self.tr("🔀 Reglas NAT…"))
+        self.btn_nat_rules.setToolTip(self.tr(
             "Redirigir puertos del host al guest a través del NAT de QEMU\n"
             "(hostfwd). Solo aplica cuando el backend es NAT."
-        )
+        ))
         self.btn_nat_rules.clicked.connect(self._open_nat_rules)
         form.addRow("", self.btn_nat_rules)
-        buttons=QHBoxLayout(); buttons.addStretch(); ok=QPushButton("Aceptar"); cancel=QPushButton("Cancelar"); ok.clicked.connect(self.accept); cancel.clicked.connect(self.reject); buttons.addWidget(cancel); buttons.addWidget(ok); form.addRow(buttons)
+        buttons=QHBoxLayout(); buttons.addStretch(); ok=QPushButton(self.tr("Aceptar")); cancel=QPushButton(self.tr("Cancelar")); ok.clicked.connect(self.accept); cancel.clicked.connect(self.reject); buttons.addWidget(cancel); buttons.addWidget(ok); form.addRow(buttons)
         self._load_targets(data.get("interface","")); self.update_target()
     def _load_targets(self, preferred=""):
         self.target.blockSignals(True); self.target.clear()
@@ -145,7 +145,7 @@ class NetworkDeviceDialog(QDialog):
             is_nat = (mode == "nat")
             btn.setVisible(is_nat)
             n = len(getattr(self, "_hostfwd", []) or [])
-            btn.setText(f"🔀 Reglas NAT… ({n})" if n else "🔀 Reglas NAT…")
+            btn.setText(self.tr("🔀 Reglas NAT… ({0})").format(n) if n else self.tr("🔀 Reglas NAT…"))
 
     def _open_nat_rules(self):
         """Abre el sub-diálogo de reenvío de puertos NAT."""
@@ -155,7 +155,7 @@ class NetworkDeviceDialog(QDialog):
             self.update_target()
     def values(self):
         return {
-            "name": self.name.text().strip() or "Red",
+            "name": self.name.text().strip() or self.tr("Red"),
             "model": self.model.currentData(),
             "mode": self.mode.currentData(),
             "interface": self.target.currentData() or self.target.currentText().strip(),
@@ -174,17 +174,17 @@ class DiskCreationDialog(QDialog):
         self.win_ver = win_ver
         self.initial_path = initial_path
         self.initial_name = initial_name
-        self.setWindowTitle("Configurar dispositivo de almacenamiento")
+        self.setWindowTitle(self.tr("Configurar dispositivo de almacenamiento"))
         self.setModal(True)
         self.setMinimumWidth(640)
         self.resize(700, 430)
 
         layout = QVBoxLayout(self)
         title_map = {
-            "sata": "💽 Disco SATA", "nvme": "⚡ Disco NVMe",
-            "floppy": "💾 Disquetera", "cdrom": "📀 Unidad CD / DVD",
+            "sata": self.tr("💽 Disco SATA"), "nvme": self.tr("⚡ Disco NVMe"),
+            "floppy": self.tr("💾 Disquetera"), "cdrom": self.tr("📀 Unidad CD / DVD"),
         }
-        title = QLabel(title_map.get(devtype, "Dispositivo de almacenamiento"))
+        title = QLabel(title_map.get(devtype, self.tr("Dispositivo de almacenamiento")))
         title.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(title)
 
@@ -204,8 +204,8 @@ class DiskCreationDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        cancel = QPushButton("Cancelar")
-        accept = QPushButton("Aceptar")
+        cancel = QPushButton(self.tr("Cancelar"))
+        accept = QPushButton(self.tr("Aceptar"))
         accept.setDefault(True)
         cancel.clicked.connect(self.reject)
         accept.clicked.connect(self._validate_and_accept)
@@ -216,10 +216,10 @@ class DiskCreationDialog(QDialog):
     def _build_cdrom(self, layout):
         form = QFormLayout()
         self.cd_mode = QComboBox()
-        self.cd_mode.addItem("Mantener vacío", "empty")
-        self.cd_mode.addItem("Usar ISO/IMG/DMG existente", "existing")
+        self.cd_mode.addItem(self.tr("Mantener vacío"), "empty")
+        self.cd_mode.addItem(self.tr("Usar ISO/IMG/DMG existente"), "existing")
         if self.os_type == "macos":
-            self.cd_mode.addItem("System Recovery de macOS (descargar al iniciar)", "recovery")
+            self.cd_mode.addItem(self.tr("System Recovery de macOS (descargar al iniciar)"), "recovery")
         elif self.os_type == "android":
             # Android-x86 / Bliss OS se instalan siempre desde una ISO
             # que aporta el usuario. No hay descarga automática porque
@@ -243,10 +243,10 @@ class DiskCreationDialog(QDialog):
             # más limpio que mostrarla gris: el usuario no ve una
             # opción que nunca podrá usar.
             if self.os_type == "windows":
-                installer_label = "Descargar instalador de Windows automáticamente"
+                installer_label = self.tr("Descargar instalador de Windows automáticamente")
                 self.cd_mode.addItem(installer_label, "installer")
             else:
-                _installer_label = "Descargar instalador de Linux automáticamente"
+                _installer_label = self.tr("Descargar instalador de Linux automáticamente")
                 _installer_ok = False
                 try:
                     import iso_versions as _iv
@@ -274,20 +274,20 @@ class DiskCreationDialog(QDialog):
                         "automática desde los espejos oficiales."
                     )
         self.cd_mode.currentIndexChanged.connect(self._update_cd_mode)
-        form.addRow("Fuente del medio:", self.cd_mode)
+        form.addRow(self.tr("Fuente del medio:"), self.cd_mode)
 
         self.input_name = QLineEdit(self.initial_name or "CD/DVD")
-        form.addRow("Nombre:", self.input_name)
+        form.addRow(self.tr("Nombre:"), self.input_name)
         self.input_path = QLineEdit(self.initial_path or "")
-        self.input_path.setPlaceholderText("Selecciona una ISO / IMG / DMG…")
-        self.btn_browse = QPushButton("📁 Buscar…")
+        self.input_path.setPlaceholderText(self.tr("Selecciona una ISO / IMG / DMG…"))
+        self.btn_browse = QPushButton(self.tr("📁 Buscar…"))
         self.btn_browse.clicked.connect(self._browse_medium)
         # media_library_picker_v1: boton para elegir de la biblioteca.
-        self.btn_library = QPushButton("📚 Biblioteca…")
-        self.btn_library.setToolTip(
+        self.btn_library = QPushButton(self.tr("📚 Biblioteca…"))
+        self.btn_library.setToolTip(self.tr(
             "Elegir un medio de la biblioteca central (MediaLibrary/).\n"
             "Se reutiliza entre todas las VMs."
-        )
+        ))
         self.btn_library.clicked.connect(self._pick_from_library)
         path_widget = QWidget()
         row = QHBoxLayout(path_widget)
@@ -295,7 +295,7 @@ class DiskCreationDialog(QDialog):
         row.addWidget(self.input_path, 1)
         row.addWidget(self.btn_browse)
         row.addWidget(self.btn_library)
-        form.addRow("Medio:", path_widget)
+        form.addRow(self.tr("Medio:"), path_widget)
         layout.addLayout(form)
 
         self.cd_hint = QLabel()
@@ -311,13 +311,13 @@ class DiskCreationDialog(QDialog):
         else:
             default = "datos" if self.devtype == "sata" else "nvme_datos"
             self.input_name = QLineEdit(default)
-        form.addRow("Nombre:", self.input_name)
+        form.addRow(self.tr("Nombre:"), self.input_name)
 
         # media_library_device_picker_v1_B: selector crear/existente
         # disponible tambien para floppy.
         mode_row = QHBoxLayout()
-        self.source_radio = QRadioButton("Crear nuevo")
-        self.existing_radio = QRadioButton("Usar archivo existente")
+        self.source_radio = QRadioButton(self.tr("Crear nuevo"))
+        self.existing_radio = QRadioButton(self.tr("Usar archivo existente"))
         self.source_radio.setChecked(True)
         group = QButtonGroup(self)
         group.addButton(self.source_radio)
@@ -325,7 +325,7 @@ class DiskCreationDialog(QDialog):
         mode_row.addWidget(self.source_radio)
         mode_row.addWidget(self.existing_radio)
         mode_row.addStretch()
-        form.addRow("Origen:", mode_row)
+        form.addRow(self.tr("Origen:"), mode_row)
         self.source_radio.toggled.connect(self._update_disk_mode)
 
         if self.devtype == "floppy":
@@ -333,35 +333,35 @@ class DiskCreationDialog(QDialog):
             for label, val in (("720 KB", "720K"), ("1.44 MB", "1.44M"), ("2.88 MB", "2.88M")):
                 self.input_size.addItem(label, val)
             self.input_size.setCurrentIndex(1)
-            form.addRow("Tamaño:", self.input_size)
+            form.addRow(self.tr("Tamaño:"), self.input_size)
             self.combo_format = QComboBox()
             self.combo_format.addItem("RAW", "raw")
-            form.addRow("Formato:", self.combo_format)
+            form.addRow(self.tr("Formato:"), self.combo_format)
         else:
             self.input_size = QLineEdit("40G")
-            self.input_size.setPlaceholderText("Ej.: 40G, 100G, 1T")
-            form.addRow("Tamaño:", self.input_size)
+            self.input_size.setPlaceholderText(self.tr("Ej.: 40G, 100G, 1T"))
+            form.addRow(self.tr("Tamaño:"), self.input_size)
             self.combo_type = QComboBox()
-            self.combo_type.addItem("Expandible (dinámico)", "dynamic")
-            self.combo_type.addItem("Fijo (preasignado)", "fixed")
-            form.addRow("Tipo:", self.combo_type)
+            self.combo_type.addItem(self.tr("Expandible (dinámico)"), "dynamic")
+            self.combo_type.addItem(self.tr("Fijo (preasignado)"), "fixed")
+            form.addRow(self.tr("Tipo:"), self.combo_type)
             self.combo_format = QComboBox()
             for label, value in (("QCOW2", "qcow2"), ("RAW", "raw"), ("VDI", "vdi"), ("VMDK", "vmdk")):
                 self.combo_format.addItem(label, value)
-            form.addRow("Formato:", self.combo_format)
+            form.addRow(self.tr("Formato:"), self.combo_format)
 
 
         # media_library_device_picker_v1_B: campo Archivo + botones
         # compartidos por los 3 tipos.
         self.input_path = QLineEdit()
-        self.input_path.setPlaceholderText("Ruta del archivo existente…")
-        self.btn_browse = QPushButton("📁 Buscar…")
+        self.input_path.setPlaceholderText(self.tr("Ruta del archivo existente…"))
+        self.btn_browse = QPushButton(self.tr("📁 Buscar…"))
         self.btn_browse.clicked.connect(self._browse_existing)
-        self.btn_library_disk = QPushButton("📚 Biblioteca…")
-        self.btn_library_disk.setToolTip(
+        self.btn_library_disk = QPushButton(self.tr("📚 Biblioteca…"))
+        self.btn_library_disk.setToolTip(self.tr(
             "Elegir un archivo ya registrado en la Biblioteca de Medios.\n"
             "Se filtra por el tipo del dispositivo."
-        )
+        ))
         self.btn_library_disk.clicked.connect(self._pick_from_library)
         self.path_widget = QWidget()
         row = QHBoxLayout(self.path_widget)
@@ -369,13 +369,13 @@ class DiskCreationDialog(QDialog):
         row.addWidget(self.input_path, 1)
         row.addWidget(self.btn_browse)
         row.addWidget(self.btn_library_disk)
-        form.addRow("Archivo:", self.path_widget)
+        form.addRow(self.tr("Archivo:"), self.path_widget)
 
         layout.addLayout(form)
         hint_text = (
-            "Disquete RAW. Selecciona 720 KB, 1.44 MB o 2.88 MB."
+            self.tr("Disquete RAW. Selecciona 720 KB, 1.44 MB o 2.88 MB.")
             if self.devtype == "floppy" else
-            "Expandible: crece según se utiliza. Fijo: reserva el espacio en el host. También puedes adjuntar un disco existente."
+            self.tr("Expandible: crece según se utiliza. Fijo: reserva el espacio en el host. También puedes adjuntar un disco existente.")
         )
         hint = QLabel(hint_text)
         hint.setWordWrap(True)
@@ -398,10 +398,10 @@ class DiskCreationDialog(QDialog):
             self.btn_library.setEnabled(True)
             self.btn_library.setVisible(True)
         hints = {
-            "empty": "La unidad se crea vacía. Podrás insertar un ISO después, incluso con la VM encendida.",
-            "existing": "Selecciona un ISO/IMG/DMG que ya exista en tu equipo.",
-            "recovery": "Para macOS se descargará System Recovery automáticamente al iniciar la VM y se asociará a esta unidad óptica.",
-            "installer": (
+            "empty": self.tr("La unidad se crea vacía. Podrás insertar un ISO después, incluso con la VM encendida."),
+            "existing": self.tr("Selecciona un ISO/IMG/DMG que ya exista en tu equipo."),
+            "recovery": self.tr("Para macOS se descargará System Recovery automáticamente al iniciar la VM y se asociará a esta unidad óptica."),
+            "installer": self.tr(
                 "El instalador se descargará automáticamente al iniciar la VM, "
                 "mostrando una barra de porcentaje, y quedará conectado a esta unidad CD/DVD."
             ),
@@ -424,22 +424,22 @@ class DiskCreationDialog(QDialog):
 
     def _browse_existing(self):
         if self.devtype == "floppy":
-            filter_str = ("Imágenes de disquete (*.img *.raw)"
-                          ";;Todos los archivos (*)")
+            filter_str = self.tr("Imágenes de disquete (*.img *.raw)"
+                                 ";;Todos los archivos (*)")
         else:
-            filter_str = ("Discos virtuales "
-                          "(*.qcow2 *.qcow *.raw *.img *.vdi *.vmdk *.vhd *.vhdx)"
-                          ";;Todos los archivos (*)")
+            filter_str = self.tr("Discos virtuales "
+                                 "(*.qcow2 *.qcow *.raw *.img *.vdi *.vmdk *.vhd *.vhdx)"
+                                 ";;Todos los archivos (*)")
         path, _ = QFileDialog.getOpenFileName(
-            self, "Seleccionar archivo existente", "", filter_str
+            self, self.tr("Seleccionar archivo existente"), "", filter_str
         )
         if path:
             self.input_path.setText(path)
 
     def _browse_medium(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Seleccionar medio óptico", "",
-            "Imágenes (*.iso *.img *.dmg);;Todos los archivos (*)"
+            self, self.tr("Seleccionar medio óptico"), "",
+            self.tr("Imágenes (*.iso *.img *.dmg);;Todos los archivos (*)")
         )
         if path:
             self.input_path.setText(path)
@@ -488,7 +488,7 @@ class DiskCreationDialog(QDialog):
             if mode == "existing":
                 path = self.input_path.text().strip()
                 if not path or not os.path.isfile(path):
-                    QMessageBox.warning(self, "Medio inválido", "Selecciona un ISO/IMG/DMG válido.")
+                    QMessageBox.warning(self, self.tr("Medio inválido"), self.tr("Selecciona un ISO/IMG/DMG válido."))
                     return
             self.accept()
             return
@@ -498,8 +498,8 @@ class DiskCreationDialog(QDialog):
         if existing:
             path = self.input_path.text().strip()
             if not path or not os.path.isfile(path):
-                QMessageBox.warning(self, "Archivo inválido",
-                                    "Selecciona un archivo existente válido.")
+                QMessageBox.warning(self, self.tr("Archivo inválido"),
+                                    self.tr("Selecciona un archivo existente válido."))
                 return
             self.accept()
             return
@@ -507,10 +507,10 @@ class DiskCreationDialog(QDialog):
         name = self.input_name.text().strip()
         size = self.input_size.currentData() if self.devtype == "floppy" else self.input_size.text().strip()
         if not name:
-            QMessageBox.warning(self, "Nombre requerido", "Indica un nombre para el dispositivo.")
+            QMessageBox.warning(self, self.tr("Nombre requerido"), self.tr("Indica un nombre para el dispositivo."))
             return
         if self.devtype != "floppy" and not re.fullmatch(r"(?:\d+(?:\.\d+)?)(?:[KMGTP]i?B?|B)?", size, re.IGNORECASE):
-            QMessageBox.warning(self, "Tamaño inválido", "Usa un tamaño como 40G, 512M o 1T.")
+            QMessageBox.warning(self, self.tr("Tamaño inválido"), self.tr("Usa un tamaño como 40G, 512M o 1T."))
             return
         self.accept()
 
@@ -518,7 +518,7 @@ class DiskCreationDialog(QDialog):
         if self.devtype == "cdrom":
             mode = self.cd_mode.currentData()
             return {
-                "name": self.input_name.text().strip() or "CD/DVD",
+                "name": self.input_name.text().strip() or self.tr("CD/DVD"),
                 "size": "",
                 "type": "",
                 "format": "iso",
@@ -572,7 +572,7 @@ class _CreateMediumDialog(QDialog):
 
     def __init__(self, parent=None, default_type="qcow2"):
         super().__init__(parent)
-        self.setWindowTitle("Crear medio nuevo")
+        self.setWindowTitle(self.tr("Crear medio nuevo"))
         self.setModal(True)
         self.resize(520, 300)
 
@@ -580,23 +580,23 @@ class _CreateMediumDialog(QDialog):
         form = QFormLayout()
 
         self.input_name = QLineEdit("nuevo_medio")
-        self.input_name.setPlaceholderText("Ej: disco_ubuntu_datos")
-        form.addRow("Nombre:", self.input_name)
+        self.input_name.setPlaceholderText(self.tr("Ej: disco_ubuntu_datos"))
+        form.addRow(self.tr("Nombre:"), self.input_name)
 
         self.combo_type = QComboBox()
-        self.combo_type.addItem("Disco duro QCOW2 (recomendado)", "qcow2")
-        self.combo_type.addItem("Disco duro RAW", "raw")
-        self.combo_type.addItem("Disquete IMG (RAW)", "img")
+        self.combo_type.addItem(self.tr("Disco duro QCOW2 (recomendado)"), "qcow2")
+        self.combo_type.addItem(self.tr("Disco duro RAW"), "raw")
+        self.combo_type.addItem(self.tr("Disquete IMG (RAW)"), "img")
         idx = self.combo_type.findData(default_type)
         if idx >= 0:
             self.combo_type.setCurrentIndex(idx)
         self.combo_type.currentIndexChanged.connect(self._on_type_changed)
-        form.addRow("Tipo:", self.combo_type)
+        form.addRow(self.tr("Tipo:"), self.combo_type)
 
         self.combo_size = QComboBox()
         self.combo_size.setEditable(True)
         self.combo_size.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        form.addRow("Tamaño:", self.combo_size)
+        form.addRow(self.tr("Tamaño:"), self.combo_size)
 
         layout.addLayout(form)
 
@@ -608,9 +608,9 @@ class _CreateMediumDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.addStretch(1)
-        cancel = QPushButton("Cancelar")
+        cancel = QPushButton(self.tr("Cancelar"))
         cancel.clicked.connect(self.reject)
-        ok = QPushButton("Crear")
+        ok = QPushButton(self.tr("Crear"))
         ok.setDefault(True)
         ok.clicked.connect(self._validate_and_accept)
         btns.addWidget(cancel)
@@ -627,38 +627,38 @@ class _CreateMediumDialog(QDialog):
             for s in ("720K", "1.44M", "2.88M"):
                 self.combo_size.addItem(s, s)
             self.combo_size.setCurrentIndex(1)  # 1.44M
-            self.hint.setText(
+            self.hint.setText(self.tr(
                 "Disquete formateado como RAW. Se registra como tipo "
                 "'Disquete' en la biblioteca. Tamaños típicos: 720 KB, "
                 "1.44 MB, 2.88 MB."
-            )
+            ))
         else:
             for s in ("10G", "20G", "40G", "80G", "128G", "256G",
                       "512G", "1T"):
                 self.combo_size.addItem(s, s)
             self.combo_size.setCurrentIndex(2)  # 40G
             if t == "qcow2":
-                self.hint.setText(
+                self.hint.setText(self.tr(
                     "Disco virtual expandible (recomendado). El archivo "
                     "en el host crece solo según se usa en el guest."
-                )
+                ))
             else:
-                self.hint.setText(
+                self.hint.setText(self.tr(
                     "Disco RAW (imagen plana). Ocupa el tamaño completo "
                     "en el host desde el momento de su creación."
-                )
+                ))
         self.combo_size.blockSignals(False)
 
     def _validate_and_accept(self):
         name = self.input_name.text().strip()
         if not name:
-            QMessageBox.warning(self, "Nombre requerido",
-                                "Escribe un nombre para el medio.")
+            QMessageBox.warning(self, self.tr("Nombre requerido"),
+                                self.tr("Escribe un nombre para el medio."))
             return
         if re.search(r'[\\/:*?"<>|]', name):
             QMessageBox.warning(
-                self, "Nombre inválido",
-                "El nombre no puede contener \\ / : * ? \" < > |"
+                self, self.tr("Nombre inválido"),
+                self.tr("El nombre no puede contener \\ / : * ? \" < > |")
             )
             return
         size = (self.combo_size.currentData()
@@ -667,8 +667,8 @@ class _CreateMediumDialog(QDialog):
                 r"(?:\d+(?:\.\d+)?)(?:[KMGTP]i?B?|B)?",
                 size, re.IGNORECASE):
             QMessageBox.warning(
-                self, "Tamaño inválido",
-                "Usa un tamaño como 40G, 512M o 1T."
+                self, self.tr("Tamaño inválido"),
+                self.tr("Usa un tamaño como 40G, 512M o 1T.")
             )
             return
         self.accept()
@@ -704,7 +704,7 @@ class MediaPickerDialog(QDialog):
 
     def __init__(self, parent=None, filter_os_type="", filter_media_type=""):
         super().__init__(parent)
-        self.setWindowTitle("Elegir medio de la biblioteca")
+        self.setWindowTitle(self.tr("Elegir medio de la biblioteca"))
         self.setModal(True)
         self.resize(820, 500)
 
@@ -716,24 +716,24 @@ class MediaPickerDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        info = QLabel(
+        info = QLabel(self.tr(
             "Elige una ISO/IMG/DMG de la biblioteca central.<br>"
             "La biblioteca vive en <code>MediaLibrary/</code>, al mismo "
             "nivel que <code>VirtualMachines/</code>. Se reutiliza entre "
             "todas las VMs."
-        )
+        ))
         info.setTextFormat(Qt.TextFormat.RichText)
         info.setWordWrap(True)
         layout.addWidget(info)
 
         filt = QHBoxLayout()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Buscar...")
+        self.search.setPlaceholderText(self.tr("Buscar..."))
         self.search.textChanged.connect(self._refresh)
         filt.addWidget(self.search, 1)
-        filt.addWidget(QLabel("SO:"))
+        filt.addWidget(QLabel(self.tr("SO:")))
         self.cmb_os = QComboBox()
-        self.cmb_os.addItem("Todos", "")
+        self.cmb_os.addItem(self.tr("Todos"), "")
         self.cmb_os.addItem("Linux", "linux")
         self.cmb_os.addItem("Windows", "windows")
         self.cmb_os.addItem("macOS", "macos")
@@ -746,12 +746,12 @@ class MediaPickerDialog(QDialog):
         filt.addWidget(self.cmb_os)
 
         # media_library_picker_filter_type_v1: filtro por tipo de medio.
-        filt.addWidget(QLabel("Tipo:"))
+        filt.addWidget(QLabel(self.tr("Tipo:")))
         self.cmb_type = QComboBox()
-        self.cmb_type.addItem("Todos", "")
-        self.cmb_type.addItem("Disco duro", "disk")
+        self.cmb_type.addItem(self.tr("Todos"), "")
+        self.cmb_type.addItem(self.tr("Disco duro"), "disk")
         self.cmb_type.addItem("ISO", "iso")
-        self.cmb_type.addItem("Disquete", "floppy")
+        self.cmb_type.addItem(self.tr("Disquete"), "floppy")
         idx_t = self.cmb_type.findData(self._filter_media_type)
         if idx_t >= 0:
             self.cmb_type.setCurrentIndex(idx_t)
@@ -763,8 +763,9 @@ class MediaPickerDialog(QDialog):
         # media_library_picker_sort_v1: orden por cabecera (con orden
         # numerico real en "Tamano").
         self.table.setHeaderLabels(
-            ["Nombre", "Tipo", "SO", "Version", "Arq.", "Tamano",
-             "Usada por", "Ruta"]
+            [self.tr("Nombre"), self.tr("Tipo"), self.tr("SO"),
+             self.tr("Version"), self.tr("Arq."), self.tr("Tamano"),
+             self.tr("Usada por"), self.tr("Ruta")]
         )
         self.table.setColumnWidth(0, 240)
         self.table.setColumnWidth(1, 110)
@@ -789,36 +790,36 @@ class MediaPickerDialog(QDialog):
         layout.addWidget(self.table, 1)
 
         btns = QHBoxLayout()
-        self.btn_add = QPushButton("Anadir archivo a la biblioteca...")
-        self.btn_add.setToolTip(
+        self.btn_add = QPushButton(self.tr("Anadir archivo a la biblioteca..."))
+        self.btn_add.setToolTip(self.tr(
             "Registrar una ISO nueva sin salir de este dialogo."
-        )
+        ))
         self.btn_add.clicked.connect(self._add_new_file)
         btns.addWidget(self.btn_add)
 
         # media_library_create_v1: crear un disco nuevo en la biblioteca
         # sin salir del selector.
-        self.btn_create = QPushButton("Crear disco...")
-        self.btn_create.setToolTip(
+        self.btn_create = QPushButton(self.tr("Crear disco..."))
+        self.btn_create.setToolTip(self.tr(
             "Crear un disco virtual (QCOW2 / RAW) o un disquete (IMG)\n"
             "directamente en la biblioteca. Equivale a 'qemu-img create'\n"
             "sobre MediaLibrary/<nombre>.<ext>."
-        )
+        ))
         self.btn_create.clicked.connect(self._create_new_medium)
         btns.addWidget(self.btn_create)
 
-        self.btn_open_folder = QPushButton("Abrir carpeta")
-        self.btn_open_folder.setToolTip(
+        self.btn_open_folder = QPushButton(self.tr("Abrir carpeta"))
+        self.btn_open_folder.setToolTip(self.tr(
             "Abre MediaLibrary/ en el explorador del sistema."
-        )
+        ))
         self.btn_open_folder.clicked.connect(self._open_library_folder)
         btns.addWidget(self.btn_open_folder)
 
         btns.addStretch(1)
-        cancel = QPushButton("Cancelar")
+        cancel = QPushButton(self.tr("Cancelar"))
         cancel.clicked.connect(self.reject)
         btns.addWidget(cancel)
-        self.btn_ok = QPushButton("Elegir")
+        self.btn_ok = QPushButton(self.tr("Elegir"))
         self.btn_ok.setDefault(True)
         self.btn_ok.setEnabled(False)
         self.btn_ok.clicked.connect(self._accept_selected)
@@ -896,7 +897,7 @@ class MediaPickerDialog(QDialog):
             path_abs = self._entry_abs_path(e)
             exists = bool(path_abs and os.path.isfile(path_abs))
             if not exists:
-                name = name + "   (huerfano)"
+                name = self.tr("{0}   (huerfano)").format(name)
             # media_library_picker_columns_v1: "Usada por" y "Ruta".
             used_by = list(e.get("used_by") or [])
             if not used_by:
@@ -904,13 +905,13 @@ class MediaPickerDialog(QDialog):
             elif len(used_by) <= 3:
                 used_by_txt = ", ".join(used_by)
             else:
-                used_by_txt = (f"{used_by[0]}, {used_by[1]} "
-                               f"(+{len(used_by) - 2})")
+                used_by_txt = self.tr("{0}, {1} (+{2})").format(
+                    used_by[0], used_by[1], len(used_by) - 2)
             stored_path = str(e.get("path") or "")
             if os.path.isabs(stored_path) and len(stored_path) > 40:
                 path_txt = "\u2026" + stored_path[-37:]
             else:
-                path_txt = stored_path or "(sin archivo)"
+                path_txt = stored_path or self.tr("(sin archivo)")
             try:
                 import media_library as _ml
                 tipo_txt = _ml.media_type_label(e)
@@ -926,9 +927,9 @@ class MediaPickerDialog(QDialog):
                             int(e.get("size") or 0))
             except Exception:
                 row.setData(5, Qt.ItemDataRole.UserRole, 0)
-            row.setToolTip(0, path_abs or "(sin archivo)")
+            row.setToolTip(0, path_abs or self.tr("(sin archivo)"))
             row.setToolTip(6, ("\n".join(used_by) if used_by
-                               else "No la usa ninguna VM."))
+                               else self.tr("No la usa ninguna VM.")))
             row.setToolTip(7, stored_path or "(sin archivo)")
             if not exists:
                 try:
@@ -974,9 +975,9 @@ class MediaPickerDialog(QDialog):
         path_abs = self._entry_abs_path(e)
         if not path_abs or not os.path.isfile(path_abs):
             QMessageBox.warning(
-                self, "Archivo no disponible",
-                "El archivo de esta entrada ya no existe en el disco.\n\n"
-                f"Ruta esperada:\n{path_abs}"
+                self, self.tr("Archivo no disponible"),
+                self.tr("El archivo de esta entrada ya no existe en el disco.\n\n"
+                        "Ruta esperada:\n{0}").format(path_abs)
             )
             return
         self._chosen = {"id": str(e.get("id") or ""), "path": path_abs}
@@ -993,8 +994,8 @@ class MediaPickerDialog(QDialog):
         """
         if self._lib is None:
             QMessageBox.warning(
-                self, "Biblioteca no disponible",
-                "La biblioteca de medios no está disponible."
+                self, self.tr("Biblioteca no disponible"),
+                self.tr("La biblioteca de medios no está disponible.")
             )
             return
 
@@ -1015,10 +1016,10 @@ class MediaPickerDialog(QDialog):
         # No sobrescribir: si existe, avisar.
         if os.path.exists(target):
             QMessageBox.warning(
-                self, "Ya existe",
-                f"Ya existe un archivo con ese nombre en la biblioteca:\n\n"
-                f"{target}\n\n"
-                "Elige otro nombre o bórralo desde la pestaña Medios."
+                self, self.tr("Ya existe"),
+                self.tr("Ya existe un archivo con ese nombre en la biblioteca:\n\n"
+                        "{0}\n\n"
+                        "Elige otro nombre o bórralo desde la pestaña Medios.").format(target)
             )
             return
 
@@ -1034,15 +1035,15 @@ class MediaPickerDialog(QDialog):
                 )
         except FileNotFoundError:
             QMessageBox.critical(
-                self, "Crear medio",
-                "No se encontró 'qemu-img'. Instálalo (paquete qemu-utils\n"
-                "en Debian/Ubuntu, qemu-img en Arch) para crear discos."
+                self, self.tr("Crear medio"),
+                self.tr("No se encontró 'qemu-img'. Instálalo (paquete qemu-utils\n"
+                        "en Debian/Ubuntu, qemu-img en Arch) para crear discos.")
             )
             return
         except Exception as e:
             QMessageBox.critical(
-                self, "Crear medio",
-                f"No se pudo crear el medio.\n\n{e}"
+                self, self.tr("Crear medio"),
+                self.tr("No se pudo crear el medio.\n\n{0}").format(e)
             )
             return
 
@@ -1057,15 +1058,15 @@ class MediaPickerDialog(QDialog):
                 self._lib.update(
                     entry_id,
                     kind=v["kind"],
-                    notes=(f"Creado con qemu-img create. "
-                           f"Tamaño: {v['size']}."),
+                    notes=self.tr("Creado con qemu-img create. "
+                                  "Tamaño: {0}.").format(v['size']),
                 )
                 self._lib.mark_used(entry_id)
         except Exception as e:
             QMessageBox.warning(
-                self, "Crear medio",
-                "El archivo se creó correctamente pero no se pudo\n"
-                f"registrar en la biblioteca:\n\n{e}"
+                self, self.tr("Crear medio"),
+                self.tr("El archivo se creó correctamente pero no se pudo\n"
+                        "registrar en la biblioteca:\n\n{0}").format(e)
             )
 
         # Refrescar y seleccionar la entrada nueva.
@@ -1078,17 +1079,17 @@ class MediaPickerDialog(QDialog):
                     break
 
         QMessageBox.information(
-            self, "Medio creado",
-            f"Se creó el medio correctamente.\n\n"
-            f"Archivo: {fname}\n"
-            f"Tamaño: {v['size']}\n"
-            f"Formato: {v['format'].upper()}"
+            self, self.tr("Medio creado"),
+            self.tr("Se creó el medio correctamente.\n\n"
+                    "Archivo: {0}\n"
+                    "Tamaño: {1}\n"
+                    "Formato: {2}").format(fname, v['size'], v['format'].upper())
         )
 
     def _add_new_file(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Anadir a la biblioteca", os.path.expanduser("~"),
-            "Imagenes de disco (*.iso *.img *.dmg *.raw *.qcow2 *.qcow);;Todos (*)"
+            self, self.tr("Anadir a la biblioteca"), os.path.expanduser("~"),
+            self.tr("Imagenes de disco (*.iso *.img *.dmg *.raw *.qcow2 *.qcow);;Todos (*)")
         )
         if not paths or self._lib is None:
             return
@@ -1128,7 +1129,7 @@ class NatPortForwardDialog(QDialog):
 
     def __init__(self, parent=None, rules=None):
         super().__init__(parent)
-        self.setWindowTitle("Reglas de reenvío de puertos NAT")
+        self.setWindowTitle(self.tr("Reglas de reenvío de puertos NAT"))
         self.setModal(True)
         self.resize(580, 400)
 
@@ -1136,41 +1137,41 @@ class NatPortForwardDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        info = QLabel(
+        info = QLabel(self.tr(
             "Redirige puertos del host al guest a través del NAT de QEMU "
             "(<code>-netdev user,hostfwd=...</code>). Cada regla conecta "
             "<b>localhost:puerto_host</b> del anfitrión con "
             "<b>puerto_guest</b> dentro del sistema invitado.<br><br>"
             "Ejemplo: host 2222 → guest 22 reenvía SSH; luego entra con "
             "<code>ssh -p 2222 usuario@localhost</code>."
-        )
+        ))
         info.setTextFormat(Qt.TextFormat.RichText)
         info.setWordWrap(True)
         layout.addWidget(info)
 
         # --- Fila de alta ---
         add_row = QHBoxLayout()
-        add_row.addWidget(QLabel("Puerto host:"))
+        add_row.addWidget(QLabel(self.tr("Puerto host:")))
         self.sp_host = QSpinBox()
         self.sp_host.setRange(1, 65535)
         self.sp_host.setValue(2222)
-        self.sp_host.setToolTip("Puerto en el host (donde tú te conectas).")
+        self.sp_host.setToolTip(self.tr("Puerto en el host (donde tú te conectas)."))
         add_row.addWidget(self.sp_host)
         add_row.addSpacing(10)
-        add_row.addWidget(QLabel("Puerto guest:"))
+        add_row.addWidget(QLabel(self.tr("Puerto guest:")))
         self.sp_guest = QSpinBox()
         self.sp_guest.setRange(1, 65535)
         self.sp_guest.setValue(22)
-        self.sp_guest.setToolTip("Puerto dentro de la VM (a donde se reenvía).")
+        self.sp_guest.setToolTip(self.tr("Puerto dentro de la VM (a donde se reenvía)."))
         add_row.addWidget(self.sp_guest)
         add_row.addSpacing(10)
-        add_row.addWidget(QLabel("Protocolo:"))
+        add_row.addWidget(QLabel(self.tr("Protocolo:")))
         self.cmb_proto = QComboBox()
         self.cmb_proto.addItem("TCP", "tcp")
         self.cmb_proto.addItem("UDP", "udp")
         add_row.addWidget(self.cmb_proto)
         add_row.addStretch()
-        self.btn_add = QPushButton("➕ Añadir regla")
+        self.btn_add = QPushButton(self.tr("➕ Añadir regla"))
         self.btn_add.clicked.connect(self._add_rule)
         add_row.addWidget(self.btn_add)
         layout.addLayout(add_row)
@@ -1178,7 +1179,8 @@ class NatPortForwardDialog(QDialog):
         # --- Tabla ---
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(
-            ["Puerto host", "Puerto guest", "Protocolo"]
+            [self.tr("Puerto host"), self.tr("Puerto guest"),
+             self.tr("Protocolo")]
         )
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
@@ -1194,14 +1196,14 @@ class NatPortForwardDialog(QDialog):
 
         # --- Botones inferiores ---
         bottom = QHBoxLayout()
-        self.btn_remove = QPushButton("🗑 Quitar seleccionada")
+        self.btn_remove = QPushButton(self.tr("🗑 Quitar seleccionada"))
         self.btn_remove.clicked.connect(self._remove_selected)
         bottom.addWidget(self.btn_remove)
         bottom.addStretch()
-        btn_cancel = QPushButton("Cancelar")
+        btn_cancel = QPushButton(self.tr("Cancelar"))
         btn_cancel.clicked.connect(self.reject)
         bottom.addWidget(btn_cancel)
-        btn_ok = QPushButton("Aceptar")
+        btn_ok = QPushButton(self.tr("Aceptar"))
         btn_ok.setDefault(True)
         btn_ok.clicked.connect(self.accept)
         bottom.addWidget(btn_ok)
@@ -1232,10 +1234,10 @@ class NatPortForwardDialog(QDialog):
             if (int(r.get("host_port", 0)) == hp
                     and str(r.get("protocol", "tcp")).lower() == proto):
                 QMessageBox.warning(
-                    self, "Regla duplicada",
-                    f"Ya existe una regla para el puerto host {hp} "
-                    f"({proto.upper()}).\n\nElige otro puerto host o "
-                    "cambia el protocolo.",
+                    self, self.tr("Regla duplicada"),
+                    self.tr("Ya existe una regla para el puerto host {0} "
+                            "({1}).\n\nElige otro puerto host o "
+                            "cambia el protocolo.").format(hp, proto.upper()),
                 )
                 return
 

@@ -57,7 +57,7 @@ class TaskProgressDialog(QDialog):
             sub.setWordWrap(True)
             layout.addWidget(sub)
 
-        self._status_label = QLabel("Iniciando…")
+        self._status_label = QLabel(self.tr("Iniciando…"))
         self._status_label.setWordWrap(True)
         self._status_label.setStyleSheet("font-size: 12px;")
         layout.addWidget(self._status_label)
@@ -84,11 +84,11 @@ class TaskProgressDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        self._cancel_btn = QPushButton("Cancelar")
+        self._cancel_btn = QPushButton(self.tr("Cancelar"))
         self._cancel_btn.setVisible(cancelable)
         self._cancel_btn.clicked.connect(self._on_cancel_clicked)
         buttons.addWidget(self._cancel_btn)
-        self._close_btn = QPushButton("Cerrar")
+        self._close_btn = QPushButton(self.tr("Cerrar"))
         self._close_btn.setVisible(False)
         self._close_btn.clicked.connect(self.accept)
         buttons.addWidget(self._close_btn)
@@ -128,20 +128,20 @@ class TaskProgressDialog(QDialog):
         if success:
             self._bar.setRange(0, 100)
             self._bar.setValue(100)
-            self._status_label.setText(message or "Completado.")
+            self._status_label.setText(message or self.tr("Completado."))
             self._close_btn.setVisible(True)
             self.accept()
         else:
             self._bar.setRange(0, 100)
             self._status_label.setText(
-                f"<span style='color:#c62828;'><b>Error:</b> {message or 'La tarea falló.'}</span>"
+                f"<span style='color:#c62828;'><b>" + self.tr("Error:") + "</b> " + (message or self.tr("La tarea falló.")) + "</span>"
             )
             self._close_btn.setVisible(True)
 
     def _on_cancel_clicked(self):
         self._cancel_btn.setEnabled(False)
-        self._cancel_btn.setText("Cancelando…")
-        self._status_label.setText("Cancelando, esperando al trabajador…")
+        self._cancel_btn.setText(self.tr("Cancelando…"))
+        self._status_label.setText(self.tr("Cancelando, esperando al trabajador…"))
         self.canceled.emit()
 
     def closeEvent(self, event):

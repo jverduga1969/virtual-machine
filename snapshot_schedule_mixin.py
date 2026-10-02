@@ -85,54 +85,65 @@ class SnapshotScheduleMixin:
     # Snapshots.
     # ------------------------------------------------------------------
     def _build_snapshot_schedule_ui(self, parent_layout):
-        box = QGroupBox("Snapshots automaticos programados")
+        box = QGroupBox(self.tr("Snapshots automaticos programados"))
         form = QFormLayout(box)
 
-        self.check_snapshot_schedule_enabled = QCheckBox("Activar")
-        self.check_snapshot_schedule_enabled.setToolTip(
+        self.check_snapshot_schedule_enabled = QCheckBox(self.tr("Activar"))
+        self.check_snapshot_schedule_enabled.setToolTip(self.tr(
             "Cuando esta activo, la app crea snapshots de disco "
             "automaticamente en esta VM segun la frecuencia elegida.\n\n"
             "Los snapshots programados son SOLO DE DISCOS (no guardan "
             "RAM ni ventanas). Se crean con prefijo 'auto_' y se eliminan "
             "por antiguedad al superar el limite de retencion.\n\n"
             "No se ejecutan si la VM esta apagada."
-        )
+        ))
         self.check_snapshot_schedule_enabled.stateChanged.connect(
             self._on_snapshot_schedule_changed
         )
         form.addRow("", self.check_snapshot_schedule_enabled)
 
         self.combo_snapshot_schedule_interval = QComboBox()
+        # i18n_tanda2f1b: los labels de _INTERVALOS son atributo de
+        # clase, no se pueden envolver con self.tr en la definicion.
+        # Se mapean aqui con literales para que pylupdate6 los extraiga.
+        _interval_labels_tr = {
+            "Cada hora": self.tr("Cada hora"),
+            "Cada 6 horas": self.tr("Cada 6 horas"),
+            "Cada 12 horas": self.tr("Cada 12 horas"),
+            "Diario": self.tr("Diario"),
+            "Semanal": self.tr("Semanal"),
+        }
         for label, key, _sec in self._INTERVALOS:
-            self.combo_snapshot_schedule_interval.addItem(label, key)
-        self.combo_snapshot_schedule_interval.setToolTip(
+            _label_tr = _interval_labels_tr.get(label, label)
+            self.combo_snapshot_schedule_interval.addItem(_label_tr, key)
+        self.combo_snapshot_schedule_interval.setToolTip(self.tr(
             "Frecuencia con la que se crea el snapshot automatico.\n"
             "El primer snapshot se crea pasada una frecuencia completa "
             "desde la activacion (o desde el ultimo, si ya habia uno)."
-        )
+        ))
         self.combo_snapshot_schedule_interval.currentIndexChanged.connect(
             self._on_snapshot_schedule_changed
         )
-        form.addRow("Frecuencia:", self.combo_snapshot_schedule_interval)
+        form.addRow(self.tr("Frecuencia:"), self.combo_snapshot_schedule_interval)
 
         self.spin_snapshot_schedule_keep = QSpinBox()
         self.spin_snapshot_schedule_keep.setRange(1, 50)
         self.spin_snapshot_schedule_keep.setValue(5)
-        self.spin_snapshot_schedule_keep.setToolTip(
+        self.spin_snapshot_schedule_keep.setToolTip(self.tr(
             "Cuantos snapshots automaticos conservar. Al superar este "
             "numero se eliminan los mas antiguos (solo los que empiezan "
             "por 'auto_'; los manuales nunca se tocan)."
-        )
+        ))
         self.spin_snapshot_schedule_keep.valueChanged.connect(
             self._on_snapshot_schedule_changed
         )
-        form.addRow("Conservar:", self.spin_snapshot_schedule_keep)
+        form.addRow(self.tr("Conservar:"), self.spin_snapshot_schedule_keep)
 
-        note = QLabel(
+        note = QLabel(self.tr(
             "Los snapshots programados son <b>solo de discos</b>: no "
             "guardan RAM ni estado de ventanas. No congelan la VM del "
             "usuario (el snapshot completo si puede hacerlo)."
-        )
+        ))
         note.setWordWrap(True)
         note.setStyleSheet("color:#666; font-size:11px;")
         form.addRow("", note)
@@ -211,10 +222,10 @@ class SnapshotScheduleMixin:
         if lbl is None:
             return
         if not getattr(self, "current_vm_dir", None):
-            lbl.setText("Selecciona una VM para programar snapshots.")
+            lbl.setText(self.tr("Selecciona una VM para programar snapshots."))
             return
         if not self.check_snapshot_schedule_enabled.isChecked():
-            lbl.setText("Desactivado para esta VM.")
+            lbl.setText(self.tr("Desactivado para esta VM."))
             return
         interval_key = self.combo_snapshot_schedule_interval.currentData()
         interval_sec = self._interval_seconds(interval_key)
@@ -225,10 +236,10 @@ class SnapshotScheduleMixin:
         except Exception:
             last_iso = ""
         if not last_iso:
-            lbl.setText(
+            lbl.setText(self.tr(
                 "Sin snapshots programados todavia. Se creara el primero "
                 "tras cumplirse la frecuencia elegida."
-            )
+            ))
             return
         try:
             last_dt = datetime.datetime.fromisoformat(last_iso)
@@ -236,19 +247,19 @@ class SnapshotScheduleMixin:
             now = datetime.datetime.now()
             if nxt <= now:
                 lbl.setText(
-                    f"Pendiente (ultimo: "
-                    f"{last_dt.strftime('%Y-%m-%d %H:%M')}). Se ejecutara "
-                    f"en el proximo chequeo del scheduler."
+                    self.tr("Pendiente (ultimo: {0}). Se ejecutara "
+                            "en el proximo chequeo del scheduler.").format(
+                        last_dt.strftime('%Y-%m-%d %H:%M'))
                 )
             else:
                 delta = nxt - now
                 mins = max(1, int(delta.total_seconds() // 60))
                 lbl.setText(
-                    f"Ultimo: {last_dt.strftime('%Y-%m-%d %H:%M')} · "
-                    f"Proximo en ~{mins} min."
+                    self.tr("Ultimo: {0} \u00b7 Proximo en ~{1} min.").format(
+                        last_dt.strftime('%Y-%m-%d %H:%M'), mins)
                 )
         except Exception:
-            lbl.setText(f"Ultimo: {last_iso}")
+            lbl.setText(self.tr("Ultimo: {0}").format(last_iso))
 
     # ------------------------------------------------------------------
     # Chequeo periodico (invocado por el scheduler central)

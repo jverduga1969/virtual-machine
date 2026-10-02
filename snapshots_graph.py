@@ -84,7 +84,7 @@ class SnapshotNode(QGraphicsProxyWidget):
                     Qt.TransformationMode.SmoothTransformation,
                 ))
         else:
-            thumb.setText("(sin miniatura)")
+            thumb.setText(self.tr("(sin miniatura)"))
             thumb.setStyleSheet(
                 thumb.styleSheet() + " color: #666;"
             )
@@ -110,9 +110,9 @@ class SnapshotNode(QGraphicsProxyWidget):
         btns = QHBoxLayout()
         btns.setSpacing(4)
         for label, tip, sig in (
-            ("↩", "Restaurar este snapshot", self.request_restore),
-            ("✏", "Renombrar", self.request_rename),
-            ("🗑", "Eliminar", self.request_delete),
+            ("↩", self.tr("Restaurar este snapshot"), self.request_restore),
+            ("✏", self.tr("Renombrar"), self.request_rename),
+            ("🗑", self.tr("Eliminar"), self.request_delete),
         ):
             b = QPushButton(label)
             b.setFixedSize(28, 22)
@@ -135,13 +135,13 @@ class SnapshotNode(QGraphicsProxyWidget):
 
     def contextMenuEvent(self, event):
         menu = QMenu()
-        a_restore = menu.addAction("↩ Restaurar")
-        a_rename = menu.addAction("✏ Renombrar")
-        a_delete = menu.addAction("🗑 Eliminar")
+        a_restore = menu.addAction(self.tr("↩ Restaurar"))
+        a_rename = menu.addAction(self.tr("✏ Renombrar"))
+        a_delete = menu.addAction(self.tr("🗑 Eliminar"))
         menu.addSeparator()
-        a_child = menu.addAction("➕ Crear snapshot hijo")
-        a_set_parent = menu.addAction("🔗 Establecer padre…")
-        a_clear = menu.addAction("⬆ Mover a la raíz")
+        a_child = menu.addAction(self.tr("➕ Crear snapshot hijo"))
+        a_set_parent = menu.addAction(self.tr("🔗 Establecer padre…"))
+        a_clear = menu.addAction(self.tr("⬆ Mover a la raíz"))
         chosen = menu.exec(event.screenPos())
         if chosen == a_restore:
             self.request_restore.emit(self.tag)
@@ -177,8 +177,6 @@ class SnapshotsGraphView(QGraphicsView):
     #                          clear_parent|create_child
     node_action = pyqtSignal(str, str)
     selection_changed = pyqtSignal(str)
-
-    """QGraphicsView con zoom y pan para el organigrama de snapshots."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -379,3 +377,7 @@ class SnapshotsGraphView(QGraphicsView):
         else:
             dfs(root_label, 0)
         return positions
+
+# i18n_tanda2f_snapshots_graph_v1
+
+# i18n_tanda2f2_snapshots_graph_v1

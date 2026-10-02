@@ -54,7 +54,7 @@ class _ExportOvfDialog(QDialog):
 
     def __init__(self, parent, vm_name, is_macos):
         super().__init__(parent)
-        self.setWindowTitle("Exportar como OVF/OVA - " + str(vm_name))
+        self.setWindowTitle(self.tr("Exportar como OVF/OVA - {0}").format(vm_name))
         self.setModal(True)
         self.resize(580, 460)
 
@@ -70,33 +70,33 @@ class _ExportOvfDialog(QDialog):
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            "Exporta <b>" + str(vm_name) + "</b> como OVA (un solo archivo) "
-            "o como OVF (carpeta con descriptor + discos sueltos)."
+            self.tr("Exporta <b>{0}</b> como OVA (un solo archivo) "
+                    "o como OVF (carpeta con descriptor + discos sueltos).").format(vm_name)
         )
         info.setTextFormat(_Qt.TextFormat.RichText)
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        fmt_group = QGroupBox("Formato del disco")
+        fmt_group = QGroupBox(self.tr("Formato del disco"))
         fmt_lay = QVBoxLayout(fmt_group)
 
         self.radio_qcow2 = QRadioButton(
-            "QCOW2 (recomendado) - instantaneo y comprimido"
+            self.tr("QCOW2 (recomendado) - instantaneo y comprimido")
         )
         self.radio_qcow2.setChecked(True)
-        self.radio_qcow2.setToolTip(
+        self.radio_qcow2.setToolTip(self.tr(
             "El disco se aplana (descartando snapshots internos) y se "
             "comprime con zlib. Ideal para reimportar en esta misma app."
-        )
+        ))
         fmt_lay.addWidget(self.radio_qcow2)
 
         self.radio_vmdk = QRadioButton(
-            "VMDK stream-optimized - maxima compatibilidad con VirtualBox/VMware"
+            self.tr("VMDK stream-optimized - maxima compatibilidad con VirtualBox/VMware")
         )
-        self.radio_vmdk.setToolTip(
+        self.radio_vmdk.setToolTip(self.tr(
             "Requiere conversion previa con qemu-img. Tarda mas y necesita "
             "espacio temporal. VMDK stream-optimized ya descarta snapshots."
-        )
+        ))
         fmt_lay.addWidget(self.radio_vmdk)
 
         self._fmt_group = QButtonGroup(self)
@@ -115,15 +115,15 @@ class _ExportOvfDialog(QDialog):
         )
         layout.addWidget(self.lbl_compression_info)
 
-        opt_group = QGroupBox("Opciones adicionales")
+        opt_group = QGroupBox(self.tr("Opciones adicionales"))
         opt_lay = QVBoxLayout(opt_group)
 
         if self._is_macos:
             self.chk_iso = QCheckBox(
-                "Incluir medio de instalacion (BaseSystem.img)"
+                self.tr("Incluir medio de instalacion (BaseSystem.img)")
             )
         else:
-            self.chk_iso = QCheckBox("Incluir archivos ISO en el OVA")
+            self.chk_iso = QCheckBox(self.tr("Incluir archivos ISO en el OVA"))
         self.chk_iso.setChecked(False)
         opt_lay.addWidget(self.chk_iso)
         layout.addWidget(opt_group)
@@ -136,10 +136,10 @@ class _ExportOvfDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.addStretch(1)
-        cancel = QPushButton("Cancelar")
+        cancel = QPushButton(self.tr("Cancelar"))
         cancel.clicked.connect(self.reject)
         btns.addWidget(cancel)
-        ok = QPushButton("Exportar")
+        ok = QPushButton(self.tr("Exportar"))
         ok.setDefault(True)
         ok.clicked.connect(self._accept)
         btns.addWidget(ok)
@@ -147,17 +147,17 @@ class _ExportOvfDialog(QDialog):
 
     def _on_fmt_changed(self, *_):
         if self.radio_vmdk.isChecked():
-            self.lbl_compression_info.setText(
+            self.lbl_compression_info.setText(self.tr(
                 "El disco se convertira a <b>VMDK stream-optimized</b>. "
                 "Este formato ya descarta los snapshots internos."
-            )
+            ))
         else:
-            self.lbl_compression_info.setText(
+            self.lbl_compression_info.setText(self.tr(
                 "Los discos QCOW2 se <b>aplanan y comprimen</b> "
                 "automaticamente al exportar: se descartan los snapshots "
                 "internos y se aplica compresion zlib. Reduce el OVA "
                 "entre un 40% y un 60%."
-            )
+            ))
 
     def _accept(self):
         self._result = {
@@ -180,7 +180,7 @@ class _OvfImportPreviewDialog(QDialog):
 
     def __init__(self, parent, ovf_data, suggested_name):
         super().__init__(parent)
-        self.setWindowTitle("Importar OVF/OVA")
+        self.setWindowTitle(self.tr("Importar OVF/OVA"))
         self.setModal(True)
         self.resize(640, 540)
         from PyQt6.QtCore import Qt as _Qt
@@ -194,10 +194,10 @@ class _OvfImportPreviewDialog(QDialog):
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            "Se ha le\u00eddo el descriptor OVF. Revisa los datos "
-            "detectados y corrige lo que haga falta antes de importar."
-            "<br><br><i>El sistema operativo detectado puede ser "
-            "ambiguo: aj\u00fastalo si el original no coincide.</i>"
+            self.tr("Se ha le\u00eddo el descriptor OVF. Revisa los datos "
+                    "detectados y corrige lo que haga falta antes de importar."
+                    "<br><br><i>El sistema operativo detectado puede ser "
+                    "ambiguo: aj\u00fastalo si el original no coincide.</i>")
         )
         info.setTextFormat(_Qt.TextFormat.RichText)
         info.setWordWrap(True)
@@ -210,7 +210,7 @@ class _OvfImportPreviewDialog(QDialog):
             "padding: 8px; }"
         )
         det_lay = QVBoxLayout(detected)
-        detected_os = self._ovf_data.get("os_type") or "(desconocido)"
+        detected_os = self._ovf_data.get("os_type") or self.tr("(desconocido)")
         detected_ver = (self._ovf_data.get("distro")
                         or self._ovf_data.get("win_ver")
                         or self._ovf_data.get("macos_ver") or "")
@@ -218,15 +218,17 @@ class _OvfImportPreviewDialog(QDialog):
         detected_mem = self._ovf_data.get("memory_mb") or 0
         disks = self._ovf_data.get("disks") or []
         disks_txt = ", ".join(
-            f"{d.get('file') or '(sin nombre)'} "
+            f"{d.get('file') or self.tr('(sin nombre)')} "
             f"({d.get('capacity_gb') or 0} GiB)"
             for d in disks
-        ) or "(sin discos)"
+        ) or self.tr("(sin discos)")
         det_lbl = QLabel(
-            f"<b>Detectado en el OVF:</b><br>"
-            f"SO: {detected_os} {detected_ver}<br>"
-            f"CPUs: {detected_cpus} &nbsp; RAM: {detected_mem} MB<br>"
-            f"Discos: {len(disks)} \u2014 {disks_txt}"
+            self.tr("<b>Detectado en el OVF:</b><br>"
+                    "SO: {0} {1}<br>"
+                    "CPUs: {2} &nbsp; RAM: {3} MB<br>"
+                    "Discos: {4} \u2014 {5}").format(
+                        detected_os, detected_ver, detected_cpus,
+                        detected_mem, len(disks), disks_txt)
         )
         det_lbl.setTextFormat(_Qt.TextFormat.RichText)
         det_lbl.setWordWrap(True)
@@ -235,33 +237,33 @@ class _OvfImportPreviewDialog(QDialog):
 
         form = QFormLayout()
         self.input_name = QLineEdit(suggested_name)
-        form.addRow("Nombre de la VM:", self.input_name)
+        form.addRow(self.tr("Nombre de la VM:"), self.input_name)
 
         self.combo_os = QComboBox()
-        self.combo_os.addItem("GNU / Linux", "linux")
-        self.combo_os.addItem("Microsoft Windows", "windows")
-        self.combo_os.addItem("macOS", "macos")
-        self.combo_os.addItem("Android (Android-x86 / Bliss OS)", "android")
+        self.combo_os.addItem(self.tr("GNU / Linux"), "linux")
+        self.combo_os.addItem(self.tr("Microsoft Windows"), "windows")
+        self.combo_os.addItem(self.tr("macOS"), "macos")
+        self.combo_os.addItem(self.tr("Android (Android-x86 / Bliss OS)"), "android")
         idx = self.combo_os.findData(self._ovf_data.get("os_type") or "linux")
         if idx >= 0:
             self.combo_os.setCurrentIndex(idx)
         self.combo_os.currentIndexChanged.connect(self._on_os_changed)
-        form.addRow("Plataforma:", self.combo_os)
+        form.addRow(self.tr("Plataforma:"), self.combo_os)
 
-        self.label_version = QLabel("Distribuci\u00f3n / versi\u00f3n:")
+        self.label_version = QLabel(self.tr("Distribuci\u00f3n / versi\u00f3n:"))
         self.combo_version = QComboBox()
         self.combo_version.setEditable(True)
         form.addRow(self.label_version, self.combo_version)
 
         self.chk_config_only = QCheckBox(
-            "Importar solo la configuraci\u00f3n (sin copiar los discos)"
+            self.tr("Importar solo la configuraci\u00f3n (sin copiar los discos)")
         )
-        self.chk_config_only.setToolTip(
+        self.chk_config_only.setToolTip(self.tr(
             "Si est\u00e1 marcado, se importan solo los datos del descriptor "
             "(CPU, RAM, red, sistema operativo) y NO se convierten ni "
             "copian los discos. \u00datil para reutilizar una configuraci\u00f3n "
             "sin duplicar gigabytes de disco."
-        )
+        ))
         form.addRow("", self.chk_config_only)
 
         layout.addLayout(form)
@@ -269,9 +271,9 @@ class _OvfImportPreviewDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.addStretch(1)
-        cancel = QPushButton("Cancelar")
+        cancel = QPushButton(self.tr("Cancelar"))
         cancel.clicked.connect(self.reject)
-        ok = QPushButton("Importar")
+        ok = QPushButton(self.tr("Importar"))
         ok.setDefault(True)
         ok.clicked.connect(self._accept)
         btns.addWidget(cancel)
@@ -285,7 +287,7 @@ class _OvfImportPreviewDialog(QDialog):
         os_type = self.combo_os.currentData() or "linux"
         self.combo_version.clear()
         if os_type == "linux":
-            self.label_version.setText("Distribuci\u00f3n:")
+            self.label_version.setText(self.tr("Distribuci\u00f3n:"))
             for d in ("Linux Mint", "Ubuntu", "Debian", "Manjaro Linux",
                       "Fedora", "Pop!_OS", "Zorin OS", "elementary OS",
                       "openSUSE", "Arch Linux", "EndeavourOS", "Kali Linux",
@@ -301,7 +303,7 @@ class _OvfImportPreviewDialog(QDialog):
                 if i >= 0:
                     self.combo_version.setCurrentIndex(i)
         elif os_type == "windows":
-            self.label_version.setText("Versi\u00f3n de Windows:")
+            self.label_version.setText(self.tr("Versi\u00f3n de Windows:"))
             for v in ("Windows 11", "Windows 10", "Windows 7",
                       "Windows Vista", "Windows XP", "Windows 2000"):
                 self.combo_version.addItem(v, v)
@@ -310,7 +312,7 @@ class _OvfImportPreviewDialog(QDialog):
             if i >= 0:
                 self.combo_version.setCurrentIndex(i)
         elif os_type == "macos":
-            self.label_version.setText("Versi\u00f3n de macOS:")
+            self.label_version.setText(self.tr("Versi\u00f3n de macOS:"))
             for v in ("High Sierra (10.13)", "Mojave (10.14)",
                       "Catalina (10.15)", "Big Sur (11.7)",
                       "Monterey (12.6)", "Ventura (13)", "Sonoma (14)",
@@ -322,7 +324,7 @@ class _OvfImportPreviewDialog(QDialog):
                 if i >= 0:
                     self.combo_version.setCurrentIndex(i)
         else:  # android
-            self.label_version.setText("Distribuci\u00f3n Android:")
+            self.label_version.setText(self.tr("Distribuci\u00f3n Android:"))
             for v in ("Android-x86", "Bliss OS"):
                 self.combo_version.addItem(v, v)
 
@@ -330,8 +332,8 @@ class _OvfImportPreviewDialog(QDialog):
         name = (self.input_name.text() or "").strip()
         if not name:
             from PyQt6.QtWidgets import QMessageBox as _QMB
-            _QMB.warning(self, "Nombre inv\u00e1lido",
-                         "Debes escribir un nombre para la VM importada.")
+            _QMB.warning(self, self.tr("Nombre inv\u00e1lido"),
+                         self.tr("Debes escribir un nombre para la VM importada."))
             return
         name = re.sub(r'[\\/:*?"<>|]', "_", name).strip() or "VM-importada"
         os_type = self.combo_os.currentData() or "linux"
@@ -356,77 +358,10 @@ class VmLifecycleMixin:
     # Versión de SO. La caja solo aparece si hay entrada para el SO elegido.
     # Se usan caracteres Unicode (no emoji del sistema) para que se vean
     # igual en cualquier tema de escritorio.
-    _OS_NOTES = {
-        "linux": {
-            "title": "<b>\u2139\ufe0f Notas sobre Linux en QEMU/KVM</b>",
-            "body": (
-                "<p><b>\u2705 Funciona:</b> instalaci\u00f3n, arranque, "
-                "snapshots completos y de disco, carpetas compartidas "
-                "(VirtioFS / 9p), Guest Agent, clipboard bidireccional, "
-                "passthrough PCI/USB y panel de recursos.</p>"
-                "<p><b>\U0001f4a1 Recomendado:</b> VirtIO-GPU 2D o VirGL. "
-                "La opci\u00f3n \u00abAutom\u00e1tico\u00bb elige lo mejor "
-                "seg\u00fan el host.</p>"
-                "<p><b>\u26a0\ufe0f VirtioFS</b> necesita "
-                "<code>virtiofsd</code> en el host. La app puede instalarlo "
-                "desde Carpetas compartidas \u2192 Dependencias.</p>"
-            ),
-        },
-        "windows": {
-            "title": "<b>\u2139\ufe0f Notas sobre Windows en QEMU/KVM</b>",
-            "body": (
-                "<p><b>\u2705 Funciona:</b> instalaci\u00f3n, snapshots, "
-                "carpetas compartidas (SMB), Guest Agent, clipboard con "
-                "SPICE Guest Tools, passthrough PCI/USB.</p>"
-                "<p><b>\u26a0\ufe0f Windows 11</b> exige UEFI + Secure Boot "
-                "+ TPM 2.0. La app lo aplica autom\u00e1ticamente al "
-                "elegirlo.</p>"
-                "<p><b>\u26a0\ufe0f VirtIO Guest Tools:</b> inst\u00e1lalos "
-                "desde la ISO de la app para que el disco y la red VirtIO "
-                "se vean dentro del guest.</p>"
-                "<p><b>\U0001f4a1</b> Para clipboard bidireccional y audio "
-                "remoto, usa SPICE en vez de VNC.</p>"
-            ),
-        },
-        "macos": {
-            "title": "<b>\u2139\ufe0f Notas sobre macOS en QEMU/KVM</b>",
-            "body": (
-                "<p><b>\u2705 Funciona:</b> instalaci\u00f3n con System "
-                "Recovery, OpenCore autom\u00e1tico, arranque, snapshots de "
-                "disco y carpetas compartidas SMB.</p>"
-                "<p><b>\u274c No soporta:</b> snapshots completos (RAM + "
-                "dispositivos), VirGL / Venus, Secure Boot ni TPM 2.0.</p>"
-                "<p><b>\u26a0\ufe0f AVX2:</b> requerido para Sonoma, "
-                "Sequoia y Tahoe. La app avisa al crear la VM si tu CPU no "
-                "lo tiene.</p>"
-                "<p><b>\U0001f4a1 RAM m\u00ednima:</b> 8 GB; recomendado "
-                "16 GB y 4 n\u00facleos.</p>"
-            ),
-        },
-        "android": {
-            "title": "<b>\u2139\ufe0f Notas sobre Android en QEMU/KVM</b>",
-            "body": (
-                "<p><b>\u2705 Funciona:</b> crear la VM, arrancar, consola "
-                "VNC/SPICE, snapshots de disco y passthrough USB.</p>"
-                "<p><b>\u274c No disponible en Android:</b> carpetas "
-                "compartidas (9p / VirtioFS), QEMU Guest Agent, clipboard "
-                "bidireccional y automontaje. Los kernels de Android-x86 / "
-                "Bliss OS no incluyen esos m\u00f3dulos. Para pasar "
-                "archivos, usa ADB o la red.</p>"
-                "<p><b>\u2705 ISO recomendada:</b> <b>Android-x86 9.0</b> "
-                "\u2014 <a href=\"https://www.android-x86.org/download.html\">"
-                "android-x86.org/download.html</a> (probada, usa QXL "
-                "autom\u00e1ticamente).</p>"
-                "<p><b>\u26a0\ufe0f Bliss OS:</b> m\u00e1s moderno "
-                "(Android 12/13) pero exige \u22658 GB RAM, 4 n\u00facleos "
-                "y chipset Q35. La variante \u00abBliss-Surface\u00bb no "
-                "arranca bajo QEMU. Si se queda colgado en \u00abHave A "
-                "Truly Blissful Experience\u00bb, sube RAM/n\u00facleos o "
-                "usa Android-x86. Descarga: "
-                "<a href=\"https://blissos.org/\">blissos.org</a></p>"
-            ),
-        },
-    }
+    # i18n_tanda2e3_os_notes: los avisos por SO viven en notes/<os>_<lang>.md
+    # (Markdown). Se cargan segun el idioma activo con _load_localized_md().
+    # Editar esos .md NO requiere tocar codigo ni recompilar traducciones.
+    _OS_NOTES = {"linux", "windows", "macos", "android"}
 
 # ------------------------------------------------------------------
     # Caché de load_vm_config (marcador vm_config_cache_v1)
@@ -577,8 +512,8 @@ class VmLifecycleMixin:
         """Abre el diálogo de grupo + color para la VM seleccionada."""
         if not self._vm_is_selected():
             QMessageBox.information(
-                self, "Etiqueta de la VM",
-                "Selecciona primero una máquina virtual.",
+                self, self.tr("Etiqueta de la VM"),
+                self.tr("Selecciona primero una máquina virtual."),
             )
             return
         from PyQt6.QtCore import Qt as _Qt
@@ -594,15 +529,15 @@ class VmLifecycleMixin:
         cur_color = self._load_vm_color(vm_dir)
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Etiqueta - {vm_name}")
+        dlg.setWindowTitle(self.tr("Etiqueta - {0}").format(vm_name))
         dlg.setModal(True)
         dlg.resize(520, 400)
         layout = QVBoxLayout(dlg)
 
         info = QLabel(
-            f"Grupo y color para <b>{vm_name}</b>. El grupo es texto "
-            "libre: escribe uno nuevo para crearlo. El color se aplica "
-            "como fondo suave del ítem en la lista lateral."
+            self.tr("Grupo y color para <b>{0}</b>. El grupo es texto "
+                    "libre: escribe uno nuevo para crearlo. El color se aplica "
+                    "como fondo suave del ítem en la lista lateral.").format(vm_name)
         )
         info.setTextFormat(_Qt.TextFormat.RichText)
         info.setWordWrap(True)
@@ -622,11 +557,11 @@ class VmLifecycleMixin:
             cmb.setCurrentIndex(idx)
         else:
             cmb.setCurrentIndex(0)
-        cmb.lineEdit().setPlaceholderText("(sin grupo)")
-        form.addRow("Grupo:", cmb)
+        cmb.lineEdit().setPlaceholderText(self.tr("(sin grupo)"))
+        form.addRow(self.tr("Grupo:"), cmb)
         layout.addLayout(form)
 
-        layout.addWidget(QLabel("<b>Color:</b>"))
+        layout.addWidget(QLabel(self.tr("<b>Color:</b>")))
         selected = {"color": cur_color}
 
         grid_wrap = QWidget()
@@ -640,7 +575,7 @@ class VmLifecycleMixin:
             pm.fill(QColor(hex_color))
             return QIcon(pm)
 
-        none_btn = QPushButton("Sin color")
+        none_btn = QPushButton(self.tr("Sin color"))
         none_btn.setCheckable(True)
         none_btn.setChecked(not cur_color)
         none_btn.setIcon(_swatch_icon("#ffffff"))
@@ -703,9 +638,9 @@ class VmLifecycleMixin:
         layout.addStretch(1)
 
         bottom = QHBoxLayout()
-        clear_btn = QPushButton("Quitar etiqueta")
-        cancel_btn = QPushButton("Cancelar")
-        save_btn = QPushButton("Guardar")
+        clear_btn = QPushButton(self.tr("Quitar etiqueta"))
+        cancel_btn = QPushButton(self.tr("Cancelar"))
+        save_btn = QPushButton(self.tr("Guardar"))
         save_btn.setDefault(True)
         clear_btn.clicked.connect(lambda: (cmb.setCurrentIndex(0), _on_pick("")))
         cancel_btn.clicked.connect(dlg.reject)
@@ -717,8 +652,8 @@ class VmLifecycleMixin:
                 dlg.accept()
             except Exception as e:
                 QMessageBox.warning(
-                    self, "Etiqueta",
-                    f"No se pudo guardar la etiqueta.\n\n{e}",
+                    self, self.tr("Etiqueta"),
+                    self.tr("No se pudo guardar la etiqueta.\n\n{0}").format(e),
                 )
 
         save_btn.clicked.connect(_save)
@@ -757,8 +692,8 @@ class VmLifecycleMixin:
 
         if not self._vm_is_selected():
             QMessageBox.information(
-                self, "Comando QEMU",
-                "Selecciona primero una maquina virtual.",
+                self, self.tr("Comando QEMU"),
+                self.tr("Selecciona primero una maquina virtual."),
             )
             return
 
@@ -766,10 +701,10 @@ class VmLifecycleMixin:
         run_sh = os.path.join(self.current_vm_dir, "run_temp.sh")
         if not os.path.isfile(run_sh):
             QMessageBox.information(
-                self, "Comando QEMU",
-                f"La VM '{vm_name}' todavia no se ha arrancado.\n\n"
-                "El comando QEMU se genera al pulsar Iniciar; vuelve a "
-                "intentarlo despues del primer arranque.",
+                self, self.tr("Comando QEMU"),
+                self.tr("La VM '{0}' todavia no se ha arrancado.\n\n"
+                        "El comando QEMU se genera al pulsar Iniciar; vuelve a "
+                        "intentarlo despues del primer arranque.").format(vm_name),
             )
             return
 
@@ -778,20 +713,20 @@ class VmLifecycleMixin:
                 content = f.read()
         except Exception as e:
             QMessageBox.warning(
-                self, "Comando QEMU",
-                f"No se pudo leer run_temp.sh.\n\n{e}",
+                self, self.tr("Comando QEMU"),
+                self.tr("No se pudo leer run_temp.sh.\n\n{0}").format(e),
             )
             return
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Comando QEMU - {vm_name}")
+        dlg.setWindowTitle(self.tr("Comando QEMU - {0}").format(vm_name))
         dlg.resize(920, 560)
         layout = QVBoxLayout(dlg)
         info = QLabel(
-            f"Contenido de <code>run_temp.sh</code> para "
-            f"<b>{vm_name}</b>.<br>"
-            "Este es el comando exacto con el que QEMU esta ejecutando "
-            "(o ejecuto por ultima vez) la VM."
+            self.tr("Contenido de <code>run_temp.sh</code> para "
+                    "<b>{0}</b>.<br>"
+                    "Este es el comando exacto con el que QEMU esta ejecutando "
+                    "(o ejecuto por ultima vez) la VM.").format(vm_name)
         )
         info.setTextFormat(_Qt.TextFormat.RichText)
         info.setWordWrap(True)
@@ -811,19 +746,19 @@ class VmLifecycleMixin:
         layout.addWidget(edit, 1)
 
         btn_row = QHBoxLayout()
-        copy_btn = QPushButton("Copiar al portapapeles")
+        copy_btn = QPushButton(self.tr("Copiar al portapapeles"))
         copy_btn.clicked.connect(
             lambda: QApplication.clipboard().setText(content)
         )
-        folder_btn = QPushButton("Abrir carpeta de la VM")
+        folder_btn = QPushButton(self.tr("Abrir carpeta de la VM"))
         folder_btn.setToolTip(
-            "Abre la carpeta que contiene run_temp.sh, launch.log y los discos."
+            self.tr("Abre la carpeta que contiene run_temp.sh, launch.log y los discos.")
         )
         try:
             folder_btn.clicked.connect(self.open_vm_folder)
         except Exception:
             pass
-        close_btn = QPushButton("Cerrar")
+        close_btn = QPushButton(self.tr("Cerrar"))
         close_btn.clicked.connect(dlg.accept)
         btn_row.addWidget(copy_btn)
         btn_row.addWidget(folder_btn)
@@ -886,8 +821,8 @@ class VmLifecycleMixin:
         """Abre el dialogo para editar las notas de la VM seleccionada."""
         if not self._vm_is_selected():
             QMessageBox.information(
-                self, "Notas de la VM",
-                "Selecciona primero una maquina virtual.",
+                self, self.tr("Notas de la VM"),
+                self.tr("Selecciona primero una maquina virtual."),
             )
             return
         from PyQt6.QtCore import Qt as _Qt
@@ -900,14 +835,14 @@ class VmLifecycleMixin:
         current = self._load_vm_notes(self.current_vm_dir)
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Notas - {vm_name}")
+        dlg.setWindowTitle(self.tr("Notas - {0}").format(vm_name))
         dlg.resize(640, 440)
         layout = QVBoxLayout(dlg)
 
         info = _QLabel(
-            f"Notas libres sobre <b>{vm_name}</b>. Se guardan en "
-            "<code>vm_config.ini</code> como <code>extra.notes</code> "
-            "y aparecen como aviso amarillo en la pestana Resumen."
+            self.tr("Notas libres sobre <b>{0}</b>. Se guardan en "
+                    "<code>vm_config.ini</code> como <code>extra.notes</code> "
+                    "y aparecen como aviso amarillo en la pestana Resumen.").format(vm_name)
         )
         info.setTextFormat(_Qt.TextFormat.RichText)
         info.setWordWrap(True)
@@ -916,15 +851,15 @@ class VmLifecycleMixin:
         edit = QPlainTextEdit()
         edit.setPlainText(current)
         edit.setPlaceholderText(
-            "Ej.: instalado con VirtIO, probar snapshots tras actualizar "
-            "los drivers; puerto 8080 redirigido al 80 del guest..."
+            self.tr("Ej.: instalado con VirtIO, probar snapshots tras actualizar "
+                    "los drivers; puerto 8080 redirigido al 80 del guest...")
         )
         layout.addWidget(edit, 1)
 
         btn_row = QHBoxLayout()
-        clear_btn = _QPushButton("Borrar notas")
-        cancel_btn = _QPushButton("Cancelar")
-        save_btn = _QPushButton("Guardar")
+        clear_btn = _QPushButton(self.tr("Borrar notas"))
+        cancel_btn = _QPushButton(self.tr("Cancelar"))
+        save_btn = _QPushButton(self.tr("Guardar"))
         save_btn.setDefault(True)
         clear_btn.clicked.connect(lambda: edit.setPlainText(""))
         cancel_btn.clicked.connect(dlg.reject)
@@ -935,8 +870,8 @@ class VmLifecycleMixin:
                 dlg.accept()
             except Exception as e:
                 QMessageBox.warning(
-                    self, "Notas",
-                    f"No se pudieron guardar las notas.\n\n{e}",
+                    self, self.tr("Notas"),
+                    self.tr("No se pudieron guardar las notas.\n\n{0}").format(e),
                 )
 
         save_btn.clicked.connect(_save)
@@ -1170,18 +1105,22 @@ class VmLifecycleMixin:
         try:
             name = os.path.basename(self.current_vm_dir) if self.current_vm_dir else self.input_vm_name.text().strip()
             if not name:
-                self.manager_vm_title.setText("Nueva máquina virtual")
-                self.manager_vm_state.setText("● Nueva VM")
-                self.manager_details_label.setText("No hay una máquina virtual seleccionada.\n\nPulsa 'Nueva máquina virtual' para comenzar.")
-                self.manager_quick_hint.setText("Configura el sistema en la pestaña 'Configuración'.")
+                self.manager_vm_title.setText(self.tr("Nueva máquina virtual"))
+                self.manager_vm_state.setText(self.tr("● Nueva VM"))
+                self.manager_details_label.setText(self.tr(
+                    "No hay una máquina virtual seleccionada.\n\n"
+                    "Pulsa 'Nueva máquina virtual' para comenzar."))
+                self.manager_quick_hint.setText(self.tr(
+                    "Configura el sistema en la pestaña 'Configuración'."))
                 return
             state = self._runtime_state(name) if self.current_vm_dir else "stopped"
             state_map = {
-                "running": ("● Ejecutándose", "#2e7d32"),
-                "paused": ("● Pausada", "#f57c00"),
-                "stopped": ("● Apagada", "#757575"),
+                "running": (self.tr("● Ejecutándose"), "#2e7d32"),
+                "paused": (self.tr("● Pausada"), "#f57c00"),
+                "stopped": (self.tr("● Apagada"), "#757575"),
             }
-            state_text, state_color = state_map.get(state, ("● Nueva VM", "#757575"))
+            state_text, state_color = state_map.get(
+                state, (self.tr("● Nueva VM"), "#757575"))
             self.manager_vm_title.setText(name)
             self.manager_vm_state.setText(state_text)
             self.manager_vm_state.setStyleSheet(f"font-weight:bold; color:{state_color};")
@@ -1197,14 +1136,14 @@ class VmLifecycleMixin:
                             _preview = _preview[:400].rstrip() + "\u2026"
                         _safe = _html.escape(_preview).replace("\n", "<br>")
                         self.manager_vm_notes.setText(
-                            "<b>\U0001f4dd Notas:</b><br>" + _safe
+                            "<b>\U0001f4dd " + self.tr("Notas:") + "</b><br>" + _safe
                         )
                         self.manager_vm_notes.setVisible(True)
                 os_type = data.get("os_type", "")
                 system = "macOS" if os_type == "macos" else (data.get("extra", {}).get("win_ver", "Windows") if os_type == "windows" else data.get("extra", {}).get("distro", "Linux"))
                 firmware = data.get("firmware", "bios").upper()
-                sb = "Sí" if data.get("secure_boot") else "No"
-                tpm = "Sí" if data.get("tpm") else "No"
+                sb = self.tr("Sí") if data.get("secure_boot") else self.tr("No")
+                tpm = self.tr("Sí") if data.get("tpm") else self.tr("No")
                 gpu = data.get("graphics_mode", "auto")
                 audio = data.get("audio_device", "intel-hda")
                 # En Detalles, red/almacenamiento/arranque son solo información.
@@ -1213,7 +1152,7 @@ class VmLifecycleMixin:
                     net_devices = []
                 if not net_devices:
                     net_devices = [{
-                        "name": "Red 1",
+                        "name": self.tr("Red 1"),
                         "model": data.get("network_model", "virtio-net-pci"),
                         "mode": data.get("network_mode", "nat"),
                         "interface": data.get("network_interface", ""),
@@ -1226,38 +1165,46 @@ class VmLifecycleMixin:
                     if nd.get("interface"):
                         line += f" [{nd.get('interface')}]"
                     net_lines.append(line)
-                net_info = "<br>".join(net_lines) if net_lines else "Sin adaptadores configurados"
+                net_info = "<br>".join(net_lines) if net_lines else self.tr("Sin adaptadores configurados")
 
                 storage_lines = []
                 for s_name, s_type, s_path in self._storage_entries_with_types(self.current_vm_dir):
                     # Etiqueta neutra: SATA y NVMe se muestran como
                     # "Disco Duro" (el bus real lo decide workers).
                     icon = {"sata": "💽", "nvme": "💽", "floppy": "💾"}.get(s_type, "💽")
-                    label = {"sata": "Disco Duro", "nvme": "Disco Duro"}.get(
+                    label = {"sata": self.tr("Disco Duro"),
+                             "nvme": self.tr("Disco Duro")}.get(
                         s_type, s_type.upper())
                     storage_lines.append(f"{icon} {label} — {s_name}")
                 cd_devices = [d for d in self._storage_devices_all(self.current_vm_dir) if d.get("device") == "cdrom"]
                 for cd in cd_devices:
                     cd_path = cd.get("path", "")
-                    storage_lines.append(f"📀 CD/DVD — {cd.get('name', 'CD/DVD')} — {os.path.basename(cd_path) if cd_path else 'vacío'}")
-                storage_info = "<br>".join(storage_lines) if storage_lines else "Sin dispositivos"
+                    storage_lines.append(
+                        "📀 " + self.tr("CD/DVD") + " — "
+                        + cd.get('name', self.tr('CD/DVD')) + " — "
+                        + (os.path.basename(cd_path) if cd_path
+                           else self.tr('vacío')))
+                storage_info = "<br>".join(storage_lines) if storage_lines else self.tr("Sin dispositivos")
                 boot_info = " → ".join(self._boot_token_label(tok) for tok in self._current_boot_order_tokens())
 
                 self.manager_details_label.setText(
-                    f"<b>Sistema:</b> {system}<br>"
-                    f"<b>CPU:</b> {data.get('cores', '-')} núcleos &nbsp;&nbsp; <b>RAM:</b> {data.get('ram', '-')}<br>"
-                    f"<b>Firmware:</b> {firmware} &nbsp;&nbsp; <b>Secure Boot:</b> {sb} &nbsp;&nbsp; <b>TPM:</b> {tpm}<br>"
-                    f"<b>Gráficos:</b> {gpu}<br>"
-                    f"<b>Audio:</b> {audio}<br>"
-                    f"<b>Red:</b><br>{net_info}<br>"
-                    f"<b>Almacenamiento:</b><br>{storage_info}<br>"
-                    f"<b>Orden de arranque:</b> {boot_info}<br>"
-                    f"<b>Ubicación:</b> {self.current_vm_dir}"
+                    f"<b>{self.tr('Sistema:')}</b> {system}<br>"
+                    f"<b>{self.tr('CPU:')}</b> {data.get('cores', '-')} {self.tr('núcleos')} &nbsp;&nbsp; <b>{self.tr('RAM:')}</b> {data.get('ram', '-')}<br>"
+                    f"<b>{self.tr('Firmware:')}</b> {firmware} &nbsp;&nbsp; <b>{self.tr('Secure Boot:')}</b> {sb} &nbsp;&nbsp; <b>{self.tr('TPM:')}</b> {tpm}<br>"
+                    f"<b>{self.tr('Gráficos:')}</b> {gpu}<br>"
+                    f"<b>{self.tr('Audio:')}</b> {audio}<br>"
+                    f"<b>{self.tr('Red:')}</b><br>{net_info}<br>"
+                    f"<b>{self.tr('Almacenamiento:')}</b><br>{storage_info}<br>"
+                    f"<b>{self.tr('Orden de arranque:')}</b> {boot_info}<br>"
+                    f"<b>{self.tr('Ubicación:')}</b> {self.current_vm_dir}"
                 )
-                self.manager_quick_hint.setText("Usa 'Configuración' para modificar hardware y opciones avanzadas.")
+                self.manager_quick_hint.setText(self.tr(
+                    "Usa 'Configuración' para modificar hardware y opciones avanzadas."))
             else:
-                self.manager_details_label.setText("VM nueva: todavía no se ha guardado una configuración.")
-                self.manager_quick_hint.setText("Configura la VM en la pestaña 'Configuración' y pulsa el botón de inicio.")
+                self.manager_details_label.setText(self.tr(
+                    "VM nueva: todavía no se ha guardado una configuración."))
+                self.manager_quick_hint.setText(self.tr(
+                    "Configura la VM en la pestaña 'Configuración' y pulsa el botón de inicio."))
             # Actualizar visibilidad del botón "🧬 Desenlazar" según
             # si la VM actual es un clon enlazado (linked_clone_v1).
             try:
@@ -1276,10 +1223,10 @@ class VmLifecycleMixin:
 
     def _set_vm_status(self, state="new"):
         styles = {
-            "new": ("● Nueva VM", "#757575"),
-            "saved": ("● Configurada", "#1565c0"),
-            "running": ("● Ejecutándose", "#2e7d32"),
-            "error": ("● Error", "#c62828"),
+            "new": (self.tr("● Nueva VM"), "#757575"),
+            "saved": (self.tr("● Configurada"), "#1565c0"),
+            "running": (self.tr("● Ejecutándose"), "#2e7d32"),
+            "error": (self.tr("● Error"), "#c62828"),
         }
         text, color = styles.get(state, styles["new"])
         self.vm_status_label.setText(text)
@@ -1287,22 +1234,22 @@ class VmLifecycleMixin:
 
     def open_vm_folder(self):
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Carpeta", "Primero selecciona una máquina virtual existente.")
+            QMessageBox.information(self, self.tr("Carpeta"), self.tr("Primero selecciona una máquina virtual existente."))
             return
         folder = os.path.abspath(self.current_vm_dir)
         try:
             if shutil.which("xdg-open"):
                 subprocess.Popen(["xdg-open", folder], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
-                QMessageBox.information(self, "Carpeta de la VM", folder)
+                QMessageBox.information(self, self.tr("Carpeta de la VM"), folder)
         except Exception as e:
-            QMessageBox.warning(self, "Carpeta", f"No se pudo abrir la carpeta.\n\n{folder}\n\n{e}")
+            QMessageBox.warning(self, self.tr("Carpeta"), self.tr("No se pudo abrir la carpeta.\n\n{0}\n\n{1}").format(folder, e))
 
     def show_vm_summary(self):
         if not self.input_vm_name.text().strip():
-            QMessageBox.information(self, "Resumen", "No hay una máquina virtual seleccionada todavía.")
+            QMessageBox.information(self, self.tr("Resumen"), self.tr("No hay una máquina virtual seleccionada todavía."))
             return
-        QMessageBox.information(self, "Resumen de la máquina virtual", self._build_vm_summary_text())
+        QMessageBox.information(self, self.tr("Resumen de la máquina virtual"), self._build_vm_summary_text())
 
     def _build_vm_summary_text(self):
         os_type = self.combo_main_os.currentData()
@@ -1383,19 +1330,19 @@ class VmLifecycleMixin:
     def export_vm(self):
         """Exporta la VM seleccionada. Ver cabecera del módulo."""
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Exportar VM", "Primero selecciona una máquina virtual.")
+            QMessageBox.information(self, self.tr("Exportar VM"), self.tr("Primero selecciona una máquina virtual."))
             return
 
         vm_name = os.path.basename(self.current_vm_dir)
         state = self._runtime_state(vm_name)
         if state != "stopped":
             resp = QMessageBox.warning(
-                self, "Exportar VM",
-                f"La VM '{vm_name}' está {state}.\n\n"
-                "Se recomienda apagarla antes de exportar: si está corriendo, "
-                "los discos pueden estar en un estado inconsistente (cambios "
-                "sin sincronizar a disco, locks activos…).\n\n"
-                "¿Continuar de todos modos?",
+                self, self.tr("Exportar VM"),
+                self.tr("La VM '{0}' está {1}.\n\n"
+                        "Se recomienda apagarla antes de exportar: si está corriendo, "
+                        "los discos pueden estar en un estado inconsistente (cambios "
+                        "sin sincronizar a disco, locks activos…).\n\n"
+                        "¿Continuar de todos modos?").format(vm_name, state),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -1404,16 +1351,16 @@ class VmLifecycleMixin:
 
         # Formato.
         formats = [
-            ("Copia de carpeta (más rápido, editable)", "folder"),
-            ("Archivo .tar.gz (comprimido, portable)", "tar.gz"),
-            ("Archivo .zip (compatible con Windows)", "zip"),
-            ("Archivo .ova (Open Virtual Appliance, portable a VirtualBox/VMware)", "ova"),
-            ("Descriptor .ovf + discos sueltos (carpeta)", "ovf"),
+            (self.tr("Copia de carpeta (más rápido, editable)"), "folder"),
+            (self.tr("Archivo .tar.gz (comprimido, portable)"), "tar.gz"),
+            (self.tr("Archivo .zip (compatible con Windows)"), "zip"),
+            (self.tr("Archivo .ova (Open Virtual Appliance, portable a VirtualBox/VMware)"), "ova"),
+            (self.tr("Descriptor .ovf + discos sueltos (carpeta)"), "ovf"),
         ]
         labels = [f[0] for f in formats]
         item, ok_choice = QInputDialog.getItem(
-            self, "Exportar VM",
-            f"Formato para exportar '{vm_name}':",
+            self, self.tr("Exportar VM"),
+            self.tr("Formato para exportar '{0}':").format(vm_name),
             labels, 0, False,
         )
         if not ok_choice:
@@ -1440,7 +1387,7 @@ class VmLifecycleMixin:
         # Destino.
         if fmt == "folder":
             dest_parent = QFileDialog.getExistingDirectory(
-                self, "Elige la carpeta donde crear la copia",
+                self, self.tr("Elige la carpeta donde crear la copia"),
                 os.path.expanduser("~"),
             )
             if not dest_parent:
@@ -1448,9 +1395,9 @@ class VmLifecycleMixin:
             dest_path = os.path.join(dest_parent, vm_name)
             if os.path.exists(dest_path):
                 resp = QMessageBox.question(
-                    self, "Ya existe",
-                    f"En la carpeta destino ya existe '{vm_name}'.\n\n"
-                    "¿Sobrescribir? (se borrará la carpeta destino existente)",
+                    self, self.tr("Ya existe"),
+                    self.tr("En la carpeta destino ya existe '{0}'.\n\n"
+                            "¿Sobrescribir? (se borrará la carpeta destino existente)").format(vm_name),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
                 )
@@ -1460,10 +1407,10 @@ class VmLifecycleMixin:
             ext = ".tar.gz" if fmt == "tar.gz" else ".zip"
             suggested = os.path.join(os.path.expanduser("~"), f"{vm_name}{ext}")
             dest_path, _ = QFileDialog.getSaveFileName(
-                self, "Guardar archivo de exportación",
+                self, self.tr("Guardar archivo de exportación"),
                 suggested,
-                "Archivo tar.gz (*.tar.gz);;Archivo zip (*.zip)" if fmt == "tar.gz"
-                else "Archivo zip (*.zip);;Archivo tar.gz (*.tar.gz)",
+                self.tr("Archivo tar.gz (*.tar.gz);;Archivo zip (*.zip)") if fmt == "tar.gz"
+                else self.tr("Archivo zip (*.zip);;Archivo tar.gz (*.tar.gz)"),
             )
             if not dest_path:
                 return
@@ -1471,8 +1418,8 @@ class VmLifecycleMixin:
                 dest_path += ext
             if os.path.exists(dest_path):
                 resp = QMessageBox.question(
-                    self, "Ya existe",
-                    f"El archivo destino ya existe:\n{dest_path}\n\n¿Sobrescribir?",
+                    self, self.tr("Ya existe"),
+                    self.tr("El archivo destino ya existe:\n{0}\n\n¿Sobrescribir?").format(dest_path),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
                 )
@@ -1481,12 +1428,12 @@ class VmLifecycleMixin:
 
         # Confirmación final con resumen.
         confirm = QMessageBox.question(
-            self, "Confirmar exportación",
-            f"Exportar '{vm_name}' como:\n\n"
-            f"  • Formato: {item}\n"
-            f"  • Contenido: {file_count} archivo(s), {total_txt}\n"
-            f"  • Destino: {dest_path}\n\n"
-            "Los archivos de bloqueo (pids, sockets) y logs se omitirán.",
+            self, self.tr("Confirmar exportación"),
+            self.tr("Exportar '{0}' como:\n\n"
+                    "  • Formato: {1}\n"
+                    "  • Contenido: {2} archivo(s), {3}\n"
+                    "  • Destino: {4}\n\n"
+                    "Los archivos de bloqueo (pids, sockets) y logs se omitirán.").format(vm_name, item, file_count, total_txt, dest_path),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -1508,11 +1455,11 @@ class VmLifecycleMixin:
             f"Exportando VM '{vm_name}'",
             on_success=lambda result: self._on_export_success(result, vm_name),
             on_error=lambda e: self._show_selectable_error(
-                "Exportar VM", f"No se pudo completar la exportación.\n\n{e}"
+                self.tr("Exportar VM"), self.tr("No se pudo completar la exportación.\n\n{0}").format(e)
             ),
             cancelable=True,
             show_log=True,
-            subtitle=f"{file_count} archivo(s), {total_txt} en total",
+            subtitle=self.tr("{0} archivo(s), {1} en total").format(file_count, total_txt),
         )
 
     def _export_vm_impl(self, vm_dir, vm_name, fmt, dest_path,
@@ -1563,7 +1510,7 @@ class VmLifecycleMixin:
             os.makedirs(dest_path, exist_ok=True)
             for ab, rel, sz in files:
                 if is_cancelled():
-                    raise RuntimeError("Exportación cancelada por el usuario.")
+                    raise RuntimeError(self.tr("Exportación cancelada por el usuario."))
                 _tick(rel, sz)
                 dest_file = os.path.join(dest_path, rel)
                 os.makedirs(os.path.dirname(dest_file), exist_ok=True)
@@ -1575,7 +1522,7 @@ class VmLifecycleMixin:
             with _tar.open(dest_path, "w:gz", dereference=False) as tar:
                 for ab, rel, sz in files:
                     if is_cancelled():
-                        raise RuntimeError("Exportación cancelada por el usuario.")
+                        raise RuntimeError(self.tr("Exportación cancelada por el usuario."))
                     _tick(rel, sz)
                     arcname = os.path.join(vm_name, rel)
                     tar.add(ab, arcname=arcname, recursive=False)
@@ -1586,15 +1533,15 @@ class VmLifecycleMixin:
             with _zip.ZipFile(dest_path, "w", _zip.ZIP_DEFLATED) as zf:
                 for ab, rel, sz in files:
                     if is_cancelled():
-                        raise RuntimeError("Exportación cancelada por el usuario.")
+                        raise RuntimeError(self.tr("Exportación cancelada por el usuario."))
                     _tick(rel, sz)
                     arcname = os.path.join(vm_name, rel)
                     zf.write(ab, arcname=arcname)
         else:
-            raise RuntimeError(f"Formato de exportación desconocido: {fmt}")
+            raise RuntimeError(self.tr("Formato de exportación desconocido: {0}").format(fmt))
 
         # Al terminar: barra determinada a 100%.
-        progress_emit(100, f"Exportación completada ({total_files} archivo(s)).")
+        progress_emit(100, self.tr("Exportación completada ({0} archivo(s)).").format(total_files))
 
         # Tamaño final del resultado.
         try:
@@ -1617,9 +1564,9 @@ class VmLifecycleMixin:
 
     def _on_export_success(self, dest_path, vm_name):
         QMessageBox.information(
-            self, "Exportar VM",
-            f"'{vm_name}' exportada correctamente.\n\n"
-            f"Destino: {dest_path}",
+            self, self.tr("Exportar VM"),
+            self.tr("'{0}' exportada correctamente.\n\n"
+                    "Destino: {1}").format(vm_name, dest_path),
         )
 
     @staticmethod
@@ -1637,23 +1584,23 @@ class VmLifecycleMixin:
         """Importa una VM desde una carpeta o un archivo comprimido."""
         # 1. Elegir carpeta o archivo.
         box = QMessageBox(self)
-        box.setWindowTitle("Importar VM")
+        box.setWindowTitle(self.tr("Importar VM"))
         box.setText(
-            "¿Cómo quieres importar la máquina virtual?\n\n"
-            "  • Desde carpeta: selecciona una carpeta que contenga "
-            "vm_config.ini.\n"
-            "  • Desde archivo: selecciona un .ova o .ovf (formato estándar "
-            "OVF, portable a VirtualBox/VMware), o un .tar.gz / .tar / .zip "
-            "exportado previamente desde otra instalación de Virtual.Machine."
+            self.tr("¿Cómo quieres importar la máquina virtual?\n\n"
+                    "  • Desde carpeta: selecciona una carpeta que contenga "
+                    "vm_config.ini.\n"
+                    "  • Desde archivo: selecciona un .ova o .ovf (formato estándar "
+                    "OVF, portable a VirtualBox/VMware), o un .tar.gz / .tar / .zip "
+                    "exportado previamente desde otra instalación de Virtual.Machine.")
         )
-        btn_folder = box.addButton("📁 Desde carpeta…", QMessageBox.ButtonRole.AcceptRole)
-        btn_archive = box.addButton("🗜️ Desde archivo…", QMessageBox.ButtonRole.ActionRole)
-        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        btn_folder = box.addButton(self.tr("📁 Desde carpeta…"), QMessageBox.ButtonRole.AcceptRole)
+        btn_archive = box.addButton(self.tr("🗜️ Desde archivo…"), QMessageBox.ButtonRole.ActionRole)
+        box.addButton(self.tr("Cancelar"), QMessageBox.ButtonRole.RejectRole)
         box.exec()
         clicked = box.clickedButton()
         if clicked == btn_folder:
             source = QFileDialog.getExistingDirectory(
-                self, "Selecciona la carpeta de la VM a importar",
+                self, self.tr("Selecciona la carpeta de la VM a importar"),
                 os.path.expanduser("~"),
             )
             if not source:
@@ -1661,11 +1608,11 @@ class VmLifecycleMixin:
             is_archive = False
         elif clicked == btn_archive:
             source, _ = QFileDialog.getOpenFileName(
-                self, "Selecciona el archivo a importar",
+                self, self.tr("Selecciona el archivo a importar"),
                 os.path.expanduser("~"),
-                "OVF/OVA (*.ova *.ovf);;"
-                "Archivos de VM empaquetados (*.tar.gz *.tgz *.tar *.zip);;"
-                "Todos los archivos (*)",
+                self.tr("OVF/OVA (*.ova *.ovf);;"
+                        "Archivos de VM empaquetados (*.tar.gz *.tgz *.tar *.zip);;"
+                        "Todos los archivos (*)"),
             )
             if not source:
                 return
@@ -1680,9 +1627,9 @@ class VmLifecycleMixin:
                     or low.endswith(".tar") or low.endswith(".zip")
                     or low.endswith(".ova") or low.endswith(".ovf")):
                 QMessageBox.warning(
-                    self, "Importar VM",
-                    "Formato de archivo no reconocido. Usa .tar.gz, .tgz, "
-                    ".tar, .zip, .ova o .ovf.",
+                    self, self.tr("Importar VM"),
+                    self.tr("Formato de archivo no reconocido. Usa .tar.gz, .tgz, "
+                            ".tar, .zip, .ova o .ovf."),
                 )
                 return
             # ovf_ova_io_v1: despachar a la rama OVF/OVA. Tiene su propio
@@ -1693,9 +1640,9 @@ class VmLifecycleMixin:
             cfg = os.path.join(source, "vm_config.ini")
             if not os.path.isfile(cfg):
                 QMessageBox.warning(
-                    self, "Importar VM",
-                    f"La carpeta seleccionada no contiene vm_config.ini:\n\n{source}\n\n"
-                    "Asegúrate de elegir la carpeta raíz de la VM, no una subcarpeta.",
+                    self, self.tr("Importar VM"),
+                    self.tr("La carpeta seleccionada no contiene vm_config.ini:\n\n{0}\n\n"
+                            "Asegúrate de elegir la carpeta raíz de la VM, no una subcarpeta.").format(source),
                 )
                 return
 
@@ -1722,9 +1669,9 @@ class VmLifecycleMixin:
             i += 1
 
         name, ok_name = QInputDialog.getText(
-            self, "Importar VM",
-            f"Nombre para la VM importada:\n\n"
-            f"(se importará desde {os.path.basename(source)})",
+            self, self.tr("Importar VM"),
+            self.tr("Nombre para la VM importada:\n\n"
+                    "(se importará desde {0})").format(os.path.basename(source)),
             QLineEdit.EchoMode.Normal,
             name,
         )
@@ -1732,16 +1679,16 @@ class VmLifecycleMixin:
             return
         name = re.sub(r'[\\/:*?"<>|]', "_", name.strip())
         if not name:
-            QMessageBox.warning(self, "Importar VM", "Nombre inválido.")
+            QMessageBox.warning(self, self.tr("Importar VM"), self.tr("Nombre inválido."))
             return
 
         # 4. Confirmar si colisiona.
         target_dir = os.path.join(vm_config.BASE_VM_DIR, name)
         if os.path.exists(target_dir):
             resp = QMessageBox.question(
-                self, "Ya existe",
-                f"Ya existe una VM llamada '{name}'.\n\n"
-                "¿Reemplazarla? (se eliminará la existente)",
+                self, self.tr("Ya existe"),
+                self.tr("Ya existe una VM llamada '{0}'.\n\n"
+                        "¿Reemplazarla? (se eliminará la existente)").format(name),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -1764,8 +1711,8 @@ class VmLifecycleMixin:
             ),
             cancelable=True,
             show_log=True,
-            subtitle=("Copiando/desempaquetando en el sistema de archivos "
-                      "del destino (no en /tmp)…"),
+            subtitle=self.tr("Copiando/desempaquetando en el sistema de archivos "
+                             "del destino (no en /tmp)…"),
         )
 
     def _import_vm_impl(self, source, is_archive, name, target_dir,
@@ -1786,7 +1733,7 @@ class VmLifecycleMixin:
             if not is_archive:
                 src_vm_dir = source
             else:
-                progress_emit(0, "Desempaquetando archivo…")
+                progress_emit(0, self.tr("Desempaquetando archivo…"))
                 # NO usar /tmp: en la mayoría de sistemas /tmp es un tmpfs
                 # pequeño (5-8 GB aquí) que no puede contener una VM completa.
                 # Extraemos en el mismo sistema de archivos que el destino para
@@ -1810,7 +1757,7 @@ class VmLifecycleMixin:
                             if i % 20 == 0:
                                 progress_emit(
                                     int(i * 100 / total),
-                                    f"Extrayendo {i+1}/{total}…",
+                                    self.tr("Extrayendo {0}/{1}…").format(i+1, total),
                                 )
                 elif low.endswith(".tar.gz") or low.endswith(".tgz") or low.endswith(".tar"):
                     mode = "r:gz" if (low.endswith(".tar.gz") or low.endswith(".tgz")) else "r:"
@@ -1824,7 +1771,7 @@ class VmLifecycleMixin:
                             if i % 20 == 0:
                                 progress_emit(
                                     int(i * 100 / total),
-                                    f"Extrayendo {i+1}/{total}…",
+                                    self.tr("Extrayendo {0}/{1}…").format(i+1, total),
                                 )
                 else:
                     raise RuntimeError(f"Formato no soportado: {source}")
@@ -1836,8 +1783,8 @@ class VmLifecycleMixin:
                         candidates.append(root)
                 if not candidates:
                     raise RuntimeError(
-                        "El archivo no contiene ninguna VM válida "
-                        "(no se encontró vm_config.ini)."
+                        self.tr("El archivo no contiene ninguna VM válida "
+                                "(no se encontró vm_config.ini).")
                     )
                 # Si hay varias, elegir la más "superficial".
                 candidates.sort(key=lambda p: p.count(os.sep))
@@ -1868,7 +1815,7 @@ class VmLifecycleMixin:
                 done += sz
                 if done and (done % (5 * 1024 * 1024) < sz or rel == files[-1][1]):
                     pct = min(99, int(done * 100 / total_bytes))
-                    progress_emit(pct, f"Copiando {rel}")
+                    progress_emit(pct, self.tr("Copiando {0}").format(rel))
 
             # --- 5. Ajustar el nombre interno en vm_config.ini si cambió ---
             try:
@@ -1907,12 +1854,12 @@ class VmLifecycleMixin:
         except Exception:
             pass
         QMessageBox.information(
-            self, "Importar VM",
-            f"VM '{name}' importada correctamente.\n\n"
-            "Revisa su configuración en la pestaña Configuración antes de "
-            "arrancarla, especialmente si la importaste desde otro host: "
-            "puede referenciar rutas que no existan aquí (carpetas compartidas, "
-            "ISOs externas, dispositivos de passthrough).",
+            self, self.tr("Importar VM"),
+            self.tr("VM '{0}' importada correctamente.\n\n"
+                    "Revisa su configuración en la pestaña Configuración antes de "
+                    "arrancarla, especialmente si la importaste desde otro host: "
+                    "puede referenciar rutas que no existan aquí (carpetas compartidas, "
+                    "ISOs externas, dispositivos de passthrough).").format(name),
         )
 
 
@@ -2005,8 +1952,8 @@ class VmLifecycleMixin:
         existing = set(list_existing_vms())
         while True:
             clone_name, ok = QInputDialog.getText(
-                self, "Clonar máquina virtual",
-                f"Nombre para el clon de '{base_name}':",
+                self, self.tr("Clonar máquina virtual"),
+                self.tr("Nombre para el clon de '{0}':").format(base_name),
                 QLineEdit.EchoMode.Normal,
                 f"{base_name}-copia",
             )
@@ -2014,20 +1961,20 @@ class VmLifecycleMixin:
                 return None
             clone_name = (clone_name or "").strip()
             if not clone_name:
-                QMessageBox.warning(self, "Nombre inválido",
-                                    "Debes escribir un nombre para el clon.")
+                QMessageBox.warning(self, self.tr("Nombre inválido"),
+                                    self.tr("Debes escribir un nombre para el clon."))
                 continue
             if (clone_name in existing
                     or os.path.exists(os.path.join(vm_config.BASE_VM_DIR, clone_name))):
                 QMessageBox.warning(
-                    self, "Nombre ya existente",
-                    f"La máquina virtual '{clone_name}' ya existe en el listado.\n\n"
-                    "Elige otro nombre para el clon."
+                    self, self.tr("Nombre ya existente"),
+                    self.tr("La máquina virtual '{0}' ya existe en el listado.\n\n"
+                            "Elige otro nombre para el clon.").format(clone_name)
                 )
                 continue
             if clone_name in ("Nueva Máquina Virtual", ".", ".."):
-                QMessageBox.warning(self, "Nombre inválido",
-                                    "Ese nombre no puede utilizarse para una máquina virtual.")
+                QMessageBox.warning(self, self.tr("Nombre inválido"),
+                                    self.tr("Ese nombre no puede utilizarse para una máquina virtual."))
                 continue
             return clone_name
 
@@ -2038,42 +1985,42 @@ class VmLifecycleMixin:
         y despacha al método correspondiente."""
         from PyQt6.QtCore import Qt as _Qt
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Clonar VM",
-                                    "Primero selecciona una máquina virtual existente.")
+            QMessageBox.information(self, self.tr("Clonar VM"),
+                                    self.tr("Primero selecciona una máquina virtual existente."))
             return
 
         source = self.current_vm_dir
         base_name = os.path.basename(source)
 
         box = QMessageBox(self)
-        box.setWindowTitle("Clonar máquina virtual")
+        box.setWindowTitle(self.tr("Clonar máquina virtual"))
         box.setIcon(QMessageBox.Icon.Question)
         box.setTextFormat(_Qt.TextFormat.RichText)
         box.setText(
-            f"¿Qué tipo de clon quieres crear a partir de "
-            f"<b>{base_name}</b>?<br><br>"
-            "<b>Clon completo</b><br>"
-            "Copia íntegra de todos los discos. Totalmente independiente "
-            "del original; ocupa el mismo espacio que la VM original.<br><br>"
-            "<b>Clon enlazado</b><br>"
-            "El disco base se comparte mediante un <i>backing file</i> QCOW2. "
-            "La nueva VM solo guarda los cambios, así que ocupa muy poco. "
-            "<b>Depende del original</b>: si se borra o se mueve el original, "
-            "el clon se rompe.<br>"
-            "El backing se guarda con <b>ruta relativa</b> para que puedas "
-            "mover o copiar la carpeta <code>VirtualMachines/</code> entera "
-            "a otro host sin romper nada.<br><br>"
-            "<b>Importante:</b> una vez que el clon arranque por primera vez, "
-            "los cambios que hagas DESPUÉS en el original <b>NO se verán</b> "
-            "en el clon: la vista de su sistema de archivos queda anclada al "
-            "estado del primer arranque (los bloques que el clon ya escribió "
-            "no vuelven a consultarse en el backing). Trata el original como "
-            "de solo lectura mientras el clon exista, o desenlaza el clon con "
-            "<b>🧬 Desenlazar</b> para independizarlo."
+            self.tr("¿Qué tipo de clon quieres crear a partir de "
+                    "<b>{0}</b>?<br><br>"
+                    "<b>Clon completo</b><br>"
+                    "Copia íntegra de todos los discos. Totalmente independiente "
+                    "del original; ocupa el mismo espacio que la VM original.<br><br>"
+                    "<b>Clon enlazado</b><br>"
+                    "El disco base se comparte mediante un <i>backing file</i> QCOW2. "
+                    "La nueva VM solo guarda los cambios, así que ocupa muy poco. "
+                    "<b>Depende del original</b>: si se borra o se mueve el original, "
+                    "el clon se rompe.<br>"
+                    "El backing se guarda con <b>ruta relativa</b> para que puedas "
+                    "mover o copiar la carpeta <code>VirtualMachines/</code> entera "
+                    "a otro host sin romper nada.<br><br>"
+                    "<b>Importante:</b> una vez que el clon arranque por primera vez, "
+                    "los cambios que hagas DESPUÉS en el original <b>NO se verán</b> "
+                    "en el clon: la vista de su sistema de archivos queda anclada al "
+                    "estado del primer arranque (los bloques que el clon ya escribió "
+                    "no vuelven a consultarse en el backing). Trata el original como "
+                    "de solo lectura mientras el clon exista, o desenlaza el clon con "
+                    "<b>🧬 Desenlazar</b> para independizarlo.").format(base_name)
         )
-        btn_full = box.addButton("Clon completo", QMessageBox.ButtonRole.AcceptRole)
-        btn_linked = box.addButton("Clon enlazado", QMessageBox.ButtonRole.ActionRole)
-        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        btn_full = box.addButton(self.tr("Clon completo"), QMessageBox.ButtonRole.AcceptRole)
+        btn_linked = box.addButton(self.tr("Clon enlazado"), QMessageBox.ButtonRole.ActionRole)
+        box.addButton(self.tr("Cancelar"), QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(btn_full)
         box.exec()
         clicked = box.clickedButton()
@@ -2155,22 +2102,22 @@ class VmLifecycleMixin:
         except Exception:
             pass
         QMessageBox.warning(
-            self, "Clon enlazado con original en ejecución",
-            f"El original de este clon ('{original_name}') está corriendo.\n\n"
-            "Arrancar original y clon a la vez puede dar resultados "
-            "impredecibles:\n\n"
-            "  • El clon lee del disco del original los bloques que no ha "
-            "modificado. Si el original escribe algo mientras el clon corre, "
-            "el clon puede leer estados intermedios.\n"
-            "  • La vista del sistema de archivos del clon ya está anclada al "
-            "estado de su primer arranque para los bloques de metadatos, así "
-            "que los cambios nuevos del original probablemente no se vean, "
-            "pero el riesgo de lectura inconsistente sigue ahí.\n\n"
-            "Recomendaciones:\n"
-            "  • Apaga el original antes de arrancar el clon (o al revés).\n"
-            "  • O desenlaza el clon con '🧬 Desenlazar' para que sea "
-            "totalmente independiente.\n\n"
-            "Este aviso no volverá a aparecer para esta VM en esta sesión."
+            self, self.tr("Clon enlazado con original en ejecución"),
+            self.tr("El original de este clon ('{0}') está corriendo.\n\n"
+                    "Arrancar original y clon a la vez puede dar resultados "
+                    "impredecibles:\n\n"
+                    "  • El clon lee del disco del original los bloques que no ha "
+                    "modificado. Si el original escribe algo mientras el clon corre, "
+                    "el clon puede leer estados intermedios.\n"
+                    "  • La vista del sistema de archivos del clon ya está anclada al "
+                    "estado de su primer arranque para los bloques de metadatos, así "
+                    "que los cambios nuevos del original probablemente no se vean, "
+                    "pero el riesgo de lectura inconsistente sigue ahí.\n\n"
+                    "Recomendaciones:\n"
+                    "  • Apaga el original antes de arrancar el clon (o al revés).\n"
+                    "  • O desenlaza el clon con '🧬 Desenlazar' para que sea "
+                    "totalmente independiente.\n\n"
+                    "Este aviso no volverá a aparecer para esta VM en esta sesión.").format(original_name)
         )
 
     def _check_linked_clone_backing_intact(self, vm_dir, data=None):
@@ -2246,23 +2193,23 @@ class VmLifecycleMixin:
         except Exception:
             pass
         QMessageBox.warning(
-            self, "Clon enlazado con backing roto",
-            f"Este clon enlazado espera el backing en:\n\n"
-            f"    {backing_rel}\n\n"
-            f"Resuelto contra su carpeta queda en:\n\n"
-            f"    {backing_abs}\n\n"
-            f"Ese archivo no existe. La VM original "
-            f"('{original_name}') probablemente se movió o se borró.\n\n"
-            "QEMU fallará al arrancar con:\n"
-            "    Could not open backing file: No such file or directory\n\n"
-            "Opciones:\n"
-            "  • Mueve también la VM original de vuelta a su carpeta, o\n"
-            "  • Copia la carpeta 'VirtualMachines/' entera (con original\n"
-            "    y clon juntos) a la nueva ubicación, o\n"
-            "  • Si aún puedes, usa '🧬 Desenlazar' en la pestaña Resumen\n"
-            "    para independizar este clon (puede fallar si el backing\n"
-            "    ya no está disponible).\n\n"
-            "Este aviso no volverá a aparecer para esta VM en esta sesión."
+            self, self.tr("Clon enlazado con backing roto"),
+            self.tr("Este clon enlazado espera el backing en:\n\n"
+                    "    {0}\n\n"
+                    "Resuelto contra su carpeta queda en:\n\n"
+                    "    {1}\n\n"
+                    "Ese archivo no existe. La VM original "
+                    "('{2}') probablemente se movió o se borró.\n\n"
+                    "QEMU fallará al arrancar con:\n"
+                    "    Could not open backing file: No such file or directory\n\n"
+                    "Opciones:\n"
+                    "  • Mueve también la VM original de vuelta a su carpeta, o\n"
+                    "  • Copia la carpeta 'VirtualMachines/' entera (con original\n"
+                    "    y clon juntos) a la nueva ubicación, o\n"
+                    "  • Si aún puedes, usa '🧬 Desenlazar' en la pestaña Resumen\n"
+                    "    para independizar este clon (puede fallar si el backing\n"
+                    "    ya no está disponible).\n\n"
+                    "Este aviso no volverá a aparecer para esta VM en esta sesión.").format(backing_rel, backing_abs, original_name)
         )
 
     def _clone_current_vm_full(self, source_dir, clone_name, destination):
@@ -2270,8 +2217,8 @@ class VmLifecycleMixin:
         try:
             shutil.copytree(source_dir, destination)
         except Exception as e:
-            QMessageBox.critical(self, "Clonar VM",
-                                 f"No se pudo copiar la carpeta de la VM.\n\n{e}")
+            QMessageBox.critical(self, self.tr("Clonar VM"),
+                                 self.tr("No se pudo copiar la carpeta de la VM.\n\n{0}").format(e))
             return False
 
         try:
@@ -2297,17 +2244,17 @@ class VmLifecycleMixin:
                 self._invalidate_vm_config_cache(destination)
         except Exception as e:
             QMessageBox.critical(
-                self, "Clonar VM",
-                f"La VM se copió pero no se pudo reescribir su vm_config.ini.\n\n{e}"
+                self, self.tr("Clonar VM"),
+                self.tr("La VM se copió pero no se pudo reescribir su vm_config.ini.\n\n{0}").format(e)
             )
             return False
 
         QMessageBox.information(
-            self, "Clon creado",
-            f"La máquina virtual '{clone_name}' fue clonada correctamente "
-            f"(clon completo).\n\n"
-            "Se han regenerado las direcciones MAC y los IDs internos de "
-            "los discos para que no choquen con la VM original."
+            self, self.tr("Clon creado"),
+            self.tr("La máquina virtual '{0}' fue clonada correctamente "
+                    "(clon completo).\n\n"
+                    "Se han regenerado las direcciones MAC y los IDs internos de "
+                    "los discos para que no choquen con la VM original.").format(clone_name)
         )
         return True
 
@@ -2323,11 +2270,11 @@ class VmLifecycleMixin:
         primary_abs, _ptype = self._primary_disk_path(source_dir)
         if not primary_abs or not os.path.isfile(primary_abs):
             QMessageBox.warning(
-                self, "Clon enlazado",
-                "No se pudo determinar el disco principal de la VM original.\n\n"
-                "El clon enlazado necesita un disco base QCOW2 sobre el que\n"
-                "crear el backing file. Si la VM no tiene discos, usa\n"
-                "'Clon completo'."
+                self, self.tr("Clon enlazado"),
+                self.tr("No se pudo determinar el disco principal de la VM original.\n\n"
+                        "El clon enlazado necesita un disco base QCOW2 sobre el que\n"
+                        "crear el backing file. Si la VM no tiene discos, usa\n"
+                        "'Clon completo'.")
             )
             return False
 
@@ -2341,17 +2288,17 @@ class VmLifecycleMixin:
             fmt = (info.get("format") or "").lower()
         except Exception as e:
             QMessageBox.warning(
-                self, "Clon enlazado",
-                f"No se pudo inspeccionar el disco original.\n\n{e}"
+                self, self.tr("Clon enlazado"),
+                self.tr("No se pudo inspeccionar el disco original.\n\n{0}").format(e)
             )
             return False
         if fmt != "qcow2":
             QMessageBox.warning(
-                self, "Clon enlazado",
-                f"El disco principal de la VM original está en formato "
-                f"{fmt.upper()}.\n\n"
-                "El clon enlazado solo funciona con QCOW2 (necesita backing\n"
-                "file). Usa 'Clon completo' si quieres copiar el disco tal cual."
+                self, self.tr("Clon enlazado"),
+                self.tr("El disco principal de la VM original está en formato "
+                        "{0}.\n\n"
+                        "El clon enlazado solo funciona con QCOW2 (necesita backing\n"
+                        "file). Usa 'Clon completo' si quieres copiar el disco tal cual.").format(fmt.upper())
             )
             return False
 
@@ -2360,8 +2307,8 @@ class VmLifecycleMixin:
             os.makedirs(destination, exist_ok=False)
         except Exception as e:
             QMessageBox.warning(
-                self, "Clon enlazado",
-                f"No se pudo crear la carpeta del clon.\n\n{e}"
+                self, self.tr("Clon enlazado"),
+                self.tr("No se pudo crear la carpeta del clon.\n\n{0}").format(e)
             )
             return False
 
@@ -2386,8 +2333,8 @@ class VmLifecycleMixin:
             except Exception:
                 pass
             QMessageBox.critical(
-                self, "Clon enlazado",
-                f"qemu-img create falló.\n\n{e.stderr or e}"
+                self, self.tr("Clon enlazado"),
+                self.tr("qemu-img create falló.\n\n{0}").format(e.stderr or e)
             )
             return False
         except Exception as e:
@@ -2395,8 +2342,8 @@ class VmLifecycleMixin:
                 shutil.rmtree(destination)
             except Exception:
                 pass
-            QMessageBox.critical(self, "Clon enlazado",
-                                 f"No se pudo crear el delta QCOW2.\n\n{e}")
+            QMessageBox.critical(self, self.tr("Clon enlazado"),
+                                 self.tr("No se pudo crear el delta QCOW2.\n\n{0}").format(e))
             return False
 
         # 5. Verificación defensiva: el backing guardado debe ser RELATIVO.
@@ -2414,11 +2361,11 @@ class VmLifecycleMixin:
                 except Exception:
                     pass
                 QMessageBox.warning(
-                    self, "Clon enlazado",
-                    "El backing file quedó guardado como ruta ABSOLUTA, "
-                    "lo que haría el clon no portable.\n\n"
-                    "Se ha abortado la operación para no dejar un clon "
-                    "defectuoso. Reporta esto como bug."
+                    self, self.tr("Clon enlazado"),
+                    self.tr("El backing file quedó guardado como ruta ABSOLUTA, "
+                            "lo que haría el clon no portable.\n\n"
+                            "Se ha abortado la operación para no dejar un clon "
+                            "defectuoso. Reporta esto como bug.")
                 )
                 return False
         except Exception as _ver_err:
@@ -2446,8 +2393,8 @@ class VmLifecycleMixin:
             except Exception:
                 pass
             QMessageBox.critical(
-                self, "Clon enlazado",
-                f"No se pudieron copiar los archivos auxiliares.\n\n{e}"
+                self, self.tr("Clon enlazado"),
+                self.tr("No se pudieron copiar los archivos auxiliares.\n\n{0}").format(e)
             )
             return False
 
@@ -2503,36 +2450,36 @@ class VmLifecycleMixin:
                 self._invalidate_vm_config_cache(destination)
         except Exception as e:
             QMessageBox.warning(
-                self, "Clon enlazado",
-                f"El clon se creó pero no se pudo reescribir su vm_config.ini.\n\n"
-                f"{e}\n\n"
-                "Revisa manualmente el archivo antes de usar la VM."
+                self, self.tr("Clon enlazado"),
+                self.tr("El clon se creó pero no se pudo reescribir su vm_config.ini.\n\n"
+                        "{0}\n\n"
+                        "Revisa manualmente el archivo antes de usar la VM.").format(e)
             )
             return False
 
         QMessageBox.information(
-            self, "Clon creado",
-            f"La máquina virtual '{clone_name}' fue clonada correctamente "
-            f"(clon enlazado).\n\n"
-            "El disco base se comparte con el original mediante un backing\n"
-            "file QCOW2 con ruta relativa. El clon ocupa muy poco espacio,\n"
-            "pero DEPENDE del original:\n\n"
-            "  • Si borras o mueves la VM original, el clon se rompe.\n"
-            "  • Una vez que el clon arranque por primera vez, los cambios\n"
-            "    que hagas DESPUÉS en el original NO se verán en el clon:\n"
-            "    la vista del sistema de archivos queda anclada al estado\n"
-            "    del primer arranque. Trata el original como de solo lectura\n"
-            "    mientras el clon exista.\n"
-            "  • Los snapshots completos (RAM) no funcionarán en este clon\n"
-            "    — solo de disco. QEMU no puede restaurar (loadvm) un\n"
-            "    snapshot completo sobre un QCOW2 con backing file.\n"
-            "  • Los snapshots del clon no son reproducibles mientras el\n"
-            "    original pueda cambiar: al restaurar, se mezcla el delta\n"
-            "    guardado con el estado ACTUAL del backing.\n"
-            "  • Si quieres independizarlo, usa '🧬 Desenlazar' cuando esté\n"
-            "    apagado.\n\n"
-            "Para mover o copiar la estructura completa a otro host,\n"
-            "llévate la carpeta 'VirtualMachines/' entera."
+            self, self.tr("Clon creado"),
+            self.tr("La máquina virtual '{0}' fue clonada correctamente "
+                    "(clon enlazado).\n\n"
+                    "El disco base se comparte con el original mediante un backing\n"
+                    "file QCOW2 con ruta relativa. El clon ocupa muy poco espacio,\n"
+                    "pero DEPENDE del original:\n\n"
+                    "  • Si borras o mueves la VM original, el clon se rompe.\n"
+                    "  • Una vez que el clon arranque por primera vez, los cambios\n"
+                    "    que hagas DESPUÉS en el original NO se verán en el clon:\n"
+                    "    la vista del sistema de archivos queda anclada al estado\n"
+                    "    del primer arranque. Trata el original como de solo lectura\n"
+                    "    mientras el clon exista.\n"
+                    "  • Los snapshots completos (RAM) no funcionarán en este clon\n"
+                    "    — solo de disco. QEMU no puede restaurar (loadvm) un\n"
+                    "    snapshot completo sobre un QCOW2 con backing file.\n"
+                    "  • Los snapshots del clon no son reproducibles mientras el\n"
+                    "    original pueda cambiar: al restaurar, se mezcla el delta\n"
+                    "    guardado con el estado ACTUAL del backing.\n"
+                    "  • Si quieres independizarlo, usa '🧬 Desenlazar' cuando esté\n"
+                    "    apagado.\n\n"
+                    "Para mover o copiar la estructura completa a otro host,\n"
+                    "llévate la carpeta 'VirtualMachines/' entera.").format(clone_name)
         )
         return True
 
@@ -2546,8 +2493,8 @@ class VmLifecycleMixin:
         """
         from PyQt6.QtCore import Qt as _Qt
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Desenlazar clon",
-                                    "Selecciona primero una máquina virtual.")
+            QMessageBox.information(self, self.tr("Desenlazar clon"),
+                                    self.tr("Selecciona primero una máquina virtual."))
             return
 
         vm_dir = self.current_vm_dir
@@ -2560,46 +2507,46 @@ class VmLifecycleMixin:
         extra = data.get("extra") or {}
         if not extra.get("linked_clone"):
             QMessageBox.information(
-                self, "Desenlazar clon",
-                "Esta VM no es un clon enlazado, no hay nada que desenlazar."
+                self, self.tr("Desenlazar clon"),
+                self.tr("Esta VM no es un clon enlazado, no hay nada que desenlazar.")
             )
             return
 
         state = self._runtime_state(vm_name)
         if state != "stopped":
             QMessageBox.warning(
-                self, "Desenlazar clon",
-                f"La VM '{vm_name}' está encendida.\n\n"
-                "Apágala antes de desenlazarla: con QEMU activo el archivo\n"
-                "está bloqueado y el convert no puede reemplazarlo."
+                self, self.tr("Desenlazar clon"),
+                self.tr("La VM '{0}' está encendida.\n\n"
+                        "Apágala antes de desenlazarla: con QEMU activo el archivo\n"
+                        "está bloqueado y el convert no puede reemplazarlo.").format(vm_name)
             )
             return
 
         primary_abs, _ptype = self._primary_disk_path(vm_dir)
         if not primary_abs or not os.path.isfile(primary_abs):
             QMessageBox.warning(
-                self, "Desenlazar clon",
-                "No se encontró el disco principal del clon."
+                self, self.tr("Desenlazar clon"),
+                self.tr("No se encontró el disco principal del clon.")
             )
             return
 
         box = QMessageBox(self)
-        box.setWindowTitle("Desenlazar clon")
+        box.setWindowTitle(self.tr("Desenlazar clon"))
         box.setIcon(QMessageBox.Icon.Warning)
         box.setTextFormat(_Qt.TextFormat.RichText)
         box.setText(
-            f"Se convertirá el disco principal del clon "
-            f"<b>{os.path.basename(primary_abs)}</b> en un QCOW2 "
-            f"<b>autónomo</b>.<br><br>"
-            "Después de esto, el clon deja de depender del original y "
-            "puede moverse o copiarse por separado.<br><br>"
-            "<b>Requiere:</b><br>"
-            "&nbsp;&nbsp;• Espacio libre en el host (~1.1× el tamaño del disco).<br>"
-            "&nbsp;&nbsp;• La VM apagada (ya lo está).<br>"
-            "&nbsp;&nbsp;• No cerrar la aplicación durante el proceso.<br><br>"
-            "El resultado se verifica como QCOW2 válido y se reemplaza "
-            "atómicamente. Si algo falla a mitad, el archivo original "
-            "del clon queda intacto."
+            self.tr("Se convertirá el disco principal del clon "
+                    "<b>{0}</b> en un QCOW2 "
+                    "<b>autónomo</b>.<br><br>"
+                    "Después de esto, el clon deja de depender del original y "
+                    "puede moverse o copiarse por separado.<br><br>"
+                    "<b>Requiere:</b><br>"
+                    "&nbsp;&nbsp;• Espacio libre en el host (~1.1× el tamaño del disco).<br>"
+                    "&nbsp;&nbsp;• La VM apagada (ya lo está).<br>"
+                    "&nbsp;&nbsp;• No cerrar la aplicación durante el proceso.<br><br>"
+                    "El resultado se verifica como QCOW2 válido y se reemplaza "
+                    "atómicamente. Si algo falla a mitad, el archivo original "
+                    "del clon queda intacto.").format(os.path.basename(primary_abs))
         )
         box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
@@ -2653,7 +2600,7 @@ class VmLifecycleMixin:
                                 os.remove(tmp_path)
                             except OSError:
                                 pass
-                        raise RuntimeError("Desenlazado cancelado por el usuario.")
+                        raise RuntimeError(self.tr("Desenlazado cancelado por el usuario."))
                     if not line:
                         continue
                     m = re.search(r"(\d+(?:\.\d+)?)\s*%", line)
@@ -2745,11 +2692,11 @@ class VmLifecycleMixin:
                 fmt_o, fmt_n = str(result["orig"]), str(result["new"])
 
             QMessageBox.information(
-                self, "Desenlazado",
-                f"El clon '{vm_name}' ya es autónomo.\n\n"
-                f"Tamaño antes: {fmt_o}\n"
-                f"Tamaño después: {fmt_n}\n\n"
-                "Puedes mover la VM sin llevarte la original."
+                self, self.tr("Desenlazado"),
+                self.tr("El clon '{0}' ya es autónomo.\n\n"
+                        "Tamaño antes: {1}\n"
+                        "Tamaño después: {2}\n\n"
+                        "Puedes mover la VM sin llevarte la original.").format(vm_name, fmt_o, fmt_n)
             )
             try:
                 self._update_manager_details()
@@ -2769,8 +2716,8 @@ class VmLifecycleMixin:
 
         def _on_error(e):
             QMessageBox.critical(
-                self, "Desenlazar clon",
-                f"No se pudo desenlazar el clon.\n\n{e}"
+                self, self.tr("Desenlazar clon"),
+                self.tr("No se pudo desenlazar el clon.\n\n{0}").format(e)
             )
 
         self.run_async(
@@ -2780,7 +2727,7 @@ class VmLifecycleMixin:
             on_error=_on_error,
             cancelable=True,
             show_log=True,
-            subtitle="Convirtiendo el clon en un QCOW2 autónomo…",
+            subtitle=self.tr("Convirtiendo el clon en un QCOW2 autónomo…"),
         )
 
     def _update_linked_clone_buttons_state(self, state=None):
@@ -2806,7 +2753,7 @@ class VmLifecycleMixin:
 
     def delete_current_vm(self):
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Eliminar VM", "Primero selecciona una máquina virtual existente.")
+            QMessageBox.information(self, self.tr("Eliminar VM"), self.tr("Primero selecciona una máquina virtual existente."))
             return
         vm_dir = os.path.abspath(self.current_vm_dir)
         name = os.path.basename(vm_dir)
@@ -2849,22 +2796,22 @@ class VmLifecycleMixin:
         except Exception:
             pass
 
-        details = f"Se eliminará únicamente la carpeta de la máquina virtual:\n\n{vm_dir}\n\n"
+        details = self.tr("Se eliminará únicamente la carpeta de la máquina virtual:\n\n{0}\n\n").format(vm_dir)
         if external_media:
-            details += "Los siguientes medios están fuera de la carpeta de la VM y NO se eliminarán:\n" + "\n".join(f"• {p}" for p in sorted(set(external_media))) + "\n\n"
+            details += self.tr("Los siguientes medios están fuera de la carpeta de la VM y NO se eliminarán:\n") + "\n".join(f"• {p}" for p in sorted(set(external_media))) + "\n\n"
         if dependent_clones:
             details += (
-                f"⚠ ESTA VM ES EL ORIGINAL DE {len(dependent_clones)} "
-                f"CLON(ES) ENLAZADO(S):\n"
+                self.tr("⚠ ESTA VM ES EL ORIGINAL DE {0} "
+                        "CLON(ES) ENLAZADO(S):\n").format(len(dependent_clones))
                 + "\n".join(f"  • {c}" for c in dependent_clones)
-                + "\n\nSi continúas, esos clones quedarán inutilizables "
-                "(su backing file ya no existirá).\n\n"
-                "Se recomienda desenlazarlos primero: selecciona cada clon "
-                "y pulsa '🧬 Desenlazar' en su pestaña Resumen.\n\n"
+                + self.tr("\n\nSi continúas, esos clones quedarán inutilizables "
+                          "(su backing file ya no existirá).\n\n"
+                          "Se recomienda desenlazarlos primero: selecciona cada clon "
+                          "y pulsa '🧬 Desenlazar' en su pestaña Resumen.\n\n")
             )
-        details += "¿Deseas continuar?"
+        details += self.tr("¿Deseas continuar?")
         resp = QMessageBox.warning(
-            self, "Eliminar máquina virtual", details,
+            self, self.tr("Eliminar máquina virtual"), details,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2878,7 +2825,7 @@ class VmLifecycleMixin:
             self.new_vm()
             self.log_message(f"==> VM eliminada: '{name}'. Los medios externos fueron conservados.")
         except Exception as e:
-            QMessageBox.critical(self, "Eliminar VM", f"No se pudo eliminar '{name}'.\n\n{e}")
+            QMessageBox.critical(self, self.tr("Eliminar VM"), self.tr("No se pudo eliminar '{0}'.\n\n{1}").format(name, e))
 
     def change_os_panel(self, index):
         """Cambia la página activa del selector de versión (macOS/Windows/Linux).
@@ -3154,21 +3101,21 @@ class VmLifecycleMixin:
             return
         off_color = "#9e9e9e"
         if not self.current_vm_dir:
-            self.label_live_guest_agent.setText("Guest Agent: —")
-            self.label_live_shared_folders.setText("Carpetas: —")
-            self.label_live_clipboard.setText("Clipboard: —")
+            self.label_live_guest_agent.setText(self.tr("Guest Agent: —"))
+            self.label_live_shared_folders.setText(self.tr("Carpetas: —"))
+            self.label_live_clipboard.setText(self.tr("Clipboard: —"))
             if hasattr(self, "label_live_vdagent"):
-                self.label_live_vdagent.setText("spice-vdagent: —")
+                self.label_live_vdagent.setText(self.tr("spice-vdagent: —"))
             for lbl in (self.label_live_guest_agent, self.label_live_shared_folders, self.label_live_clipboard):
                 lbl.setStyleSheet(f"font-size:11px; color:{off_color};")
             return
         vm_name = os.path.basename(self.current_vm_dir)
         if self._runtime_state(vm_name) != "running":
-            self.label_live_guest_agent.setText("Guest Agent: apagado")
-            self.label_live_shared_folders.setText("Carpetas: apagado")
-            self.label_live_clipboard.setText("Clipboard: apagado")
+            self.label_live_guest_agent.setText(self.tr("Guest Agent: apagado"))
+            self.label_live_shared_folders.setText(self.tr("Carpetas: apagado"))
+            self.label_live_clipboard.setText(self.tr("Clipboard: apagado"))
             if hasattr(self, "label_live_vdagent"):
-                self.label_live_vdagent.setText("spice-vdagent: apagado")
+                self.label_live_vdagent.setText(self.tr("spice-vdagent: apagado"))
             for lbl in (self.label_live_guest_agent, self.label_live_shared_folders, self.label_live_clipboard):
                 lbl.setStyleSheet(f"font-size:11px; color:{off_color};")
             return
@@ -3187,32 +3134,32 @@ class VmLifecycleMixin:
                 return
             ok_color, bad_color = "#2e7d32", "#c62828"
             ga_ok = result.get("guest_agent")
-            self.label_live_guest_agent.setText(f"Guest Agent: {'activo' if ga_ok else 'sin respuesta'}")
+            self.label_live_guest_agent.setText(self.tr("Guest Agent: {0}").format(self.tr("activo") if ga_ok else self.tr("sin respuesta")))
             self.label_live_guest_agent.setStyleSheet(f"font-size:11px; color:{ok_color if ga_ok else bad_color};")
             sf_ok = result.get("shared_folders")
-            self.label_live_shared_folders.setText(f"Carpetas: {'OK' if sf_ok else 'con problemas'}")
+            self.label_live_shared_folders.setText(self.tr("Carpetas: {0}").format(self.tr("OK") if sf_ok else self.tr("con problemas")))
             self.label_live_shared_folders.setStyleSheet(f"font-size:11px; color:{ok_color if sf_ok else bad_color};")
             if result.get("clipboard"):
-                self.label_live_clipboard.setText("Clipboard: activo")
+                self.label_live_clipboard.setText(self.tr("Clipboard: activo"))
                 self.label_live_clipboard.setStyleSheet(f"font-size:11px; color:{ok_color};")
             else:
-                self.label_live_clipboard.setText("Clipboard: desactivado")
+                self.label_live_clipboard.setText(self.tr("Clipboard: desactivado"))
                 self.label_live_clipboard.setStyleSheet(f"font-size:11px; color:{off_color};")
 
             # spice-vdagent: activo / no detectado / —
             vd = result.get("spice_vdagent")
             if hasattr(self, "label_live_vdagent"):
                 if vd is True:
-                    self.label_live_vdagent.setText("spice-vdagent: activo")
+                    self.label_live_vdagent.setText(self.tr("spice-vdagent: activo"))
                     self.label_live_vdagent.setStyleSheet(
                         f"font-size:11px; color:{ok_color};")
                 elif vd is False:
                     self.label_live_vdagent.setText(
-                        "spice-vdagent: no detectado")
+                        self.tr("spice-vdagent: no detectado"))
                     self.label_live_vdagent.setStyleSheet(
                         f"font-size:11px; color:{off_color};")
                 else:
-                    self.label_live_vdagent.setText("spice-vdagent: —")
+                    self.label_live_vdagent.setText(self.tr("spice-vdagent: —"))
                     self.label_live_vdagent.setStyleSheet(
                         f"font-size:11px; color:{off_color};")
 
@@ -3265,8 +3212,8 @@ class VmLifecycleMixin:
         cur = combo.currentData()
         combo.blockSignals(True)
         combo.clear()
-        combo.addItem("Todos los grupos", "")
-        combo.addItem("Sin grupo", self._VM_GROUP_NONE)
+        combo.addItem(self.tr("Todos los grupos"), "")
+        combo.addItem(self.tr("Sin grupo"), self._VM_GROUP_NONE)
         for g in self._all_vm_groups():
             combo.addItem(g, g)
         idx = combo.findData(cur)
@@ -3431,7 +3378,7 @@ class VmLifecycleMixin:
     def on_vm_list_changed(self, text):
         if not text:
             self.current_vm_dir = None
-            self.vm_control_status.setText("● Sin VM seleccionada")
+            self.vm_control_status.setText(self.tr("● Sin VM seleccionada"))
             return
         # Preferir el currentItem para usar el UserRole (a prueba de
         # prefijos [Grupo] y sufijos ⚠️ en el texto).
@@ -3556,7 +3503,7 @@ class VmLifecycleMixin:
     def _fullscreen_exit_display_text(self):
         value = self._get_fullscreen_exit_value()
         if value == "RCTRL":
-            return "Ctrl derecho"
+            return self.tr("Ctrl derecho")
         from PyQt6.QtGui import QKeySequence
         return QKeySequence(value).toString()
 
@@ -3599,13 +3546,13 @@ class VmLifecycleMixin:
         btn = getattr(self, "btn_vnc_fullscreen", None)
         if btn is None:
             return
-        btn.setToolTip(
+        btn.setToolTip(self.tr(
             "Muestra el visor EMBEBIDO (VNC dentro de la app) a pantalla\n"
             "completa en una ventana propia. NO afecta al visor externo:\n"
             "para ese, usa el checkbox 'Externos en pantalla completa'\n"
             "de la fila de estado.\n\n"
-            f"Pulsa {self._fullscreen_exit_display_text()} para salir."
-        )
+            "Pulsa {0} para salir."
+        ).format(self._fullscreen_exit_display_text()))
 
     def _toggle_vnc_fullscreen(self):
         if getattr(self, "vnc_widget", None) is None:
@@ -6043,7 +5990,11 @@ class VmLifecycleMixin:
         if self.current_vm_dir:
             name = os.path.basename(self.current_vm_dir)
             state = self._runtime_state(name)
-            labels = {"running":("● Ejecutándose", "#2e7d32"), "paused":("● Pausada", "#f57c00"), "stopped":("● Apagada", "#757575")}
+            labels = {
+                "running": (self.tr("● Ejecutándose"), "#2e7d32"),
+                "paused": (self.tr("● Pausada"), "#f57c00"),
+                "stopped": (self.tr("● Apagada"), "#757575"),
+            }
             text, color = labels.get(state, labels["stopped"])
             self.vm_control_status.setText(text)
             self.vm_control_status.setStyleSheet(f"font-weight:bold; color:{color}; padding:4px;")
@@ -6082,7 +6033,7 @@ class VmLifecycleMixin:
 
     def control_start_vm(self):
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Iniciar VM", "Selecciona una máquina virtual.")
+            QMessageBox.information(self, self.tr("Iniciar VM"), self.tr("Selecciona una máquina virtual."))
             return
         self.start_installation()
 
@@ -6105,21 +6056,21 @@ class VmLifecycleMixin:
         if btn is None:
             return
         if state == "paused":
-            btn.setText("▶ Reanudar")
-            btn.setToolTip(
+            btn.setText(self.tr("▶ Reanudar"))
+            btn.setToolTip(self.tr(
                 "Reanudar la VM pausada. Usa la flecha para más opciones:\n"
                 "• Pausar (rápido): detiene sin guardar el estado en disco.\n"
                 "• Reanudar: vuelve a ejecutar la VM.\n"
                 "• Tomar Snapshot: guarda el estado a disco y pausa."
-            )
+            ))
         else:
-            btn.setText("⏸ Pausar")
-            btn.setToolTip(
+            btn.setText(self.tr("⏸ Pausar"))
+            btn.setToolTip(self.tr(
                 "Pausar la VM. Usa la flecha para más opciones:\n"
                 "• Pausar (rápido): detiene sin guardar el estado en disco.\n"
                 "• Reanudar: vuelve a ejecutar la VM pausada.\n"
                 "• Tomar Snapshot: guarda el estado a disco y pausa."
-            )
+            ))
         # Pausar y Tomar Snapshot solo aplican si la VM está corriendo.
         for name in ("action_vm_pause", "action_vm_pause_save"):
             action = getattr(self, name, None)
@@ -6157,13 +6108,13 @@ class VmLifecycleMixin:
                 self.control_pause_vm_simple()
             else:
                 QMessageBox.information(
-                    self, "Pausar",
-                    "La máquina virtual no está corriendo.",
+                    self, self.tr("Pausar"),
+                    self.tr("La máquina virtual no está corriendo."),
                 )
         except Exception as e:
             QMessageBox.warning(
-                self, "Control de VM",
-                f"No se pudo cambiar el estado de la VM.\n\n{e}",
+                self, self.tr("Control de VM"),
+                self.tr("No se pudo cambiar el estado de la VM.\n\n{0}").format(e),
             )
             self.refresh_vm_runtime_status()
 
@@ -6176,12 +6127,12 @@ class VmLifecycleMixin:
             if state == "paused":
                 return
             if state != "running":
-                QMessageBox.information(self, "Pausar", "La máquina virtual no está corriendo.")
+                QMessageBox.information(self, self.tr("Pausar"), self.tr("La máquina virtual no está corriendo."))
                 return
             self._qmp_hmp(self.current_vm_dir, "stop")
             self.log_message("==> VM pausada (sin guardar estado en disco).")
         except Exception as e:
-            QMessageBox.warning(self, "Pausar", f"No se pudo pausar la VM.\n\n{e}")
+            QMessageBox.warning(self, self.tr("Pausar"), self.tr("No se pudo pausar la VM.\n\n{0}").format(e))
         self.refresh_vm_runtime_status()
 
     def control_pause_vm_with_snapshot(self):
@@ -6198,26 +6149,26 @@ class VmLifecycleMixin:
         disponible sin que parezca rota.
         """
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Reanudar", "Selecciona una máquina virtual.")
+            QMessageBox.information(self, self.tr("Reanudar"), self.tr("Selecciona una máquina virtual."))
             return
         try:
             state = self._runtime_state(os.path.basename(self.current_vm_dir))
             if state == "running":
                 QMessageBox.information(
-                    self, "Reanudar",
-                    "La máquina virtual ya está corriendo.",
+                    self, self.tr("Reanudar"),
+                    self.tr("La máquina virtual ya está corriendo."),
                 )
                 return
             if state != "paused":
                 QMessageBox.information(
-                    self, "Reanudar",
-                    "La máquina virtual no está pausada: no hay nada que reanudar.",
+                    self, self.tr("Reanudar"),
+                    self.tr("La máquina virtual no está pausada: no hay nada que reanudar."),
                 )
                 return
             self._qmp_hmp(self.current_vm_dir, "cont")
             self.log_message("==> VM reanudada.")
         except Exception as e:
-            QMessageBox.warning(self, "Reanudar", f"No se pudo reanudar la VM.\n\n{e}")
+            QMessageBox.warning(self, self.tr("Reanudar"), self.tr("No se pudo reanudar la VM.\n\n{0}").format(e))
         self.refresh_vm_runtime_status()
 
     def _pause_with_snapshot(self):
@@ -6293,7 +6244,7 @@ class VmLifecycleMixin:
         try:
             self._qmp_hmp(self.current_vm_dir, "system_powerdown")
         except Exception as e:
-            QMessageBox.warning(self, "Apagar VM", f"No se pudo enviar la orden de apagado.\n\n{e}")
+            QMessageBox.warning(self, self.tr("Apagar VM"), self.tr("No se pudo enviar la orden de apagado.\n\n{0}").format(e))
         self.refresh_vm_runtime_status()
 
     def control_reboot_vm(self):
@@ -6301,7 +6252,7 @@ class VmLifecycleMixin:
         try:
             self._qmp_hmp(self.current_vm_dir, "system_reset")
         except Exception as e:
-            QMessageBox.warning(self, "Reiniciar VM", f"No se pudo enviar la orden de reinicio.\n\n{e}")
+            QMessageBox.warning(self, self.tr("Reiniciar VM"), self.tr("No se pudo enviar la orden de reinicio.\n\n{0}").format(e))
         self.refresh_vm_runtime_status()
 
     def _confirm_force_action(self, title, message):
@@ -6349,11 +6300,11 @@ class VmLifecycleMixin:
     def control_force_poweroff_vm(self):
         if not self._vm_is_selected(): return
         if not self._confirm_force_action(
-            "Forzar apagado",
-            "Esto corta la VM de inmediato, sin avisar al sistema operativo invitado "
-            "(como desenchufar un equipo real).\n\n"
-            "Puede causar pérdida de datos no guardados dentro de la VM.\n\n"
-            "¿Deseas continuar?",
+            self.tr("Forzar apagado"),
+            self.tr("Esto corta la VM de inmediato, sin avisar al sistema operativo invitado "
+                    "(como desenchufar un equipo real).\n\n"
+                    "Puede causar pérdida de datos no guardados dentro de la VM.\n\n"
+                    "¿Deseas continuar?"),
         ):
             return
         try:
@@ -6365,11 +6316,11 @@ class VmLifecycleMixin:
     def control_force_reboot_vm(self):
         if not self._vm_is_selected(): return
         if not self._confirm_force_action(
-            "Forzar reinicio",
-            "Esto corta la VM de inmediato y la vuelve a iniciar desde cero, sin "
-            "avisar al sistema operativo invitado.\n\n"
-            "Puede causar pérdida de datos no guardados dentro de la VM.\n\n"
-            "¿Deseas continuar?",
+            self.tr("Forzar reinicio"),
+            self.tr("Esto corta la VM de inmediato y la vuelve a iniciar desde cero, sin "
+                    "avisar al sistema operativo invitado.\n\n"
+                    "Puede causar pérdida de datos no guardados dentro de la VM.\n\n"
+                    "¿Deseas continuar?"),
         ):
             return
         try:
@@ -6916,7 +6867,8 @@ class VmLifecycleMixin:
             if idx < 0:
                 return
             _mode_id, label = self._auto_graphics_effective_label()
-            new_text = f"Automático (recomendado) → {label}"
+            _prefix = self.tr("Automático (recomendado)")
+            new_text = f"{_prefix} \u2192 {label}"
             if self.combo_graphics.itemText(idx) != new_text:
                 # Bloquear señales: cambiar el texto no debe re-disparar
                 # currentIndexChanged ni update_graphics_options.
@@ -7001,7 +6953,7 @@ class VmLifecycleMixin:
 
         try:
             caps = detect_host_graphics()
-            gpu = caps.get("gpu", "No detectada")
+            gpu = caps.get("gpu", self.tr("No detectada"))
             gl_ok = bool(caps.get("opengl"))
             virgl_installed = bool(caps.get("virgl"))
             vulkan_ok = bool(caps.get("vulkan"))
@@ -7016,49 +6968,54 @@ class VmLifecycleMixin:
 
             virgl_ok = gl_ok and virgl_installed and qemu_virgl and display_gl_ok
 
-            gl = "✓ OpenGL" if gl_ok else "✗ OpenGL"
-            vg = "✓ VirGL" if virgl_ok else ("✓ VirGL instalado" if virgl_installed else "✗ VirGL")
-            vk = "✓ Vulkan" if vulkan_ok else "✗ Vulkan"
+            gl = self.tr("✓ OpenGL") if gl_ok else self.tr("✗ OpenGL")
+            vg = (self.tr("✓ VirGL") if virgl_ok
+                  else (self.tr("✓ VirGL instalado") if virgl_installed
+                        else self.tr("✗ VirGL")))
+            vk = self.tr("✓ Vulkan") if vulkan_ok else self.tr("✗ Vulkan")
 
             if os_type == "windows":
-                auto_video = "VGA estándar (QEMU -vga std)"
-                auto_accel = "sin aceleración 3D"
+                auto_video = self.tr("VGA estándar (QEMU -vga std)")
+                auto_accel = self.tr("sin aceleración 3D")
             elif os_type == "macos":
-                auto_video = "VGA de OSX-KVM (VGA virtual)"
-                auto_accel = "gestionada por OpenCore/OSX-KVM"
+                auto_video = self.tr("VGA de OSX-KVM (VGA virtual)")
+                auto_accel = self.tr("gestionada por OpenCore/OSX-KVM")
             elif virgl_ok:
-                auto_video = "VirtIO-GPU + VirGL 3D"
-                auto_accel = "OpenGL / VirGL"
+                auto_video = self.tr("VirtIO-GPU + VirGL 3D")
+                auto_accel = self.tr("OpenGL / VirGL")
             elif qemu_virtio:
-                auto_video = "VirtIO-GPU 2D"
-                auto_accel = "sin aceleración 3D"
+                auto_video = self.tr("VirtIO-GPU 2D")
+                auto_accel = self.tr("sin aceleración 3D")
             else:
-                auto_video = "VGA estándar de QEMU"
-                auto_accel = "sin aceleración 3D"
+                auto_video = self.tr("VGA estándar de QEMU")
+                auto_accel = self.tr("sin aceleración 3D")
 
             selected = self.combo_graphics.currentData() if hasattr(self, "combo_graphics") else "auto"
             if selected == "auto":
-                selected_text = f"<b>Automático → {auto_video}</b><br>Aceleración: {auto_accel}"
+                selected_text = self.tr(
+                    "<b>Automático → {0}</b><br>Aceleración: {1}"
+                ).format(auto_video, auto_accel)
             else:
                 selected_map = {
-                    "virtio": "VirtIO-GPU 2D",
-                    "virgl": "VirtIO-GPU + VirGL 3D",
-                    "venus": "VirtIO-GPU + Venus/Vulkan 3D",
-                    "qxl": "Red Hat QXL 2D",
-                    "vmware": "VMware SVGA II",
-                    "none": "Sin video / Headless",
+                    "virtio": self.tr("VirtIO-GPU 2D"),
+                    "virgl": self.tr("VirtIO-GPU + VirGL 3D"),
+                    "venus": self.tr("VirtIO-GPU + Venus/Vulkan 3D"),
+                    "qxl": self.tr("Red Hat QXL 2D"),
+                    "vmware": self.tr("VMware SVGA II"),
+                    "none": self.tr("Sin video / Headless"),
                 }
                 selected_name = selected_map.get(selected, self.combo_graphics.currentText())
-                selected_text = f"<b>Usará: {selected_name}</b>"
+                selected_text = self.tr("<b>Usará: {0}</b>").format(selected_name)
 
             self.label_graphics_host.setText(
-                f"Host GPU: {gpu}<br>{gl}  |  {vg}  |  {vk}<br>{selected_text}"
+                self.tr("Host GPU: {0}<br>{1}  |  {2}  |  {3}<br>{4}").format(
+                    gpu, gl, vg, vk, selected_text)
             )
         except Exception as e:
-            self.label_graphics_host.setText(
-                f"Host GPU: no se pudo determinar automáticamente.<br>"
-                f"Automático: se seleccionará el modo gráfico compatible disponible."
-            )
+            self.label_graphics_host.setText(self.tr(
+                "Host GPU: no se pudo determinar automáticamente.<br>"
+                "Automático: se seleccionará el modo gráfico compatible disponible."
+            ))
 
         self.combo_graphics.setEnabled(True)
         self.combo_graphics_vram.setEnabled(True)
@@ -7200,12 +7157,29 @@ class VmLifecycleMixin:
             self._invalidate_vm_config_cache(self.current_vm_dir)
 
 
+    def _load_localized_md(self, base_name, subdir="notes"):
+        """Carga <subdir>/<base>_<lang>.md; fallback a _es.
+
+        Marcadores: i18n_tanda2e3_os_notes, i18n_tanda2e4_help_md.
+        """
+        here = os.path.dirname(os.path.abspath(__file__))
+        lang = getattr(self, "_ui_language", "es") or "es"
+        base_dir = os.path.join(here, subdir) if subdir else here
+        path = os.path.join(base_dir, "%s_%s.md" % (base_name, lang))
+        if not os.path.isfile(path):
+            path = os.path.join(base_dir, "%s_es.md" % base_name)
+        try:
+            with open(path, encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return ""
+
     def _update_os_notes_visibility(self, *args):
         """Muestra u oculta el aviso contextual del SO seleccionado.
 
-        Se llama al cambiar combo_main_os. Si el widget aún no existe
-        (durante la construcción de la UI) no hace nada. Si no hay notas
-        para el SO elegido, oculta el widget.
+        Marcador: i18n_tanda2e3_os_notes. Lee notes/<os>_<lang>.md y lo
+        renderiza como Markdown. El widget os_notes_title ya no se usa
+        (el titulo va dentro del .md); se oculta para no dejar hueco.
         """
         widget = getattr(self, "os_notes_widget", None)
         if widget is None:
@@ -7214,16 +7188,26 @@ class VmLifecycleMixin:
             os_type = self.combo_main_os.currentData() or ""
         except Exception:
             os_type = ""
-        notes = self._OS_NOTES.get(os_type)
-        if not notes:
+        if os_type not in self._OS_NOTES:
+            widget.setVisible(False)
+            return
+        md = self._load_localized_md(os_type)
+        if not md:
             widget.setVisible(False)
             return
         title = getattr(self, "os_notes_title", None)
-        body = getattr(self, "os_notes_body", None)
         if title is not None:
-            title.setText(notes["title"])
+            title.setVisible(False)
+        body = getattr(self, "os_notes_body", None)
         if body is not None:
-            body.setText(notes["body"])
+            # PyQt6 no expone QLabel.setMarkdown(); el equivalente es
+            # cambiar el textFormat a MarkdownText y asignar el texto.
+            try:
+                from PyQt6.QtCore import Qt as _Qt
+                body.setTextFormat(_Qt.TextFormat.MarkdownText)
+            except Exception:
+                pass
+            body.setText(md)
         widget.setVisible(True)
 
     def _goto_storage_section(self):
@@ -7307,20 +7291,20 @@ class VmLifecycleMixin:
         # y cae a un shell de rescate. Solo se avisa si el usuario lo
         # eligió explícitamente; "Automático" ya resuelve a QXL para Android.
         if os_type == "android" and mode == "virtio":
-            self.label_graphics_compat.setText(
+            self.label_graphics_compat.setText(self.tr(
                 "⚠️ Android-x86 9.0 (kernel 4.9) no incluye driver VirtIO-GPU y cae "
                 "a un shell de rescate con 'Detecting Android-x86…'. Usa "
                 "'Automático' o 'Red Hat QXL 2D'. Las ISOs con kernel 5.10+ o "
                 "Bliss OS 15+ sí soportan VirtIO-GPU."
-            )
+            ))
             self.label_graphics_compat.setVisible(True)
             return
         if firmware == "uefi" and mode in ("qxl", "vmware"):
             nombre = "QXL" if mode == "qxl" else "VMware SVGA"
-            self.label_graphics_compat.setText(
+            self.label_graphics_compat.setText(self.tr(
                 f"⚠️ {nombre} + UEFI: el firmware OVMF puede no mostrar nada (pantalla negra) hasta que "
                 "el guest cargue su propio driver de video. Si te pasa, prueba 'Automático' o 'VirtIO-GPU 2D'."
-            )
+            ))
             self.label_graphics_compat.setVisible(True)
         else:
             self.label_graphics_compat.setVisible(False)
@@ -7564,11 +7548,10 @@ class VmLifecycleMixin:
         if is_macos:
             _mac_hdd = os.path.join(vm_dir, "mac_hdd_ng.qcow2")
             if not os.path.isfile(_mac_hdd):
-                raise RuntimeError(
+                raise RuntimeError(self.tr(
                     "VM macOS: no se encuentra mac_hdd_ng.qcow2 en la "
-                    f"carpeta de la VM ({_mac_hdd}). Sin este archivo la VM "
-                    "no tiene sistema operativo que exportar."
-                )
+                    "carpeta de la VM ({0}). Sin este archivo la VM "
+                    "no tiene sistema operativo que exportar.").format(_mac_hdd))
             disks_to_export.append({
                 "name": "mac_hdd_ng",
                 "path": _mac_hdd,
@@ -7612,11 +7595,11 @@ class VmLifecycleMixin:
                 })
 
         if not disks_to_export:
-            raise RuntimeError(
+            raise RuntimeError(self.tr(
                 "La VM no tiene discos adjuntos que exportar. "
                 "A\u00f1ade al menos un disco en Configuraci\u00f3n \u2192 "
                 "Almacenamiento."
-            )
+            ))
 
         log_emit(f"==> Discos a exportar: {len(disks_to_export)}")
 
@@ -7787,17 +7770,15 @@ class VmLifecycleMixin:
                         )
                         if _r.returncode != 0:
                             err = (_r.stderr or _r.stdout or "").strip()
-                            raise RuntimeError(
-                                f"qemu-img convert -c falló para "
-                                f"'{os.path.basename(src)}': {err}"
-                            )
+                            raise RuntimeError(self.tr(
+                                "qemu-img convert -c falló para "
+                                "'{0}': {1}").format(os.path.basename(src), err))
                         if (not os.path.isfile(dst)
                                 or os.path.getsize(dst) == 0):
-                            raise RuntimeError(
-                                f"El aplanado+compresión de "
-                                f"'{os.path.basename(src)}' no produjo un "
-                                f"archivo válido."
-                            )
+                            raise RuntimeError(self.tr(
+                                "El aplanado+compresión de "
+                                "'{0}' no produjo un "
+                                "archivo válido.").format(os.path.basename(src)))
                         _emit_convert(100, f"Comprimido: {dst_name}")
                     src_for_tar = dst
                 else:
@@ -7997,8 +7978,8 @@ class VmLifecycleMixin:
                 ovf_text = ovf_io.read_ovf_descriptor_only(source)
                 if not ovf_text:
                     QMessageBox.warning(
-                        self, "Importar OVA",
-                        "El archivo .ova no contiene ning\u00fan descriptor .ovf."
+                        self, self.tr("Importar OVA"),
+                        self.tr("El archivo .ova no contiene ning\u00fan descriptor .ovf.")
                     )
                     return
             else:
@@ -8006,14 +7987,14 @@ class VmLifecycleMixin:
                     ovf_text = f.read()
                 if not ovf_text.strip():
                     QMessageBox.warning(
-                        self, "Importar OVF",
-                        "El archivo .ovf est\u00e1 vac\u00edo."
+                        self, self.tr("Importar OVF"),
+                        self.tr("El archivo .ovf est\u00e1 vac\u00edo.")
                     )
                     return
         except Exception as e:
             QMessageBox.warning(
-                self, "Importar OVF/OVA",
-                f"No se pudo leer el descriptor.\n\n{e}"
+                self, self.tr("Importar OVF/OVA"),
+                self.tr("No se pudo leer el descriptor.\n\n{0}").format(e)
             )
             return
 
@@ -8021,8 +8002,8 @@ class VmLifecycleMixin:
             ovf_data = ovf_io.parse_ovf_xml(ovf_text)
         except Exception as e:
             QMessageBox.warning(
-                self, "Importar OVF/OVA",
-                f"El descriptor OVF no se pudo interpretar.\n\n{e}"
+                self, self.tr("Importar OVF/OVA"),
+                self.tr("El descriptor OVF no se pudo interpretar.\n\n{0}").format(e)
             )
             return
 
@@ -8054,9 +8035,9 @@ class VmLifecycleMixin:
         target_dir = os.path.join(vm_config.BASE_VM_DIR, target_name)
         if os.path.exists(target_dir):
             resp = QMessageBox.question(
-                self, "Ya existe",
-                f"Ya existe una VM llamada '{target_name}'.\n\n"
-                "\u00bfReemplazarla? (se eliminar\u00e1 la existente)",
+                self, self.tr("Ya existe"),
+                self.tr("Ya existe una VM llamada '{0}'.\n\n"
+                        "\u00bfReemplazarla? (se eliminar\u00e1 la existente)").format(target_name),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -8103,14 +8084,14 @@ class VmLifecycleMixin:
             f"Importando '{target_name}' desde {os.path.basename(source)}",
             on_success=lambda result: self._on_import_success(result),
             on_error=lambda e: self._show_selectable_error(
-                "Importar OVF/OVA",
+                self.tr("Importar OVF/OVA"),
                 self._enospc_friendly_msg(e, "carpeta de la VM")
                 if self._is_enospc_error(e)
-                else f"No se pudo completar la importaci\u00f3n.\n\n{e}",
+                else self.tr("No se pudo completar la importaci\u00f3n.\n\n{0}").format(e),
             ),
             cancelable=True,
             show_log=True,
-            subtitle="Extrayendo y preparando el OVF/OVA...",
+            subtitle=self.tr("Extrayendo y preparando el OVF/OVA..."),
         )
 
     def _import_vm_from_ova_impl(self, source, is_ova, target_name, target_dir,
@@ -8295,7 +8276,7 @@ class VmLifecycleMixin:
                     cfg.write(f)
                 if hasattr(self, "_invalidate_vm_config_cache"):
                     self._invalidate_vm_config_cache(target_dir)
-                progress_emit(100, "Importación completada.")
+                progress_emit(100, self.tr("Importación completada."))
                 log_emit(f"==> Importación macOS terminada: {target_dir}")
                 log_emit("==> Al arrancar, la app usará OpenCore del "
                          "OSX-KVM del host y descargará el Recovery "

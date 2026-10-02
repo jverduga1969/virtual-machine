@@ -56,21 +56,28 @@ class PassthroughMixin:
         """Añade intel_iommu=on al gestor de arranque, con copia de seguridad."""
         diag=self._intel_vtd_diagnostic()
         if not diag.get("intel_cpu"):
-            raise RuntimeError("El procesador no se identificó como Intel; no se aplicará intel_iommu=on.")
+            raise RuntimeError(self.tr(
+                "El procesador no se identificó como Intel; no se aplicará intel_iommu=on."))
         manager,path=self._detect_boot_manager()
         if not path:
-            raise RuntimeError("No pude identificar de forma segura el gestor de arranque.")
+            raise RuntimeError(self.tr(
+                "No pude identificar de forma segura el gestor de arranque."))
         if manager != "GRUB":
-            raise RuntimeError(f"La preparación automática está implementada actualmente para GRUB. Gestor detectado: {manager}.")
+            raise RuntimeError(self.tr(
+                "La preparación automática está implementada actualmente para GRUB. "
+                "Gestor detectado: {0}."
+            ).format(manager))
         old=self._read_text_file(path)
         if not old:
-            raise RuntimeError(f"No se pudo leer {path}.")
+            raise RuntimeError(self.tr("No se pudo leer {0}.").format(path))
         m=re.search(r"(?m)^\s*GRUB_CMDLINE_LINUX_DEFAULT\s*=\s*([\"\'])(.*?)\1\s*$", old)
         if not m:
-            raise RuntimeError("No se encontró GRUB_CMDLINE_LINUX_DEFAULT en /etc/default/grub.")
+            raise RuntimeError(self.tr(
+                "No se encontró GRUB_CMDLINE_LINUX_DEFAULT en /etc/default/grub."))
         opts=m.group(2).strip()
         if "intel_iommu=on" in opts:
-            return {"manager":"GRUB","path":path,"changed":False,"message":"intel_iommu=on ya está presente en /etc/default/grub."}
+            return {"manager":"GRUB","path":path,"changed":False,
+                    "message": self.tr("intel_iommu=on ya está presente en /etc/default/grub.")}
         opts=(opts+" intel_iommu=on").strip()
         new_text=old[:m.start(2)]+opts+old[m.end(2):]
         import base64
@@ -83,28 +90,34 @@ class PassthroughMixin:
         )
         r=subprocess.run(["pkexec","python3","-c",script],capture_output=True,text=True,timeout=60)
         if r.returncode!=0:
-            raise RuntimeError((r.stderr or r.stdout or "operación cancelada").strip())
+            raise RuntimeError(
+                (r.stderr or r.stdout or self.tr("operación cancelada")).strip())
         regen=["update-grub"] if shutil.which("update-grub") else ["grub-mkconfig","-o","/boot/grub/grub.cfg"]
         rr=subprocess.run(["pkexec"]+regen,capture_output=True,text=True,timeout=120)
         if rr.returncode!=0:
-            raise RuntimeError("Se modificó /etc/default/grub, pero no se pudo regenerar grub.cfg: "+(rr.stderr or rr.stdout or "error desconocido").strip())
-        return {"manager":"GRUB","path":path,"changed":True,"message":"Se añadió intel_iommu=on y se regeneró GRUB."}
+            raise RuntimeError(
+                self.tr("Se modificó /etc/default/grub, pero no se pudo regenerar grub.cfg: ")
+                + (rr.stderr or rr.stdout or self.tr("error desconocido")).strip())
+        return {"manager":"GRUB","path":path,"changed":True,
+                "message": self.tr("Se añadió intel_iommu=on y se regeneró GRUB.")}
 
     def prepare_iommu_from_ui(self):
         d=self._intel_vtd_diagnostic()
         if d.get("intel_iommu_on") and d.get("active"):
-            QMessageBox.information(self,"IOMMU / VT-d","El IOMMU ya aparece activo. No es necesario modificar el arranque.")
+            QMessageBox.information(self,self.tr("IOMMU / VT-d"),self.tr("El IOMMU ya aparece activo. No es necesario modificar el arranque."))
             return
         if not d.get("intel_cpu"):
-            QMessageBox.warning(self,"IOMMU / VT-d","No se identificó un CPU Intel.")
+            QMessageBox.warning(self,self.tr("IOMMU / VT-d"),self.tr("No se identificó un CPU Intel."))
             return
         manager,path=self._detect_boot_manager()
         ans=QMessageBox.question(
-            self,"Preparar Intel IOMMU",
-            "Se añadirá intel_iommu=on a la configuración del gestor de arranque.\n\n"
-            "Se hará una copia de seguridad antes de modificarla y se solicitará autorización administrativa.\n\n"
-            "Esto NO activa VT-d dentro de la BIOS/UEFI; esa parte debes habilitarla en el firmware.\n\n"
-            f"Gestor detectado: {manager}\nArchivo: {path or 'no identificado'}\n\n¿Continuar?",
+            self, self.tr("Preparar Intel IOMMU"),
+            self.tr(
+                "Se añadirá intel_iommu=on a la configuración del gestor de arranque.\n\n"
+                "Se hará una copia de seguridad antes de modificarla y se solicitará autorización administrativa.\n\n"
+                "Esto NO activa VT-d dentro de la BIOS/UEFI; esa parte debes habilitarla en el firmware.\n\n"
+                "Gestor detectado: {0}\nArchivo: {1}\n\n¿Continuar?"
+            ).format(manager, path or self.tr("no identificado")),
             QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ans!=QMessageBox.StandardButton.Yes:
@@ -112,15 +125,20 @@ class PassthroughMixin:
         try:
             result=self._prepare_intel_iommu()
             self.refresh_vfio_diagnostics()
-            QMessageBox.information(self,"IOMMU / VT-d",result.get("message","Configuración actualizada.")+"\n\nReinicia el equipo para que el parámetro tenga efecto.")
+            QMessageBox.information(
+                self, self.tr("IOMMU / VT-d"),
+                result.get("message", self.tr("Configuración actualizada."))
+                + self.tr("\n\nReinicia el equipo para que el parámetro tenga efecto."))
         except Exception as e:
-            self._show_selectable_error("No se pudo preparar IOMMU",str(e))
+            self._show_selectable_error(self.tr("No se pudo preparar IOMMU"),str(e))
 
     def open_firmware_setup(self):
         ans=QMessageBox.question(
-            self,"Abrir UEFI/BIOS",
-            "El equipo se reiniciará directamente a la configuración del firmware si el sistema lo permite.\n\n"
-            "Busca una opción llamada Intel VT-d, Intel Virtualization Technology for Directed I/O, VT-d o similar y actívala.\n\n¿Reiniciar ahora?",
+            self, self.tr("Abrir UEFI/BIOS"),
+            self.tr(
+                "El equipo se reiniciará directamente a la configuración del firmware si el sistema lo permite.\n\n"
+                "Busca una opción llamada Intel VT-d, Intel Virtualization Technology for Directed I/O, VT-d o similar y actívala.\n\n¿Reiniciar ahora?"
+            ),
             QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ans!=QMessageBox.StandardButton.Yes:
@@ -128,9 +146,11 @@ class PassthroughMixin:
         try:
             r=subprocess.run(["systemctl","reboot","--firmware-setup"],capture_output=True,text=True,timeout=8)
             if r.returncode!=0:
-                raise RuntimeError((r.stderr or r.stdout or "No se pudo solicitar el reinicio al firmware.").strip())
+                raise RuntimeError(
+                    (r.stderr or r.stdout
+                     or self.tr("No se pudo solicitar el reinicio al firmware.")).strip())
         except Exception as e:
-            self._show_selectable_error("No se pudo abrir UEFI/BIOS",str(e))
+            self._show_selectable_error(self.tr("No se pudo abrir UEFI/BIOS"),str(e))
 
     def _intel_vtd_diagnostic(self):
         """Diagnóstico del VT-d/IOMMU del host. VT-d no suele exponer un "switch BIOS"
@@ -171,15 +191,15 @@ class PassthroughMixin:
         iommu_classes=glob.glob("/sys/class/iommu/*")
         active=bool(groups or iommu_classes or re.search(r"IOMMU.*enabled", dmar_text, re.I))
         if iommu_off:
-            state="Desactivado por parámetro del kernel"
+            state=self.tr("Desactivado por parámetro del kernel")
         elif active and (dmar or iommu_on or iommu_classes):
-            state="Activo"
+            state=self.tr("Activo")
         elif dmar:
-            state="VT-d detectado por firmware/kernel; IOMMU sin grupos visibles"
+            state=self.tr("VT-d detectado por firmware/kernel; IOMMU sin grupos visibles")
         else:
-            state="No detectado"
+            state=self.tr("No detectado")
         # Reportes de BIOS: DMAR ACPI es la mejor evidencia disponible desde Linux.
-        firmware = "Detectado" if dmar else "No confirmado"
+        firmware = self.tr("Detectado") if dmar else self.tr("No confirmado")
         manager,manager_path=self._detect_boot_manager()
         return {
             "arch": arch, "intel_cpu": cpu_intel, "cmdline": cmd, "intel_iommu_on": iommu_on,
@@ -223,9 +243,10 @@ class PassthroughMixin:
                     group_ok=group is not None
                     vfio_ready=(driver=="vfio-pci" and group_ok)
                     shared=[x for x in members if x != addr]
-                    status=("✓ Listo para VFIO" if vfio_ready else
-                            ("⚠ Sin grupo IOMMU" if not group_ok else
-                             ("⚠ Comparte grupo IOMMU" if shared else "⚠ Requiere preparación VFIO")))
+                    status=(self.tr("✓ Listo para VFIO") if vfio_ready else
+                            (self.tr("⚠ Sin grupo IOMMU") if not group_ok else
+                             (self.tr("⚠ Comparte grupo IOMMU") if shared
+                              else self.tr("⚠ Requiere preparación VFIO"))))
                     out.append({
                         "kind":"pci","address":addr,"name":desc,"driver":driver,
                         "iommu_group":group,"iommu_members":members,"iommu_shared":shared,
@@ -237,7 +258,11 @@ class PassthroughMixin:
     def _pci_preflight(self, selected):
         """Verificación antes de intentar pasar PCI a QEMU. No hace binding/desbinding automáticamente."""
         diag=self._intel_vtd_diagnostic()
-        lines=[f"IOMMU/Intel VT-d: {diag['state']}", f"Firmware/ACPI DMAR: {diag['firmware']}", f"Grupos IOMMU: {len(diag['groups'])}"]
+        lines=[
+            self.tr("IOMMU/Intel VT-d: {0}").format(diag['state']),
+            self.tr("Firmware/ACPI DMAR: {0}").format(diag['firmware']),
+            self.tr("Grupos IOMMU: {0}").format(len(diag['groups'])),
+        ]
         bad=[]
         for d in selected or []:
             if d.get("kind")!="pci": continue
@@ -246,12 +271,22 @@ class PassthroughMixin:
             drv=d.get("driver") or "sin driver"
             members=d.get("iommu_shared") or []
             if group is None:
-                bad.append(f"{addr}: no tiene grupo IOMMU ({drv})")
+                bad.append(self.tr(
+                    "{0}: no tiene grupo IOMMU ({1})").format(addr, drv))
             elif members:
-                bad.append(f"{addr}: comparte grupo IOMMU {group} con {', '.join(members)}")
+                bad.append(self.tr(
+                    "{0}: comparte grupo IOMMU {1} con {2}").format(
+                        addr, group, ', '.join(members)))
             elif drv!="vfio-pci":
-                bad.append(f"{addr}: driver actual {drv}; todavía no está ligado a vfio-pci")
-            lines.append(f"• {addr} | grupo {group if group is not None else '—'} | driver {drv}")
+                bad.append(self.tr(
+                    "{0}: driver actual {1}; todavía no está ligado a vfio-pci"
+                ).format(addr, drv))
+            lines.append(self.tr(
+                "• {0} | grupo {1} | driver {2}"
+            ).format(
+                addr,
+                group if group is not None else "—",
+                drv))
         if bad:
             lines.append("Advertencias:")
             lines.extend("  " + x for x in bad)
@@ -261,60 +296,80 @@ class PassthroughMixin:
         if not hasattr(self, "vfio_diag_label"):
             return
         d=self._intel_vtd_diagnostic()
-        if d["state"]=="Activo":
-            status="✅ Intel VT-d / IOMMU activo"
+        if d["state"]==self.tr("Activo"):
+            status=self.tr("✅ Intel VT-d / IOMMU activo")
         elif d["dmar"]:
-            status="⚠ VT-d detectado por firmware, pero no hay grupos IOMMU utilizables"
+            status=self.tr("⚠ VT-d detectado por firmware, pero no hay grupos IOMMU utilizables")
         else:
-            status="❌ Intel VT-d / IOMMU no detectado"
-        cmd=d["cmdline"] or "(sin datos)"
+            status=self.tr("❌ Intel VT-d / IOMMU no detectado")
+        cmd=d["cmdline"] or self.tr("(sin datos)")
         ready=len([x for x in self._detect_pci_devices() if x.get("vfio_ready")])
-        text=(f"<b>{status}</b><br>"
-              f"Firmware/ACPI DMAR: {d['firmware']}<br>"
-              f"Grupos IOMMU: {len(d['groups'])} &nbsp;|&nbsp; PCI listos para VFIO: {ready}<br>"
-              f"Gestor de arranque: {d.get('boot_manager','Desconocido')}<br>"
-              f"Parámetros kernel: <code>{cmd}</code>")
+        text=self.tr(
+            "<b>{0}</b><br>"
+            "Firmware/ACPI DMAR: {1}<br>"
+            "Grupos IOMMU: {2} &nbsp;|&nbsp; PCI listos para VFIO: {3}<br>"
+            "Gestor de arranque: {4}<br>"
+            "Parámetros kernel: <code>{5}</code>"
+        ).format(
+            status, d['firmware'], len(d['groups']), ready,
+            d.get('boot_manager', self.tr('Desconocido')),
+            cmd,
+        )
         if not d["intel_cpu"]:
-            text += "<br>⚠ El CPU no se identificó como Intel; comprobar diagnóstico AMD/IOMMU."
+            text += self.tr("<br>⚠ El CPU no se identificó como Intel; comprobar diagnóstico AMD/IOMMU.")
         elif d.get("dmar") and not d.get("intel_iommu_on"):
-            text += "<br>Recomendación: usar <b>Preparar intel_iommu=on</b> y reiniciar. Si tras reiniciar no hay grupos, revisar VT-d en BIOS/UEFI."
+            text += self.tr("<br>Recomendación: usar <b>Preparar intel_iommu=on</b> y reiniciar. Si tras reiniciar no hay grupos, revisar VT-d en BIOS/UEFI.")
         elif not d["active"]:
-            text += "<br>Recomendación: habilitar Intel VT-d en BIOS/UEFI y después activar <code>intel_iommu=on</code> en el arranque."
+            text += self.tr("<br>Recomendación: habilitar Intel VT-d en BIOS/UEFI y después activar <code>intel_iommu=on</code> en el arranque.")
         self.vfio_diag_label.setText(text)
 
     def _vfio_diagnostic_text(self):
         d=self._intel_vtd_diagnostic()
         devices=self._detect_pci_devices()
+        _yn = lambda b: self.tr("sí") if b else self.tr("no")
         lines=[
-            "=== DIAGNÓSTICO INTEL VT-d / IOMMU / VFIO ===",
-            f"Estado: {d['state']}",
-            f"Arquitectura: {d['arch'] or 'desconocida'}",
-            f"CPU Intel detectado: {'sí' if d['intel_cpu'] else 'no'}",
-            f"Firmware/ACPI DMAR: {d['firmware']}",
-            f"intel_iommu=on en kernel actual: {'sí' if d['intel_iommu_on'] else 'no'}",
-            f"IOMMU desactivado por parámetro: {'sí' if d['intel_iommu_off'] else 'no'}",
-            f"Grupos IOMMU: {len(d['groups'])}",
-            f"Clases IOMMU: {len(d['iommu_classes'])}",
-            f"Gestor de arranque: {d.get('boot_manager') or 'desconocido'}",
-            f"Configuración: {d.get('boot_path') or 'no identificada'}",
-            f"Parámetros kernel: {d['cmdline'] or '(sin datos)'}",
-            "", "=== DISPOSITIVOS PCI ==="
+            self.tr("=== DIAGNÓSTICO INTEL VT-d / IOMMU / VFIO ==="),
+            self.tr("Estado: {0}").format(d['state']),
+            self.tr("Arquitectura: {0}").format(d['arch'] or self.tr("desconocida")),
+            self.tr("CPU Intel detectado: {0}").format(_yn(d['intel_cpu'])),
+            self.tr("Firmware/ACPI DMAR: {0}").format(d['firmware']),
+            self.tr("intel_iommu=on en kernel actual: {0}").format(_yn(d['intel_iommu_on'])),
+            self.tr("IOMMU desactivado por parámetro: {0}").format(_yn(d['intel_iommu_off'])),
+            self.tr("Grupos IOMMU: {0}").format(len(d['groups'])),
+            self.tr("Clases IOMMU: {0}").format(len(d['iommu_classes'])),
+            self.tr("Gestor de arranque: {0}").format(
+                d.get('boot_manager') or self.tr("desconocido")),
+            self.tr("Configuración: {0}").format(
+                d.get('boot_path') or self.tr("no identificada")),
+            self.tr("Parámetros kernel: {0}").format(
+                d['cmdline'] or self.tr("(sin datos)")),
+            "", self.tr("=== DISPOSITIVOS PCI ===")
         ]
         for x in devices:
-            lines.append(f"{x['address']} | {x['name']} | driver={x.get('driver') or 'sin driver'} | grupo={x.get('iommu_group') if x.get('iommu_group') is not None else '—'} | estado={x.get('status','')}")
+            lines.append(self.tr(
+                "{0} | {1} | driver={2} | grupo={3} | estado={4}"
+            ).format(
+                x['address'], x['name'],
+                x.get('driver') or self.tr("sin driver"),
+                x.get('iommu_group') if x.get('iommu_group') is not None else "—",
+                x.get('status',''),
+            ))
         return "\n".join(lines)
 
     def copy_vfio_diagnostic(self):
         try:
             QApplication.clipboard().setText(self._vfio_diagnostic_text())
-            QMessageBox.information(self,'Diagnóstico VFIO','Diagnóstico copiado al portapapeles.')
+            QMessageBox.information(
+                self, self.tr('Diagnóstico VFIO'),
+                self.tr('Diagnóstico copiado al portapapeles.'))
         except Exception as e:
-            self._show_selectable_error('No se pudo copiar el diagnóstico',str(e))
+            self._show_selectable_error(
+                self.tr('No se pudo copiar el diagnóstico'), str(e))
 
     def vfio_diagnostic_details(self):
         from PyQt6.QtWidgets import QPlainTextEdit
         dlg=QDialog(self)
-        dlg.setWindowTitle("Diagnóstico Intel VT-d / IOMMU / VFIO")
+        dlg.setWindowTitle(self.tr("Diagnóstico Intel VT-d / IOMMU / VFIO"))
         dlg.resize(900,620)
         lay=QVBoxLayout(dlg)
         edit=QPlainTextEdit()
@@ -323,9 +378,9 @@ class PassthroughMixin:
         edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         lay.addWidget(edit,1)
         row=QHBoxLayout()
-        copy=QPushButton("📋 Copiar")
+        copy=QPushButton(self.tr("📋 Copiar"))
         copy.clicked.connect(lambda: QApplication.clipboard().setText(edit.toPlainText()))
-        close=QPushButton("Cerrar")
+        close=QPushButton(self.tr("Cerrar"))
         close.clicked.connect(dlg.accept)
         row.addWidget(copy); row.addStretch(); row.addWidget(close)
         lay.addLayout(row)
@@ -373,10 +428,13 @@ class PassthroughMixin:
         if not node:
             return False, "No se pudo determinar el nodo /dev/bus/usb."
         if not os.path.exists(node):
-            return False, f"No existe {node}. El número Device puede haber cambiado; vuelve a detectar USB."
+            return False, self.tr(
+                "No existe {0}. El número Device puede haber cambiado; "
+                "vuelve a detectar USB.").format(node)
         if os.access(node, os.R_OK | os.W_OK):
             return True, node
-        return False, f"Sin acceso de lectura/escritura a {node}."
+        return False, self.tr(
+            "Sin acceso de lectura/escritura a {0}.").format(node)
 
     # ==================================================================
     # Aviso de policy kit para pkexec
@@ -425,16 +483,22 @@ class PassthroughMixin:
         """Ejecuta una acción administrativa con pkexec, solicitando autorización al usuario."""
         pkexec=shutil.which("pkexec")
         if not pkexec:
-            raise RuntimeError("No se encontró 'pkexec'. No puedo solicitar permisos administrativos automáticamente.")
+            raise RuntimeError(self.tr(
+                "No se encontró 'pkexec'. No puedo solicitar permisos "
+                "administrativos automáticamente."))
         # Aviso proactivo si el prompt de pkexec podría no aparecer.
         self._maybe_warn_pkexec(purpose)
         try:
             r=subprocess.run([pkexec] + argv, capture_output=True, text=True, timeout=30)
         except Exception as e:
-            raise RuntimeError(f"No se pudo ejecutar la acción administrativa ({purpose}): {e}")
+            raise RuntimeError(self.tr(
+                "No se pudo ejecutar la acción administrativa ({0}): {1}"
+            ).format(purpose, e))
         if r.returncode != 0:
             detail=(r.stderr or r.stdout or "operación cancelada").strip()
-            raise RuntimeError(f"No se pudo realizar la acción administrativa ({purpose}). {detail}")
+            raise RuntimeError(self.tr(
+                "No se pudo realizar la acción administrativa ({0}). {1}"
+            ).format(purpose, detail))
         return True
 
     def _usb_block_devices_for(self, d):
@@ -503,13 +567,18 @@ class PassthroughMixin:
             self._refresh_usb_descriptor(d)
             node=self._usb_device_node(d)
             if not node or not os.path.exists(node):
-                last=f"No existe el nodo USB actual {node or '(desconocido)'}; el dispositivo pudo cambiar de dirección."
+                last=self.tr(
+                    "No existe el nodo USB actual {0}; el dispositivo "
+                    "pudo cambiar de dirección."
+                ).format(node or self.tr("(desconocido)"))
             else:
                 ok,detail=self._usb_access_status(d)
                 if ok:
                     return node
                 try:
-                    self._run_privileged(["/usr/bin/setfacl","-m",f"u:{uid}:rw",node], "dar acceso temporal al dispositivo USB")
+                    self._run_privileged(
+                        ["/usr/bin/setfacl","-m",f"u:{uid}:rw",node],
+                        self.tr("dar acceso temporal al dispositivo USB"))
                     ok2,detail2=self._usb_access_status(d)
                     if ok2:
                         return node
@@ -548,7 +617,10 @@ class PassthroughMixin:
             try:
                 self._run_privileged(["/bin/umount"]+[x[0] for x in unmount_fail], "desmontar el almacenamiento USB")
             except Exception as e:
-                raise RuntimeError(f"No pude desmontar automáticamente el almacenamiento USB:\n{lines}\n\n{e}")
+                raise RuntimeError(self.tr(
+                    "No pude desmontar automáticamente el almacenamiento USB:\n"
+                    "{0}\n\n{1}"
+                ).format(lines, e))
 
         # 2) Después del desmontaje, refrescar siempre la dirección del dispositivo.
         #    Así evitamos setfacl sobre un /dev/bus/usb/XXX/YYY que dejó de existir.
@@ -562,13 +634,22 @@ class PassthroughMixin:
                 self._set_usb_acl_with_retry(d, retries=4)
             ok2,detail2=self._usb_access_status(d)
             if not ok2:
-                raise RuntimeError(f"El USB sigue sin acceso después de preparar el dispositivo: {detail2}")
+                raise RuntimeError(self.tr(
+                    "El USB sigue sin acceso después de preparar el dispositivo: {0}"
+                ).format(detail2))
         return True
 
     def _usb_runtime_diagnostics(self, d):
         ok, detail=self._usb_access_status(d)
         node=self._usb_device_node(d)
-        return f"USB {d.get('name','')} | nodo: {node or 'desconocido'} | acceso usuario: {'OK' if ok else 'NO'} | {detail}"
+        return self.tr(
+            "USB {0} | nodo: {1} | acceso usuario: {2} | {3}"
+        ).format(
+            d.get('name',''),
+            node or self.tr("desconocido"),
+            self.tr("OK") if ok else self.tr("NO"),
+            detail,
+        )
 
     # ==================================================================
     # Permisos USB del host
@@ -600,7 +681,7 @@ class PassthroughMixin:
             with open(path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         except OSError as e:
-            return False, f"no se pudo leer ({e})"
+            return False, self.tr("no se pudo leer ({0})").format(e)
         if 'SUBSYSTEM=="usb"' in content and 'uaccess' in content:
             return True, "instalada"
         return False, "archivo presente pero sin la regla esperada"
@@ -612,11 +693,14 @@ class PassthroughMixin:
         try:
             installed, detail = self._usb_perm_state()
         except Exception as e:
-            installed, detail = False, f"error al comprobar: {e}"
+            installed, detail = False, self.tr(
+                "error al comprobar: {0}").format(e)
         if installed:
             self.usb_perm_status_label.setText(
-                f"✅ Permisos USB: OK ({detail}). El passthrough en caliente "
-                "no pedirá contraseña."
+                self.tr(
+                    "✅ Permisos USB: OK ({0}). El passthrough en caliente "
+                    "no pedirá contraseña."
+                ).format(detail)
             )
             self.usb_perm_status_label.setStyleSheet(
                 "font-weight: bold; color: #2e7d32;"
@@ -624,14 +708,18 @@ class PassthroughMixin:
             if hasattr(self, "btn_usb_perm_install"):
                 self.btn_usb_perm_install.setEnabled(False)
                 self.btn_usb_perm_install.setToolTip(
-                    "Los permisos USB ya están configurados.\n"
-                    "Si quieres desinstalarlos, borra:\n"
-                    f"{self._USB_UDEV_RULE_PATH}"
+                    self.tr(
+                        "Los permisos USB ya están configurados.\n"
+                        "Si quieres desinstalarlos, borra:\n"
+                        "{0}"
+                    ).format(self._USB_UDEV_RULE_PATH)
                 )
         else:
             self.usb_perm_status_label.setText(
-                f"⚠ Permisos USB: {detail}. El passthrough en caliente "
-                "pedirá contraseña cada vez."
+                self.tr(
+                    "⚠ Permisos USB: {0}. El passthrough en caliente "
+                    "pedirá contraseña cada vez."
+                ).format(detail)
             )
             self.usb_perm_status_label.setStyleSheet(
                 "font-weight: bold; color: #c62828;"
@@ -643,23 +731,27 @@ class PassthroughMixin:
         """Instala la regla udev con pkexec. Idempotente."""
         if shutil.which("pkexec") is None:
             QMessageBox.critical(
-                self, "Permisos USB",
-                "No se encontró 'pkexec'. Instálalo (paquete 'polkit') para "
-                "que la aplicación pueda solicitar permisos administrativos "
-                "de forma gráfica.",
+                self, self.tr("Permisos USB"),
+                self.tr(
+                    "No se encontró 'pkexec'. Instálalo (paquete 'polkit') para "
+                    "que la aplicación pueda solicitar permisos administrativos "
+                    "de forma gráfica."
+                ),
             )
             return
         if shutil.which("udevadm") is None:
             QMessageBox.critical(
-                self, "Permisos USB",
-                "No se encontró 'udevadm'. Este sistema parece no usar udev "
-                "para gestionar dispositivos USB. Aplica los permisos "
-                "manualmente según tu distribución.",
+                self, self.tr("Permisos USB"),
+                self.tr(
+                    "No se encontró 'udevadm'. Este sistema parece no usar udev "
+                    "para gestionar dispositivos USB. Aplica los permisos "
+                    "manualmente según tu distribución."
+                ),
             )
             return
 
         resp = QMessageBox.question(
-            self, "Configurar permisos USB",
+            self, self.tr("Configurar permisos USB"),
             "Se creará (o actualizará) el archivo:\n\n"
             f"    {self._USB_UDEV_RULE_PATH}\n\n"
             "con la regla que concede acceso a los dispositivos USB al "
@@ -695,18 +787,18 @@ class PassthroughMixin:
                 capture_output=True, text=True, timeout=30,
             )
         except subprocess.TimeoutExpired:
-            QMessageBox.warning(self, "Permisos USB",
-                                "La operación tardó demasiado. Vuelve a intentarlo.")
+            QMessageBox.warning(self, self.tr("Permisos USB"),
+                                self.tr("La operación tardó demasiado. Vuelve a intentarlo."))
             return
         except Exception as e:
-            QMessageBox.critical(self, "Permisos USB",
+            QMessageBox.critical(self, self.tr("Permisos USB"),
                                  f"No se pudo ejecutar pkexec:\n\n{e}")
             return
 
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip() or "cancelado"
             QMessageBox.warning(
-                self, "Permisos USB",
+                self, self.tr("Permisos USB"),
                 f"No se pudo instalar la regla udev.\n\n{detail}",
             )
             self.log_message(f"[AVISO] Permisos USB: {detail}")
@@ -716,7 +808,7 @@ class PassthroughMixin:
         self.log_message("==> Permisos USB instalados correctamente.")
         self.refresh_usb_permissions_status()
         QMessageBox.information(
-            self, "Permisos USB",
+            self, self.tr("Permisos USB"),
             "Regla udev instalada correctamente.\n\n"
             "Los USB que ya estén conectados al host pueden necesitar "
             "desenchufarse y volver a enchufarse para recibir el nuevo ACL.\n\n"
@@ -909,7 +1001,7 @@ class PassthroughMixin:
         """
         if not isinstance(d, dict) or d.get("kind") != "usb":
             QMessageBox.information(
-                self, "USB", "Dispositivo USB inválido."
+                self, "USB", self.tr("Dispositivo USB inválido.")
             )
             return
 
@@ -1013,11 +1105,11 @@ class PassthroughMixin:
         except Exception:
             cds = []
 
-        header = menu.addAction("📀 Unidades ópticas")
+        header = menu.addAction(self.tr("📀 Unidades ópticas"))
         header.setEnabled(False)
 
         if not cds:
-            act = menu.addAction("      (Sin unidades CD/DVD)")
+            act = menu.addAction(self.tr("      (Sin unidades CD/DVD)"))
             act.setEnabled(False)
             return
 
@@ -1026,17 +1118,17 @@ class PassthroughMixin:
             path = cd.get("path") or ""
             source = str(cd.get("source") or "")
             if source == "installer":
-                media_label = "🌐 descargar instalador al iniciar"
+                media_label = self.tr("🌐 descargar instalador al iniciar")
             elif source == "recovery":
-                media_label = "🌐 descargar Recovery al iniciar"
+                media_label = self.tr("🌐 descargar Recovery al iniciar")
             elif path:
                 media_label = os.path.basename(path)
             else:
-                media_label = "vacío"
+                media_label = self.tr("vacío")
 
-            sub = menu.addMenu(f"   📀 {name} — {media_label}")
+            sub = menu.addMenu(self.tr("   📀 {0} — {1}").format(name, media_label))
 
-            change = sub.addAction("📂 Cambiar medio…")
+            change = sub.addAction(self.tr("📂 Cambiar medio…"))
             change.setToolTip(
                 "Selecciona un ISO/IMG/DMG y cámbialo en caliente si la VM "
                 "está corriendo, o guárdalo para el próximo arranque si está "
@@ -1046,7 +1138,7 @@ class PassthroughMixin:
                 lambda checked=False, c=cd: self._hot_swap_cdrom(c)
             )
 
-            eject = sub.addAction("⏏ Expulsar medio")
+            eject = sub.addAction(self.tr("⏏ Expulsar medio"))
             eject.setToolTip("Expulsa el medio actual (deja la unidad vacía).")
             eject.setEnabled(bool(path))
             eject.triggered.connect(
@@ -1060,23 +1152,23 @@ class PassthroughMixin:
         except Exception:
             state = "stopped"
 
-        header = menu.addAction("🔌 Dispositivos USB")
+        header = menu.addAction(self.tr("🔌 Dispositivos USB"))
         header.setEnabled(False)
 
         if state not in ("running", "paused"):
-            act = menu.addAction("      (La VM debe estar encendida para conectarlos)")
+            act = menu.addAction(self.tr("      (La VM debe estar encendida para conectarlos)"))
             act.setEnabled(False)
             return
 
         try:
             usb_devices = self._detect_usb_devices()
         except Exception as e:
-            act = menu.addAction(f"      Error al detectar USB: {e}")
+            act = menu.addAction(self.tr("      Error al detectar USB: {0}").format(e))
             act.setEnabled(False)
             return
 
         if not usb_devices:
-            act = menu.addAction("      (No hay dispositivos USB detectados)")
+            act = menu.addAction(self.tr("      (No hay dispositivos USB detectados)"))
             act.setEnabled(False)
             return
 
@@ -1087,7 +1179,7 @@ class PassthroughMixin:
             name = (d.get("name") or "").strip() or "(USB sin nombre)"
             device_id = self._usb_device_id(d)
             is_connected = device_id in connected_ids
-            label = ("   ✓ " if is_connected else "     ") + name
+            label = (("   ✓ " if is_connected else "     ") + name)
 
             act = _QA(label, menu)
             act.setCheckable(True)
@@ -1097,14 +1189,21 @@ class PassthroughMixin:
             pid = str(d.get("productid") or "?").upper()
             bus = str(d.get("bus") or "?")
             addr = str(d.get("addr") or "?")
-            estado = "conectado a la VM" if is_connected else "disponible en el host"
+            estado = (self.tr("conectado a la VM") if is_connected
+                      else self.tr("disponible en el host"))
             act.setToolTip(
-                f"{name}\n"
-                f"VID:PID = {vid}:{pid}\n"
-                f"Bus {bus} · Device {addr}\n"
-                f"Estado: {estado}\n\n"
-                + ("Clic para DESCONECTAR de la VM"
-                   if is_connected else "Clic para CONECTAR a la VM")
+                self.tr(
+                    "{0}\n"
+                    "VID:PID = {1}:{2}\n"
+                    "Bus {3} · Device {4}\n"
+                    "Estado: {5}\n\n"
+                    "{6}"
+                ).format(
+                    name, vid, pid, bus, addr, estado,
+                    (self.tr("Clic para DESCONECTAR de la VM")
+                     if is_connected
+                     else self.tr("Clic para CONECTAR a la VM")),
+                )
             )
 
             if is_connected:
@@ -1128,12 +1227,12 @@ class PassthroughMixin:
             pass
 
         if not self._vm_is_selected():
-            act = menu.addAction("(Selecciona una VM primero)")
+            act = menu.addAction(self.tr("(Selecciona una VM primero)"))
             act.setEnabled(False)
             return
 
         vm_name = os.path.basename(self.current_vm_dir)
-        header = menu.addAction(f"💿 Medios de '{vm_name}'")
+        header = menu.addAction(self.tr("💿 Medios de '{0}'").format(vm_name))
         header.setEnabled(False)
         menu.addSeparator()
 
@@ -1146,9 +1245,9 @@ class PassthroughMixin:
         menu.addSeparator()
 
         # Footer
-        refresh = menu.addAction("🔄 Refrescar")
+        refresh = menu.addAction(self.tr("🔄 Refrescar"))
         refresh.triggered.connect(lambda: self._refresh_media_menu())
-        manage = menu.addAction("⚙ Gestionar USB en Passthrough…")
+        manage = menu.addAction(self.tr("⚙ Gestionar USB en Passthrough…"))
         manage.triggered.connect(self._goto_passthrough_tab)
 
     # ------------------------------------------------------------------
@@ -1332,12 +1431,21 @@ class PassthroughMixin:
         for d in all_devices:
             if d["kind"]=="pci":
                 group=d.get("iommu_group")
-                group_text=f"Grupo {group}" if group is not None else "Sin grupo IOMMU"
-                if d.get("driver"): group_text += f" • {d.get('driver')}"
-                status=d.get("status") or ("✓ Listo para VFIO" if d.get("vfio_ready") else "⚠ Revisar")
+                group_text=(self.tr("Grupo {0}").format(group)
+                            if group is not None
+                            else self.tr("Sin grupo IOMMU"))
+                if d.get("driver"):
+                    group_text += self.tr(" • {0}").format(d.get('driver'))
+                status=(d.get("status")
+                        or (self.tr("✓ Listo para VFIO") if d.get("vfio_ready")
+                            else self.tr("⚠ Revisar")))
             else:
-                group_text=d.get("vendorid","").upper()+":"+d.get("productid","").upper() if d.get("vendorid") and d.get("productid") else "USB"
-                status=("✓ Acceso OK" if self._usb_access_status(d)[0] else "⚠ Revisar acceso")
+                group_text=((d.get("vendorid","").upper()+":"+d.get("productid","").upper())
+                            if d.get("vendorid") and d.get("productid")
+                            else "USB")
+                status=(self.tr("✓ Acceso OK")
+                        if self._usb_access_status(d)[0]
+                        else self.tr("⚠ Revisar acceso"))
             root=QTreeWidgetItem(["", "PCI" if d["kind"]=="pci" else "USB", d.get("name",d.get("address","")), group_text, status])
             root.setFlags(root.flags()|Qt.ItemFlag.ItemIsUserCheckable)
             key=(d.get("kind"),d.get("address"),d.get("bus"),d.get("addr")); checked=key in saved
@@ -1364,7 +1472,7 @@ class PassthroughMixin:
         if _hid_inputs:
             _lines = "\n".join(f"  • {k}: {n}" for k, n in _hid_inputs)
             _resp = QMessageBox.warning(
-                self, "Passthrough: teclado o ratón del host",
+                self, self.tr("Passthrough: teclado o ratón del host"),
                 "Has seleccionado uno o más dispositivos que parecen ser\n"
                 "el teclado o el ratón de este equipo:\n\n"
                 f"{_lines}\n\n"
@@ -1388,21 +1496,21 @@ class PassthroughMixin:
 
     def passthrough_usb_hotplug(self):
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Passthrough USB", "Selecciona una máquina virtual."); return
+            QMessageBox.information(self, self.tr("Passthrough USB"), "Selecciona una máquina virtual."); return
         item=self.passthrough_tree.currentItem() if hasattr(self,'passthrough_tree') else None
         d=item.data(0, Qt.ItemDataRole.UserRole) if item else None
         if not isinstance(d, dict) or d.get('kind')!='usb':
-            QMessageBox.information(self, "Passthrough USB", "Selecciona un dispositivo USB."); return
+            QMessageBox.information(self, self.tr("Passthrough USB"), self.tr("Selecciona un dispositivo USB.")); return
         state=self._runtime_state(os.path.basename(self.current_vm_dir))
         if state not in ('running','paused'):
-            QMessageBox.information(self,"Passthrough USB","La VM no está encendida; usa Guardar selección para conectarlo al próximo arranque."); return
+            QMessageBox.information(self,self.tr("Passthrough USB"),self.tr("La VM no está encendida; usa Guardar selección para conectarlo al próximo arranque.")); return
         # Aviso si el dispositivo es el teclado o el ratón del host.
         if not self._warn_if_usb_input_device(d):
             return
         bus=str(d.get('bus') or '').strip(); addr=str(d.get('addr') or '').strip()
         vid=str(d.get('vendorid') or '').strip().lower(); pid=str(d.get('productid') or '').strip().lower()
         if not ((bus and addr) or (vid and pid)):
-            QMessageBox.information(self,"Passthrough USB","No se pudo identificar el USB (bus/dispositivo o fabricante/producto)."); return
+            QMessageBox.information(self,self.tr("Passthrough USB"),"No se pudo identificar el USB (bus/dispositivo o fabricante/producto)."); return
         # El controlador USB para hotplug se crea al arrancar la VM cuando existe un USB passthrough.
         # Como hay un único controlador XHCI, QEMU puede elegir automáticamente su bus USB.
         hostport=str(d.get('port') or '').strip()
@@ -1430,20 +1538,27 @@ class PassthroughMixin:
             self._qmp_command(self.current_vm_dir,{"execute":"device_add","arguments":args})
             label = f"{d.get('name','USB')}"
             self._snapshot_log(f"[PASSTHROUGH] ✓ USB conectado en caliente: {label}.")
-            QMessageBox.information(self,"Passthrough USB","Dispositivo USB conectado en caliente a la VM.\n\nNota: el host debe permitir acceso a /dev/bus/usb y el dispositivo no debería estar siendo usado por el sistema anfitrión.")
+            QMessageBox.information(
+                self, self.tr("Passthrough USB"),
+                self.tr(
+                    "Dispositivo USB conectado en caliente a la VM.\n\n"
+                    "Nota: el host debe permitir acceso a /dev/bus/usb y el "
+                    "dispositivo no debería estar siendo usado por el sistema "
+                    "anfitrión."
+                ))
         except Exception as e:
-            self._show_selectable_error("Error al conectar USB",f"No se pudo conectar el USB en caliente.\n\n{e}\n\nSi el error menciona que no puede abrir el dispositivo, comprueba los permisos de /dev/bus/usb o desmonta la memoria USB del anfitrión. Si menciona el bus USB, la VM debe haberse iniciado con el controlador XHCI de passthrough.")
+            self._show_selectable_error(self.tr("Error al conectar USB"),f"No se pudo conectar el USB en caliente.\n\n{e}\n\nSi el error menciona que no puede abrir el dispositivo, comprueba los permisos de /dev/bus/usb o desmonta la memoria USB del anfitrión. Si menciona el bus USB, la VM debe haberse iniciado con el controlador XHCI de passthrough.")
 
     def passthrough_usb_unplug(self):
         if not self._vm_is_selected():
-            QMessageBox.information(self, "Passthrough USB", "Selecciona una máquina virtual."); return
+            QMessageBox.information(self, self.tr("Passthrough USB"), "Selecciona una máquina virtual."); return
         item=self.passthrough_tree.currentItem() if hasattr(self,'passthrough_tree') else None
         d=item.data(0, Qt.ItemDataRole.UserRole) if item else None
         if not isinstance(d, dict) or d.get('kind')!='usb':
-            QMessageBox.information(self, "Passthrough USB", "Selecciona un dispositivo USB."); return
+            QMessageBox.information(self, self.tr("Passthrough USB"), self.tr("Selecciona un dispositivo USB.")); return
         state=self._runtime_state(os.path.basename(self.current_vm_dir))
         if state not in ('running','paused'):
-            QMessageBox.information(self,"Passthrough USB","La VM no está encendida."); return
+            QMessageBox.information(self,self.tr("Passthrough USB"),self.tr("La VM no está encendida.")); return
         bus=str(d.get('bus') or '').strip(); addr=str(d.get('addr') or '').strip()
         vid=str(d.get('vendorid') or '').strip().lower(); pid=str(d.get('productid') or '').strip().lower()
         hostport=str(d.get('port') or '').strip()
@@ -1457,7 +1572,13 @@ class PassthroughMixin:
                 raise RuntimeError(f"El dispositivo {device_id} no está conectado actualmente a QEMU.")
             self._qmp_command(self.current_vm_dir,{"execute":"device_del","arguments":{"id":device_id}})
             self._snapshot_log(f"[PASSTHROUGH] USB desconectado en caliente: {d.get('name','USB')}.")
-            QMessageBox.information(self,"Passthrough USB","Solicitud de desconexión USB enviada a QEMU.")
+            QMessageBox.information(self,self.tr("Passthrough USB"),self.tr("Solicitud de desconexión USB enviada a QEMU."))
         except Exception as e:
-            self._show_selectable_error("Error al desconectar USB",f"No se pudo desconectar el USB en caliente.\n\n{e}")
+            self._show_selectable_error(self.tr("Error al desconectar USB"),f"No se pudo desconectar el USB en caliente.\n\n{e}")
 
+
+# i18n_tanda3_passthrough_v1a
+
+# i18n_tanda3_passthrough_v2a
+
+# i18n_tanda3_passthrough_v2b

@@ -170,17 +170,24 @@ class AppearanceMixin:
         app.setPalette(p)
 
     def _build_appearance_ui(self, parent_layout):
-        group = QGroupBox("Apariencia")
+        group = QGroupBox(self.tr("Apariencia"))
         lay = QFormLayout(group)
 
         self.combo_theme = QComboBox()
-        for label, value in self._THEME_OPTIONS:
-            self.combo_theme.addItem(label, value)
+        # i18n_tanda2e2: se envuelve cada etiqueta del combo con
+        # self.tr() como literal para que pylupdate6 la extraiga.
+        for _label_raw, value in self._THEME_OPTIONS:
+            _label_tr = {
+                "Sistema (predeterminado)": self.tr("Sistema (predeterminado)"),
+                "Claro": self.tr("Claro"),
+                "Oscuro": self.tr("Oscuro"),
+            }.get(_label_raw, _label_raw)
+            self.combo_theme.addItem(_label_tr, value)
         _saved = self._load_theme_preference()
         _idx = self.combo_theme.findData(_saved)
         if _idx >= 0:
             self.combo_theme.setCurrentIndex(_idx)
-        self.combo_theme.setToolTip(
+        self.combo_theme.setToolTip(self.tr(
             "Tema visual de la aplicacion.\n"
             "  - Sistema: usa el estilo y la paleta del escritorio.\n"
             "  - Claro / Oscuro: fuerza el estilo Fusion con una paleta\n"
@@ -189,15 +196,15 @@ class AppearanceMixin:
             "Al elegir Claro u Oscuro, la app cambia el estilo de Qt a\n"
             "Fusion. Al volver a Sistema, se restaura el estilo original\n"
             "del escritorio (Breeze, Adwaita, etc.)."
-        )
+        ))
         self.combo_theme.currentIndexChanged.connect(self._on_theme_changed)
-        lay.addRow("Tema:", self.combo_theme)
+        lay.addRow(self.tr("Tema:"), self.combo_theme)
 
-        hint = QLabel(
+        hint = QLabel(self.tr(
             "Al cambiar entre 'Sistema' y 'Claro/Oscuro' puede ser necesario\n"
             "reiniciar la app para que TODOS los widgets se repinten con los\n"
             "colores nuevos (depende del estilo del escritorio)."
-        )
+        ))
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#888; font-size:11px;")
         lay.addRow("", hint)
@@ -222,13 +229,13 @@ class AppearanceMixin:
 
         try:
             resp = QMessageBox.question(
-                self, "Cambio de tema",
-                "Se ha cambiado el tema.\n\n"
-                "Algunos estilos del escritorio (Kvantum en KDE, por\n"
-                "ejemplo) pueden no repintar todos los widgets hasta\n"
-                "reiniciar la aplicacion.\n\n"
-                "¿Quieres reiniciar ahora para asegurar que todos los\n"
-                "elementos se vean correctamente?",
+                self, self.tr("Cambio de tema"),
+                self.tr("Se ha cambiado el tema.\n\n"
+                        "Algunos estilos del escritorio (Kvantum en KDE, por\n"
+                        "ejemplo) pueden no repintar todos los widgets hasta\n"
+                        "reiniciar la aplicacion.\n\n"
+                        "¿Quieres reiniciar ahora para asegurar que todos los\n"
+                        "elementos se vean correctamente?"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -267,20 +274,20 @@ class AppearanceMixin:
         """Devuelve (ok, motivo). ok=True si hay VM encendida/pausada."""
         try:
             if not self._vm_is_selected():
-                return (False, "No hay ninguna máquina virtual seleccionada.")
+                return (False, self.tr("No hay ninguna máquina virtual seleccionada."))
             vm_name = os.path.basename(self.current_vm_dir)
             state = self._runtime_state(vm_name)
             if state not in ("running", "paused"):
                 return (False,
-                        f"La VM '{vm_name}' no está corriendo. "
-                        "Enciéndela antes de entrar en modo presentación.")
+                        self.tr("La VM '{0}' no está corriendo. "
+                                "Enciéndela antes de entrar en modo presentación.").format(vm_name))
             if getattr(self, "_console_tab_index", -1) < 0:
                 return (False,
-                        "La Consola Gráfica no está disponible en este "
-                        "sistema (falta el widget VNC embebido).")
+                        self.tr("La Consola Gráfica no está disponible en este "
+                                "sistema (falta el widget VNC embebido)."))
             return (True, "")
         except Exception as e:
-            return (False, f"No se pudo comprobar el estado de la VM: {e}")
+            return (False, self.tr("No se pudo comprobar el estado de la VM: {0}").format(e))
 
     def _enter_presentation_mode(self):
         if getattr(self, "_presentation_mode_active", False):
@@ -289,7 +296,7 @@ class AppearanceMixin:
         if not ok:
             try:
                 from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.information(self, "Modo presentación", motivo)
+                QMessageBox.information(self, self.tr("Modo presentación"), motivo)
             except Exception:
                 pass
             return
@@ -437,19 +444,19 @@ class AppearanceMixin:
             return
         try:
             if getattr(self, "_presentation_mode_active", False):
-                btn.setText("🎬 Salir de presentación")
-                btn.setToolTip(
+                btn.setText(self.tr("🎬 Salir de presentación"))
+                btn.setToolTip(self.tr(
                     "Salir del modo presentación y restaurar la vista normal.\n"
                     "También puedes pulsar F11 o Escape."
-                )
+                ))
             else:
-                btn.setText("🎬 Presentación")
-                btn.setToolTip(
+                btn.setText(self.tr("🎬 Presentación"))
+                btn.setToolTip(self.tr(
                     "Modo presentación: oculta los paneles laterales, entra\n"
                     "en pantalla completa y salta a la Consola Gráfica.\n"
                     "Requiere que la VM esté encendida.\n\n"
                     "Atajo: F11. Para salir: F11 o Escape."
-                )
+                ))
         except Exception:
             pass
 
