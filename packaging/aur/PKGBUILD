@@ -9,6 +9,8 @@ license=('GPL-3.0-or-later')
 depends=(
     'python'
     'python-pyqt6'
+    'python-requests'
+    'python-packaging'
     'qemu-system-x86'
     'qemu-img'
     'qt6-svg'
