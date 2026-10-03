@@ -107,9 +107,21 @@ Opcionales según uso:
 
 <!-- readme_aur_v1 -->
 
-### Arch Linux y derivados (AUR)
+### Arch Linux
 
-El paquete esta publicado en el AUR. Con un helper (`yay`, `paru`):
+#### Paquete precompilado (recomendado)
+
+Descarga el `.pkg.tar.zst` del ultimo release e instalalo con pacman:
+
+```bash
+wget https://github.com/jverduga1969/virtual-machine/releases/download/v0.57.0/virtual-machine-0.57.0-1-any.pkg.tar.zst
+sudo pacman -U virtual-machine-0.57.0-1-any.pkg.tar.zst
+```
+
+#### AUR (cuando reabra el registro)
+
+
+El paquete estara disponible en el AUR cuando reabra el registro (cerrado temporalmente desde octubre 2026). Mientras tanto, usa el paquete precompilado de arriba o compila desde el PKGBUILD local. Una vez publicado, con un helper (`yay`, `paru`):
 
 ```bash
 yay -S virtual-machine
@@ -117,7 +129,7 @@ yay -S virtual-machine
 paru -S virtual-machine
 ```
 
-Instalacion manual:
+Instalacion manual desde el PKGBUILD local:
 
 ```bash
 git clone https://aur.archlinux.org/virtual-machine.git
