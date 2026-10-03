@@ -114,8 +114,8 @@ Opcionales según uso:
 Descarga el `.pkg.tar.zst` del ultimo release e instalalo con pacman:
 
 ```bash
-wget https://github.com/jverduga1969/virtual-machine/releases/download/v0.57.0/virtual-machine-0.57.0-1-any.pkg.tar.zst
-sudo pacman -U virtual-machine-0.57.0-1-any.pkg.tar.zst
+wget https://github.com/jverduga1969/virtual-machine/releases/download/v58.0/virtual-machine-58.0-1-any.pkg.tar.zst
+sudo pacman -U virtual-machine-58.0-1-any.pkg.tar.zst
 ```
 
 #### AUR (cuando reabra el registro)

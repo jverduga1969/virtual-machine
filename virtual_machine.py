@@ -280,7 +280,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.tr = _i18n_tr
 
         self.setWindowTitle(
-            "Virtual Machine 57 • " + self.tr("Administrador QEMU/KVM")
+            "Virtual Machine • " + self.tr("Administrador QEMU/KVM")
         )
         # Ventana redimensionable: tamaño inicial cómodo, sin bloquear al usuario.
         self.current_vm_dir = None
@@ -378,7 +378,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # que envuelve QSettings y valida el codigo.
         self._ui_language = current_language()
         self.setWindowTitle(
-            "Virtual Machine 57 • " + self.tr("Administrador QEMU/KVM")
+            "Virtual Machine • " + self.tr("Administrador QEMU/KVM")
         )
         self.setMinimumSize(760, 600)
         self.resize(1080, 760)
