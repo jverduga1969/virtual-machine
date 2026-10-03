@@ -21,6 +21,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QTreeWidget, QTreeWidgetItem, QFileDialog, QMessageBox,
     QInputDialog, QDialog, QFormLayout, QDialogButtonBox, QPlainTextEdit,
     QGridLayout, QFrame, QSizePolicy,
+    # media_library_host_mount_v1_urgent01: QCheckBox faltaba en el
+    # import. Sin esto, _ask_mount_mode() lanzaba NameError al pulsar
+    # "Montar en host".
+    QCheckBox,
 )
 
 import media_library as _ml
@@ -68,7 +72,12 @@ _MEDIA_COLOR_PALETTE = [
     ("Violeta",    "#8e24aa"),
     ("Rosa",       "#d81b60"),
     ("Gris",       "#757575"),
-]
+] 
+
+# media_library_host_mount_v1: constantes para montar/desmontar
+# discos virtuales en el sistema anfitrion.
+_MOUNT_STATUS_OK = "\U0001f7e2 "        # circulo verde
+_MOUNT_STATUS_RW = "\U0001f7e0 "        # circulo naranja
 
 
 # media_library_sort_v1: QTreeWidgetItem con orden numerico real en
@@ -217,6 +226,21 @@ class MediaLibraryMixin:
         self.btn_media_add.clicked.connect(self.add_media_from_files)
         acts.addWidget(self.btn_media_add)
 
+        # media_library_create_disk_v1_mixin: crear un disco nuevo
+        # directamente en MediaLibrary/.
+        self.btn_media_create_disk = QPushButton(
+            self.tr("\u2795 Crear disco"))
+        self.btn_media_create_disk.setMinimumHeight(30)
+        self.btn_media_create_disk.setToolTip(self.tr(
+            "Crea un disco virtual nuevo en la biblioteca con\n"
+            "'qemu-img create'.\n\n"
+            "Formatos soportados: QCOW2, RAW, VMDK, VDI, VHD, VHDX\n"
+            "y disquete (IMG). El archivo se guarda en MediaLibrary/\n"
+            "y se registra automáticamente en el índice."))
+        self.btn_media_create_disk.clicked.connect(
+            self.create_medium_in_library)
+        acts.addWidget(self.btn_media_create_disk)
+
         self.btn_media_scan = QPushButton(self.tr("Escanear carpeta"))
         self.btn_media_scan.setMinimumHeight(30)
         self.btn_media_scan.setToolTip(self.tr(
@@ -291,36 +315,67 @@ class MediaLibraryMixin:
         acts2 = QHBoxLayout()
         acts2.setSpacing(6)
 
-        for label, slot, tip in (
+        # media_library_host_mount_v1: cada tupla lleva ahora un 4o campo
+        # "attr" para que podamos guardar una referencia al boton y
+        # habilitarlo/deshabilitarlo segun el estado del disco.
+        for label, slot, tip, attr in (
             (self.tr("↗ Agrandar"), self.enlarge_media_entry,
              self.tr("Aumentar el tamaño virtual de un disco QCOW2/RAW de la\n"
                      "biblioteca. Requiere que ninguna VM lo esté usando en\n"
-                     "ese momento. El disco solo puede crecer.")),
+                     "ese momento. El disco solo puede crecer."),
+             None),
             (self.tr("🗜 Compactar"), self.compact_media_entry,
              self.tr("Reescribe el QCOW2 sin bloques no usados, reduciendo el\n"
                      "archivo en el host. No cambia el tamaño virtual que ve el\n"
-                     "sistema invitado.")),
+                     "sistema invitado."),
+             None),
+            # media_library_host_mount_v1: montar/desmontar el disco en el host.
+            (self.tr("\U0001f50c Montar en host"), self.mount_media_entry,
+             self.tr("Monta este disco virtual en el sistema anfitrión para\n"
+                     "inspeccionar o copiar su contenido sin arrancar la VM.\n\n"
+                     "Se usa guestmount (FUSE, sin root) si está disponible,\n"
+                     "o qemu-nbd (con pkexec) como alternativa.\n\n"
+                     "Requiere que ninguna VM que lo use esté encendida:\n"
+                     "QEMU mantiene un bloqueo de escritura sobre el archivo."),
+             "btn_media_mount"),
+            (self.tr("\u23cf Desmontar del host"), self.unmount_media_entry,
+             self.tr("Desmonta del sistema anfitrión el disco que se montó\n"
+                     "previamente con 'Montar en host'."),
+             "btn_media_unmount"),
             (self.tr("Verificar"), self.verify_media_entry,
              self.tr("Comprueba que el archivo exista en disco y, si hay sha256 "
-                     "calculado, que coincida.")),
+                     "calculado, que coincida."),
+             None),
             (self.tr("Calcular SHA256"), self.compute_media_sha256,
              self.tr("Calcula el sha256 del archivo (tarda segun el tamano). "
-                     "Util para detectar duplicados o descargas corruptas.")),
+                     "Util para detectar duplicados o descargas corruptas."),
+             None),
             (self.tr("Editar"), self.edit_media_metadata,
              self.tr("Edita los metadatos de la entrada: nombre, distro, version, "
-                     "arquitectura, notas, tags y color.")),
+                     "arquitectura, notas, tags y color."),
+             None),
             (self.tr("Eliminar"), self.delete_media_entry,
              self.tr("Elimina la entrada del indice. Opcionalmente borra tambien "
-                     "el archivo del disco (solo si vive dentro de MediaLibrary/).")),
+                     "el archivo del disco (solo si vive dentro de MediaLibrary/)."),
+             None),
             (self.tr("Abrir carpeta"), self.open_media_folder,
              self.tr("Abre la carpeta que contiene el archivo en el explorador "
-                     "del sistema.")),
+                     "del sistema."),
+             None),
         ):
             b = QPushButton(label)
             b.setMinimumHeight(28)
             b.setToolTip(tip)
             b.clicked.connect(slot)
             acts2.addWidget(b)
+            if attr:
+                setattr(self, attr, b)
+        # media_library_host_mount_v1: estado inicial de los dos botones
+        # nuevos, ahora que ya existen.
+        try:
+            self._update_media_mount_buttons_state()
+        except Exception:
+            pass
 
         acts2.addStretch(1)
         parent_layout.addLayout(acts2)
@@ -388,6 +443,14 @@ class MediaLibraryMixin:
             self.refresh_media_library_table()
         except Exception:
             pass
+        # media_library_host_mount_v1: comprobar montajes huerfanos de
+        # una sesion anterior (con un retardo, para no bloquear el
+        # arranque de la UI).
+        try:
+            from PyQt6.QtCore import QTimer as _QTimer
+            _QTimer.singleShot(1200, self._detect_orphan_mounts_on_start)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Refresco de la tabla
@@ -397,6 +460,13 @@ class MediaLibraryMixin:
         """Reconstruye la tabla segun filtros y busqueda actuales."""
         if not hasattr(self, "media_table"):
             return
+        # media_library_host_mount_v1: validar el estado de montajes
+        # antes de pintar la tabla (los que ya no esten montados se
+        # limpian solos).
+        try:
+            self._sync_mounted_media_state()
+        except Exception:
+            pass
         lib = self._media_library_instance()
         if lib is None:
             self.media_table.clear()
@@ -575,9 +645,29 @@ class MediaLibraryMixin:
                     self.media_table.setCurrentItem(row)
                     break
         self._on_media_selection_changed()
+        # media_library_host_mount_v1: refrescar el estado de los botones.
+        try:
+            self._update_media_mount_buttons_state()
+        except Exception:
+            pass
 
     def _media_status_for_entry(self, entry):
         """Icono textual del estado de una entrada."""
+        # media_library_host_mount_v1: si esta montado en el host, ese
+        # estado manda sobre "OK"/"verificado?"/"huerfano".
+        try:
+            eid = str(entry.get("id") or "")
+            self._sync_mounted_media_state()
+            info = (self._mounted_media or {}).get(eid)
+            if info:
+                _mp = info.get("mp") or ""
+                if _mp and os.path.ismount(_mp):
+                    _mode = (info.get("mode") or "ro").lower()
+                    if _mode == "rw":
+                        return _MOUNT_STATUS_RW + self.tr("montado (rw)")
+                    return _MOUNT_STATUS_OK + self.tr("montado (ro)")
+        except Exception:
+            pass
         try:
             path_abs = self._media_library_instance().resolve_path(entry)
         except Exception:
@@ -647,6 +737,11 @@ class MediaLibraryMixin:
             self.media_notes_edit.blockSignals(False)
             self.media_tags_edit.blockSignals(False)
             self.media_color_combo.blockSignals(False)
+        # media_library_host_mount_v1: refrescar botones Montar/Desmontar.
+        try:
+            self._update_media_mount_buttons_state()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Panel inferior: guardar metadatos
@@ -1458,6 +1553,898 @@ class MediaLibraryMixin:
         except Exception as e:
             QMessageBox.information(self, self.tr("Abrir carpeta"), folder)
 
+
+    # ------------------------------------------------------------------
+    # media_library_host_mount_v1: montar/desmontar discos en el host
+    # ------------------------------------------------------------------
+    # Monta un disco virtual (QCOW2/RAW/VMDK/VDI/VHD/VHDX) en el sistema
+    # anfitrion para inspeccionar o copiar su contenido sin arrancar la
+    # VM. No toca ninguna VM: solo habilita el contenido al host.
+    #
+    # Backend preferido: guestmount (libguestfs, FUSE, sin root,
+    #   detecta particiones y sistemas de archivos automaticamente).
+    # Fallback: qemu-nbd + mount (necesita root via pkexec, monta la
+    #   primera particion o el disco entero).
+    #
+    # Estado por entrada (self._mounted_media[eid]):
+    #   {
+    #     "mp": "/home/user/.local/share/virtual-machine/mounts/<eid>",
+    #     "mode": "ro" | "rw",
+    #     "backend": "guestmount" | "qemu_nbd",
+    #     "nbd_index": "0"  # solo si backend == qemu_nbd
+    #   }
+    #
+    # El estado se valida contra os.path.ismount() en cada refresco de
+    # la tabla; si el usuario desmonto a mano con `fusermount -u` o
+    # `umount`, la entrada se limpia sola sin error.
+
+    def _mount_dir_root(self):
+        """Directorio raiz donde se crean los puntos de montaje."""
+        xdg = (os.environ.get("XDG_DATA_HOME")
+               or os.path.expanduser("~/.local/share"))
+        root = os.path.join(xdg, "virtual-machine", "mounts")
+        try:
+            os.makedirs(root, exist_ok=True)
+        except OSError:
+            pass
+        return root
+
+    @staticmethod
+    def _sanitize_mount_dir_name(name, fallback="disco"):
+        """Sanea el nombre de una entrada para usarlo como carpeta.
+
+        Marcador: media_library_host_mount_v1_friendly_mp.
+        Deja solo [A-Za-z0-9._-], sustituye espacios por _, quita
+        acentos, y limita a 40 chars. Si queda vacio usa fallback.
+        """
+        import unicodedata as _ud
+        s = str(name or "").strip()
+        # Quitar acentos (NFKD normaliza y luego quitamos comb marks).
+        try:
+            s = _ud.normalize("NFKD", s)
+            s = "".join(c for c in s if not _ud.combining(c))
+        except Exception:
+            pass
+        s = s.replace(" ", "_")
+        # Descartar cualquier caracter no permitido.
+        s = "".join(c if (c.isalnum() or c in "._-") else "_" for c in s)
+        s = s.strip("._-")[:40]
+        return s or fallback
+
+    def _mount_dir_for(self, entry):
+        """Devuelve el punto de montaje legible para una entrada.
+
+        Formato: <nombre_saneado>-<eid[:8]>.
+        El sufijo corto del id evita colisiones cuando dos entradas
+        tienen el mismo nombre. Ej: "hd_mint-a1b2c3d4".
+        """
+        eid = str((entry or {}).get("id") or "")
+        name = (entry or {}).get("name") or (entry or {}).get("filename") or ""
+        safe = self._sanitize_mount_dir_name(name, "disco")
+        short = eid[3:11] if eid.startswith("ml_") else eid[:8]
+        suffix = ("-" + short) if short else ""
+        return os.path.join(self._mount_dir_root(), safe + suffix)
+
+    def _mount_tools_status(self):
+        """Devuelve dict con las herramientas de montaje disponibles."""
+        gm = shutil.which("guestmount")
+        qn = shutil.which("qemu-nbd")
+        pk = shutil.which("pkexec")
+        return {
+            "guestmount": gm,
+            "qemu_nbd": qn,
+            "pkexec": pk,
+            "any": bool(gm or (qn and pk)),
+        }
+
+    def _offer_install_mount_tools(self):
+        """Ofrece instalar libguestfs+guestfs-tools (o qemu-nbd).
+        Devuelve True si la instalacion termino con exito."""
+        pm = None
+        pkgs = []
+        for cmd, cand in (
+            ("pacman",   ["libguestfs", "guestfs-tools"]),
+            ("apt",      ["libguestfs-tools"]),
+            ("apt-get",  ["libguestfs-tools"]),
+            ("dnf",      ["libguestfs-tools-c", "libguestfs-tools"]),
+            ("zypper",   ["guestfs-tools"]),
+        ):
+            if shutil.which(cmd):
+                pm = cmd
+                pkgs = cand
+                break
+        if pm is None:
+            QMessageBox.information(
+                self, self.tr("Herramientas de montaje"),
+                self.tr(
+                    "No se encontró guestmount ni qemu-nbd en el sistema.\n\n"
+                    "Instala 'libguestfs' y 'guestfs-tools' (o 'qemu-nbd'\n"
+                    "como alternativa) con el gestor de paquetes de tu\n"
+                    "distribución para poder montar discos virtuales.")
+            )
+            return False
+        if not shutil.which("pkexec"):
+            QMessageBox.information(
+                self, self.tr("Herramientas de montaje"),
+                self.tr(
+                    "Faltan las herramientas de montaje y no se encontró\n"
+                    "'pkexec' para pedir permisos de administrador.\n\n"
+                    "Ejecuta a mano:\n\n"
+                    "  sudo {0} install {1}").format(pm, " ".join(pkgs)))
+            return False
+        if pm == "pacman":
+            cmd = ["pkexec", pm, "-S", "--noconfirm"] + pkgs
+        elif pm == "zypper":
+            cmd = ["pkexec", pm, "-n", "install"] + pkgs
+        else:
+            cmd = ["pkexec", pm, "install", "-y"] + pkgs
+        resp = QMessageBox.question(
+            self, self.tr("Herramientas de montaje"),
+            self.tr(
+                "Se necesitan herramientas adicionales para montar discos\n"
+                "en el host.\n\n"
+                "  • guestmount (libguestfs) es lo ideal: sin root, detecta\n"
+                "    particiones y sistemas de archivos automáticamente.\n"
+                "  • qemu-nbd es la alternativa si no hay libguestfs.\n\n"
+                "¿Quieres instalar las herramientas ahora? Se pedirá la\n"
+                "contraseña de administrador.\n\n"
+                "Comando:\n  {0}").format(" ".join(cmd)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return False
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        except Exception as e:
+            QMessageBox.critical(
+                self, self.tr("Herramientas de montaje"),
+                self.tr("No se pudo ejecutar el comando de instalación.\n\n{0}").format(e)
+            )
+            return False
+        if r.returncode != 0:
+            QMessageBox.critical(
+                self, self.tr("Herramientas de montaje"),
+                self.tr("La instalación falló.\n\n{0}").format(
+                    (r.stderr or r.stdout or "(sin salida)")[-500:])
+            )
+            return False
+        QMessageBox.information(
+            self, self.tr("Herramientas de montaje"),
+            self.tr("Instalación completada."))
+        return True
+
+    def _sync_mounted_media_state(self):
+        """Valida self._mounted_media contra el estado real del sistema.
+
+        Si un punto de montaje ya no esta montado (el usuario lo
+        desmonto a mano, o el proceso murio), se limpia del dict y se
+        intenta borrar el directorio vacio.
+        """
+        if not hasattr(self, "_mounted_media"):
+            self._mounted_media = {}
+            return
+        stale = []
+        for eid, info in list(self._mounted_media.items()):
+            mp = (info or {}).get("mp") or ""
+            if not mp or not os.path.ismount(mp):
+                stale.append((eid, mp))
+        for eid, mp in stale:
+            self._mounted_media.pop(eid, None)
+            if mp:
+                try:
+                    os.rmdir(mp)
+                except OSError:
+                    pass
+
+    def _detect_orphan_mounts_on_start(self):
+        """Busca montajes huerfanos de una sesion anterior.
+
+        Se llama una vez por arranque (con un QTimer.singleShot para no
+        bloquear la construccion inicial de la UI). Si hay montajes
+        vivos, ofrece desmontarlos; si el usuario dice 'No', no se
+        vuelve a preguntar en esta sesion.
+        """
+        if getattr(self, "_orphans_checked", False):
+            return
+        self._orphans_checked = True
+        root = self._mount_dir_root()
+        orphans = []
+        try:
+            for name in os.listdir(root):
+                sub = os.path.join(root, name)
+                if not os.path.isdir(sub):
+                    continue
+                if os.path.ismount(sub):
+                    orphans.append(sub)
+                else:
+                    try:
+                        os.rmdir(sub)
+                    except OSError:
+                        pass
+        except OSError:
+            return
+        if not orphans or getattr(self, "_orphans_ignored", False):
+            return
+        try:
+            self._offer_orphan_cleanup(orphans)
+        except Exception as e:
+            self._media_mount_log_exc("detect_orphan_mounts", e)
+
+    def _offer_orphan_cleanup(self, orphans):
+        """Cuerpo real, separado para que las excepciones no maten
+        el callback del QTimer."""
+        resp = QMessageBox.question(
+            self, self.tr("Montajes previos detectados"),
+            self.tr(
+                "Se encontraron {0} disco(s) montados en el sistema de\n"
+                "una sesión anterior de la aplicación:\n\n"
+                "{1}\n\n"
+                "¿Quieres desmontarlos ahora?").format(
+                    len(orphans), "\n".join(orphans)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            self._orphans_ignored = True
+            return
+        for mp in orphans:
+            try:
+                subprocess.run(["fusermount", "-u", mp],
+                               capture_output=True, text=True, timeout=15)
+            except Exception:
+                pass
+            if os.path.ismount(mp):
+                try:
+                    subprocess.run(["pkexec", "umount", mp],
+                                   capture_output=True, text=True, timeout=60)
+                except Exception:
+                    pass
+            if not os.path.ismount(mp):
+                try:
+                    os.rmdir(mp)
+                except OSError:
+                    pass
+
+    def _ask_mount_mode(self, entry_name):
+        """Pregunta ro/rw antes de montar. Devuelve 'ro', 'rw' o None."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(self.tr("Montar en el host"))
+        dlg.setModal(True)
+        dlg.resize(560, 280)
+        lay = QVBoxLayout(dlg)
+        info = QLabel(self.tr(
+            "Se va a montar <b>{0}</b> en el sistema anfitrión.<br><br>"
+            "El disco debe estar apagado: ninguna VM que lo use puede\n"
+            "estar encendida, porque QEMU mantiene un bloqueo de escritura\n"
+            "sobre el archivo.").format(entry_name))
+        info.setTextFormat(Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        lay.addWidget(info)
+        chk_rw = QCheckBox(self.tr(
+            "Permitir escritura (montar en modo read-write)"))
+        chk_rw.setChecked(False)
+        lay.addWidget(chk_rw)
+        warn = QLabel(self.tr(
+            "⚠ Con read-write, escribir en el disco puede corromper el\n"
+            "sistema de archivos si después se arranca la VM sin\n"
+            "desmontarlo. Para inspeccionar o copiar, deja read-only.\n\n"
+            "Los archivos que crees desde el host se atribuirán a tu\n"
+            "usuario del guest (uid/gid {0}:{1}) cuando el sistema de\n"
+            "archivos lo permita; si no, aparecerán como root.").format(
+                os.getuid(), os.getgid()))
+        warn.setWordWrap(True)
+        warn.setStyleSheet("color:#b36b00; font-size:11px;")
+        lay.addWidget(warn)
+        lay.addStretch(1)
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        cancel = QPushButton(self.tr("Cancelar"))
+        ok = QPushButton(self.tr("Montar"))
+        ok.setDefault(True)
+        cancel.clicked.connect(dlg.reject)
+        ok.clicked.connect(dlg.accept)
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
+        lay.addLayout(btns)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return "rw" if chk_rw.isChecked() else "ro"
+
+    def _update_media_mount_buttons_state(self):
+        """Habilita/deshabilita y reescribe tooltips de Montar/Desmontar."""
+        btn_m = getattr(self, "btn_media_mount", None)
+        btn_u = getattr(self, "btn_media_unmount", None)
+        if btn_m is None or btn_u is None:
+            return
+        try:
+            lib = self._media_library_instance()
+            eid = self._media_selected_id()
+            e = lib.get(eid) if (lib and eid) else None
+            if not e:
+                btn_m.setEnabled(False)
+                btn_u.setEnabled(False)
+                btn_m.setToolTip(self.tr(
+                    "Selecciona un disco virtual para montarlo en el host."))
+                btn_u.setToolTip(self.tr(
+                    "Selecciona un disco previamente montado para desmontarlo."))
+                return
+            try:
+                import media_library as _ml_mod
+                is_disk = (_ml_mod.media_type_key(e) == "disk")
+            except Exception:
+                is_disk = False
+            self._sync_mounted_media_state()
+            is_mounted = eid in self._mounted_media
+            running = self._media_entry_in_use_by_running_vm(e)
+            btn_m.setEnabled(bool(is_disk and not is_mounted and not running))
+            btn_u.setEnabled(bool(is_mounted))
+            if not is_disk:
+                btn_m.setToolTip(self.tr(
+                    "Solo se pueden montar discos virtuales\n"
+                    "(QCOW2, RAW, VMDK, VDI, VHD, VHDX)."))
+            elif is_mounted:
+                btn_m.setToolTip(self.tr(
+                    "Este disco ya está montado. Usa '⏏ Desmontar del host'\n"
+                    "para liberarlo."))
+            elif running:
+                btn_m.setToolTip(self.tr(
+                    "La VM '{0}' está usando este disco y está encendida.\n"
+                    "Apágala para poder montarlo en el host.").format(running))
+            else:
+                btn_m.setToolTip(self.tr(
+                    "Monta este disco virtual en el sistema anfitrión para\n"
+                    "inspeccionar o copiar su contenido sin arrancar la VM."))
+            if is_mounted:
+                _mp = (self._mounted_media.get(eid) or {}).get("mp") or ""
+                btn_u.setToolTip(self.tr("Desmontar de {0}").format(_mp))
+            else:
+                btn_u.setToolTip(self.tr(
+                    "Este disco no está montado en el host."))
+        except Exception:
+            try:
+                btn_m.setEnabled(False)
+                btn_u.setEnabled(False)
+            except Exception:
+                pass
+
+    def _media_mount_log_exc(self, ctx, exc):
+        """Loguea una excepcion a la consola de progreso SIN propagarla.
+
+        Marcador: media_library_host_mount_v1_urgent01. Los slots de
+        los botones nuevos no deben poder tumbar la app: cualquier
+        excepcion se registra con traceback y se sigue.
+        """
+        try:
+            import traceback as _tb
+            self.log_message(
+                "[ERROR] {}: {}".format(ctx, exc)
+            )
+            for line in _tb.format_exc().splitlines():
+                self.log_message("    " + line)
+        except Exception:
+            import sys as _sys
+            print("[ERROR] {}: {}".format(ctx, exc), file=_sys.stderr)
+
+    def mount_media_entry(self):
+        """Monta el disco seleccionado en el sistema anfitrion."""
+        try:
+            self._mount_media_entry_impl()
+        except Exception as e:
+            self._media_mount_log_exc("mount_media_entry", e)
+            try:
+                QMessageBox.critical(
+                    self, self.tr("Montar en host"),
+                    self.tr("Error inesperado al montar el disco.\n\n"
+                            "Puedes ver el detalle en la Consola de Progreso.\n\n"
+                            "{0}").format(e))
+            except Exception:
+                pass
+
+    def _mount_media_entry_impl(self):
+        """Cuerpo real de mount_media_entry (sin try global)."""
+        lib = self._media_library_instance()
+        eid = self._media_selected_id()
+        if lib is None or not eid:
+            QMessageBox.information(
+                self, self.tr("Montar en host"),
+                self.tr("Selecciona una entrada primero."))
+            return
+        e = lib.get(eid)
+        if not e:
+            return
+        try:
+            import media_library as _ml_mod
+            if _ml_mod.media_type_key(e) != "disk":
+                QMessageBox.information(
+                    self, self.tr("Montar en host"),
+                    self.tr("Solo se pueden montar discos virtuales\n"
+                            "(QCOW2, RAW, VMDK, VDI, VHD, VHDX)."))
+                return
+        except Exception:
+            pass
+
+        self._sync_mounted_media_state()
+        if eid in self._mounted_media:
+            QMessageBox.information(
+                self, self.tr("Montar en host"),
+                self.tr("Este disco ya está montado."))
+            return
+
+        running_vm = self._media_entry_in_use_by_running_vm(e)
+        if running_vm:
+            QMessageBox.warning(
+                self, self.tr("Montar en host"),
+                self.tr("La VM '{0}' está usando este disco y está encendida.\n\n"
+                        "Apágala antes de montar el disco en el host: QEMU\n"
+                        "mantiene un bloqueo de escritura sobre el archivo\n"
+                        "y el montaje fallaría.").format(running_vm))
+            return
+
+        path = lib.resolve_path(e)
+        if not path or not os.path.isfile(path):
+            QMessageBox.warning(
+                self, self.tr("Montar en host"),
+                self.tr("El archivo no existe:\n{0}").format(path))
+            return
+
+        tools = self._mount_tools_status()
+        if not tools.get("any"):
+            if not self._offer_install_mount_tools():
+                return
+            tools = self._mount_tools_status()
+            if not tools.get("any"):
+                QMessageBox.warning(
+                    self, self.tr("Montar en host"),
+                    self.tr("Las herramientas de montaje siguen sin estar\n"
+                            "disponibles después de la instalación."))
+                return
+
+        name = os.path.basename(path)
+        mode = self._ask_mount_mode(name)
+        if mode is None:
+            return
+
+        # media_library_host_mount_v1_friendly_mp: nombre legible
+        # <nombre_disco>-<eid[:8]> en vez del id crudo.
+        mp = self._mount_dir_for(e)
+        try:
+            os.makedirs(mp, exist_ok=True)
+        except OSError as e_mk:
+            QMessageBox.critical(
+                self, self.tr("Montar en host"),
+                self.tr("No se pudo crear el punto de montaje.\n\n{0}").format(e_mk))
+            return
+
+        backend = "guestmount" if tools.get("guestmount") else "qemu_nbd"
+
+        def _work(log_emit, is_cancelled, progress_emit):
+            log_emit("==> Montando '{}' en {} (modo {}, {}).".format(
+                name, mp, mode, backend))
+            if backend == "guestmount":
+                # media_library_host_mount_v1_uid_gid: en RW, mapear
+                # uid/gid del usuario del host. Sin esto, los archivos
+                # que se creen desde el host aparecen en el guest con
+                # propietario root (libguestfs ejecuta la mini-VM como
+                # root), y el usuario no puede tocarlos dentro del
+                # sistema invitado.
+                _uid = -1
+                _gid = -1
+                if mode == "rw":
+                    try:
+                        _uid = os.getuid()
+                        _gid = os.getgid()
+                    except Exception:
+                        _uid = _gid = -1
+
+                cmd = ["guestmount", "-a", path, "-i"]
+                if mode == "ro":
+                    cmd.append("--ro")
+                if mode == "rw" and _uid >= 0:
+                    cmd += ["-o", "uid={},gid={}".format(_uid, _gid)]
+                cmd.append(mp)
+                log_emit("==> " + " ".join(cmd))
+                r = subprocess.run(cmd, capture_output=True,
+                                    text=True, timeout=180)
+
+                # Fallback: si falla con uid/gid (FS sin soporte, p.ej.
+                # vfat sin umask), reintentar sin el mapeo.
+                _uid_mapped = True
+                if r.returncode != 0 and mode == "rw" and _uid >= 0:
+                    log_emit("[AVISO] guestmount con -o uid/gid falló; "
+                             "reintentando sin mapeo de usuario.")
+                    cmd2 = ["guestmount", "-a", path, "-i", mp]
+                    log_emit("==> " + " ".join(cmd2))
+                    r = subprocess.run(cmd2, capture_output=True,
+                                       text=True, timeout=180)
+                    _uid_mapped = False
+
+                if r.returncode != 0:
+                    raise RuntimeError(
+                        (r.stderr or r.stdout or "guestmount falló").strip())
+                if mode == "rw" and _uid_mapped:
+                    log_emit("==> Montado con guestmount en {} "
+                             "(uid={}, gid={}).".format(mp, _uid, _gid))
+                elif mode == "rw":
+                    log_emit("==> Montado con guestmount en {} "
+                             "(sin mapeo de uid/gid; los archivos "
+                             "nuevos aparecerán como root en el guest)."
+                             .format(mp))
+                else:
+                    log_emit("==> Montado con guestmount en {} (read-only)."
+                             .format(mp))
+                return {"backend": "guestmount", "mp": mp, "mode": mode,
+                        "uid_mapped": _uid_mapped}
+            # qemu_nbd: necesita pkexec.
+            _ro_opt = "-o ro " if mode == "ro" else ""
+            script = (
+                "set -e; "
+                "modprobe nbd max_part=16; "
+                "NBD=''; "
+                "for i in 0 1 2 3 4 5 6 7 8 9; do "
+                "  if [ ! -e /sys/block/nbd$i/pid ] || "
+                "     ! kill -0 $(cat /sys/block/nbd$i/pid) 2>/dev/null; then "
+                "    NBD=$i; break; fi; done; "
+                "[ -n \"$NBD\" ] || { echo 'sin /dev/nbdN libre'; exit 1; }; "
+                "qemu-nbd --connect=/dev/nbd$NBD " + chr(39) + path + chr(39) + "; "
+                "sleep 1; "
+                "DEV=/dev/nbd${NBD}p1; "
+                "[ -b $DEV ] || DEV=/dev/nbd${NBD}; "
+                "mount " + _ro_opt + "$DEV " + chr(39) + mp + chr(39) + "; "
+                "echo \"$NBD\" > " + chr(39) + mp + "/.nbd_index" + chr(39)
+            )
+            log_emit("==> Ejecutando: pkexec bash -c '...' (se pedirá contraseña).")
+            r = subprocess.run(
+                ["pkexec", "bash", "-c", script],
+                capture_output=True, text=True, timeout=240)
+            if r.returncode != 0:
+                raise RuntimeError(
+                    (r.stderr or r.stdout or "qemu-nbd falló").strip())
+            nbd_idx = ""
+            try:
+                with open(os.path.join(mp, ".nbd_index")) as f:
+                    nbd_idx = f.read().strip()
+                os.remove(os.path.join(mp, ".nbd_index"))
+            except Exception:
+                pass
+            log_emit("==> Montado con qemu-nbd (nbd{}) en {}.".format(nbd_idx, mp))
+            return {"backend": "qemu_nbd", "mp": mp, "mode": mode,
+                    "nbd_index": nbd_idx}
+
+        def _on_success(res):
+            if not isinstance(res, dict):
+                return
+            if not hasattr(self, "_mounted_media"):
+                self._mounted_media = {}
+            self._mounted_media[eid] = res
+            try:
+                self.refresh_media_library_table()
+            except Exception:
+                pass
+            _warn_uid = ""
+            if mode == "rw" and res.get("uid_mapped") is False:
+                _warn_uid = "\n\n" + self.tr(
+                    "Aviso: el sistema de archivos del guest no acepta "
+                    "mapeo de usuario; los archivos que crees desde el "
+                    "host aparecerán como root en el guest. Para "
+                    "trabajar sin problemas de permisos, escribe desde "
+                    "el guest en lugar del host.")
+            QMessageBox.information(
+                self, self.tr("Disco montado"),
+                self.tr("'{0}' montado correctamente.\n\n"
+                        "Punto de montaje: {1}\n"
+                        "Modo: {2}{3}").format(
+                    name, res["mp"],
+                    self.tr("read-only") if mode == "ro" else self.tr("read-write"),
+                    _warn_uid))
+
+        def _on_error(err):
+            try:
+                os.rmdir(mp)
+            except OSError:
+                pass
+            QMessageBox.critical(
+                self, self.tr("Montar en host"),
+                self.tr("No se pudo montar el disco.\n\n{0}").format(err))
+
+        self.run_async(
+            _work,
+            self.tr("Montando '{0}'").format(name),
+            on_success=_on_success,
+            on_error=_on_error,
+            cancelable=False,
+            show_log=True,
+            subtitle=self.tr("Preparando el punto de montaje en el host…"),
+        )
+
+    def unmount_media_entry(self):
+        """Desmonta del host el disco seleccionado."""
+        try:
+            self._unmount_media_entry_impl()
+        except Exception as e:
+            self._media_mount_log_exc("unmount_media_entry", e)
+            try:
+                QMessageBox.critical(
+                    self, self.tr("Desmontar del host"),
+                    self.tr("Error inesperado al desmontar.\n\n"
+                            "Puedes ver el detalle en la Consola de Progreso.\n\n"
+                            "{0}").format(e))
+            except Exception:
+                pass
+
+    def _unmount_media_entry_impl(self):
+        """Cuerpo real de unmount_media_entry (sin try global)."""
+        lib = self._media_library_instance()
+        eid = self._media_selected_id()
+        if lib is None or not eid:
+            QMessageBox.information(
+                self, self.tr("Desmontar del host"),
+                self.tr("Selecciona una entrada primero."))
+            return
+        e = lib.get(eid)
+        if not e:
+            return
+        self._sync_mounted_media_state()
+        info = self._mounted_media.get(eid)
+        if not info:
+            QMessageBox.information(
+                self, self.tr("Desmontar del host"),
+                self.tr("Este disco no está montado en el host."))
+            return
+        mp = info.get("mp") or ""
+        if not mp or not os.path.ismount(mp):
+            self._mounted_media.pop(eid, None)
+            try:
+                self.refresh_media_library_table()
+            except Exception:
+                pass
+            return
+        backend = info.get("backend") or "guestmount"
+        nbd_idx = info.get("nbd_index") or ""
+        name = os.path.basename(lib.resolve_path(e)) or str(e.get("name") or "?")
+
+        resp = QMessageBox.question(
+            self, self.tr("Desmontar del host"),
+            self.tr("¿Desmontar '{0}' de {1}?").format(name, mp),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        def _work(log_emit, is_cancelled, progress_emit):
+            if backend == "guestmount":
+                cmd = ["fusermount", "-u", mp]
+                log_emit("==> " + " ".join(cmd))
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if r.returncode != 0:
+                    log_emit("[AVISO] fusermount falló; probando pkexec umount.")
+                    r = subprocess.run(
+                        ["pkexec", "umount", mp],
+                        capture_output=True, text=True, timeout=120)
+                    if r.returncode != 0:
+                        raise RuntimeError(
+                            (r.stderr or r.stdout or "no se pudo desmontar").strip())
+            else:
+                script = "umount " + chr(39) + mp + chr(39) + "; "
+                if nbd_idx:
+                    script += "qemu-nbd --disconnect /dev/nbd" + str(nbd_idx) + "; "
+                log_emit("==> Ejecutando: pkexec bash -c '...' (se pedirá contraseña).")
+                r = subprocess.run(
+                    ["pkexec", "bash", "-c", script],
+                    capture_output=True, text=True, timeout=120)
+                if r.returncode != 0:
+                    raise RuntimeError(
+                        (r.stderr or r.stdout or "no se pudo desmontar").strip())
+            return True
+
+        def _on_success(_res):
+            self._mounted_media.pop(eid, None)
+            try:
+                os.rmdir(mp)
+            except OSError:
+                pass
+            try:
+                self.refresh_media_library_table()
+            except Exception:
+                pass
+            QMessageBox.information(
+                self, self.tr("Desmontar del host"),
+                self.tr("'{0}' desmontado correctamente.").format(name))
+
+        def _on_error(err):
+            QMessageBox.critical(
+                self, self.tr("Desmontar del host"),
+                self.tr("No se pudo desmontar.\n\n{0}").format(err))
+
+        self.run_async(
+            _work,
+            self.tr("Desmontando '{0}'").format(name),
+            on_success=_on_success,
+            on_error=_on_error,
+            cancelable=False,
+            show_log=True,
+            subtitle=self.tr("Liberando el punto de montaje…"),
+        )
+
+    def _unmount_all_mounted_media(self):
+        """Desmonta todos los discos montados. Best-effort, sin dialogos.
+
+        Se llama desde closeEvent. No usa pkexec: cerrar la app no debe
+        quedarse bloqueado pidiendo contraseña. Los montajes FUSE se
+        desmontan sin root; los qemu-nbd sin root se quedan como estan
+        y el arranque siguiente ofrecera limpiarlos.
+        """
+        if not hasattr(self, "_mounted_media"):
+            return
+        try:
+            self._sync_mounted_media_state()
+        except Exception:
+            pass
+        for eid, info in list(self._mounted_media.items()):
+            mp = (info or {}).get("mp") or ""
+            if not mp or not os.path.ismount(mp):
+                self._mounted_media.pop(eid, None)
+                continue
+            try:
+                subprocess.run(["fusermount", "-u", mp],
+                               capture_output=True, text=True, timeout=10)
+            except Exception:
+                pass
+            if os.path.ismount(mp):
+                try:
+                    subprocess.run(["umount", mp],
+                                   capture_output=True, text=True, timeout=10)
+                except Exception:
+                    pass
+            if not os.path.ismount(mp):
+                try:
+                    os.rmdir(mp)
+                except OSError:
+                    pass
+            self._mounted_media.pop(eid, None)
+
+
+    # ------------------------------------------------------------------
+    # media_library_create_disk_v1_mixin: crear discos desde la biblioteca
+    # ------------------------------------------------------------------
+    # Reutiliza el diálogo _CreateMediumDialog (ampliado con VMDK, VDI,
+    # VHD, VHDX) para que el usuario cree un disco nuevo y lo registre
+    # en el índice de la biblioteca sin salir de la pestaña Medios.
+    #
+    # El archivo se crea con `qemu-img create -f <fmt> <path> <size>`.
+    # Al registrarlo, se preserva el `kind` elegido (auto_detect puede
+    # haber decidido otro a partir del nombre) y se añade una nota.
+
+    def create_medium_in_library(self):
+        """Abre el diálogo de creación y registra el disco en la biblioteca."""
+        try:
+            self._create_medium_in_library_impl()
+        except Exception as e:
+            try:
+                self._media_mount_log_exc("create_medium_in_library", e)
+            except Exception:
+                pass
+            try:
+                QMessageBox.critical(
+                    self, self.tr("Crear disco"),
+                    self.tr("Error inesperado al crear el disco.\n\n"
+                            "Puedes ver el detalle en la Consola de "
+                            "Progreso.\n\n{0}").format(e))
+            except Exception:
+                pass
+
+    def _create_medium_in_library_impl(self):
+        """Cuerpo real de create_medium_in_library (sin try global)."""
+        lib = self._media_library_instance()
+        if lib is None:
+            QMessageBox.warning(
+                self, self.tr("Crear disco"),
+                self.tr("La biblioteca no está disponible."))
+            return
+
+        from dialogs import _CreateMediumDialog
+        dlg = _CreateMediumDialog(self, default_type="qcow2")
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        v = dlg.values()
+
+        fname = v["name"] + v["extension"]
+        target = os.path.join(lib.base_dir, fname)
+
+        if os.path.exists(target):
+            _resp = QMessageBox.question(
+                self, self.tr("Ya existe"),
+                self.tr("Ya existe un archivo con ese nombre en la "
+                        "biblioteca:\n\n{0}\n\n¿Sobrescribir? "
+                        "(se perderá el contenido anterior)").format(target),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if _resp != QMessageBox.StandardButton.Yes:
+                return
+
+        # Ejecutar qemu-img create en un worker para no bloquear la UI.
+        def _work(log_emit, is_cancelled, progress_emit):
+            # media_library_create_disk_v1_prealloc: delega al helper.
+            from dialogs import _CreateMediumDialog
+            cmd = _CreateMediumDialog.build_qemu_create_cmd(v, target)
+            log_emit("==> " + " ".join(cmd))
+            try:
+                r = subprocess.run(cmd, capture_output=True,
+                                    text=True, timeout=300)
+            except FileNotFoundError:
+                raise RuntimeError(
+                    self.tr("No se encontró 'qemu-img'. Instálalo "
+                            "(paquete qemu-utils / qemu-img)."))
+            if r.returncode != 0:
+                raise RuntimeError(
+                    (r.stderr or r.stdout or "qemu-img falló").strip())
+            log_emit("==> Disco creado: {} ({}, {}).".format(
+                fname, v["size"], v["format"].upper()))
+
+            # Registrar en el índice preservando el 'kind' elegido.
+            entry_id = None
+            try:
+                e = lib.add(target)
+                if isinstance(e, dict) and e.get("id"):
+                    entry_id = e["id"]
+                    lib.update(
+                        entry_id,
+                        kind=v["kind"],
+                        notes=self.tr(
+                            "Creado con qemu-img create. "
+                            "Tamaño: {0}.").format(v["size"]),
+                    )
+            except Exception as e_reg:
+                log_emit("[AVISO] No se pudo registrar en el índice: "
+                         "{}".format(e_reg))
+            return {"entry_id": entry_id, "name": fname,
+                    "size": v["size"], "format": v["format"]}
+
+        def _on_success(res):
+            try:
+                self.refresh_media_library_table()
+            except Exception:
+                pass
+            QMessageBox.information(
+                self, self.tr("Disco creado"),
+                self.tr("Se creó el disco correctamente.\n\n"
+                        "Archivo: {0}\n"
+                        "Tamaño: {1}\n"
+                        "Formato: {2}").format(
+                    res["name"], res["size"], res["format"].upper()))
+
+        def _on_error(err):
+            QMessageBox.critical(
+                self, self.tr("Crear disco"),
+                self.tr("No se pudo crear el disco.\n\n{0}").format(err))
+
+        self.run_async(
+            _work,
+            self.tr("Creando '{0}'").format(fname),
+            on_success=_on_success,
+            on_error=_on_error,
+            cancelable=False,
+            show_log=True,
+            subtitle=self.tr("Ejecutando qemu-img create…"),
+        )
+
+
+# media_library_create_disk_v1_mixin
+
 # i18n_tanda2f4_media_library_ui_v1
 
 # i18n_tanda2f4_media_library_handlers_v1
+
+
+# media_library_host_mount_v1_urgent01
+
+
+# media_library_host_mount_v1_friendly_mp
+
+
+# media_library_host_mount_v1_uid_gid
+
+
+# media_library_create_disk_v1_prealloc_mixin

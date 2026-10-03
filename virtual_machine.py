@@ -4017,6 +4017,13 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
                 self._release_vnc_keyboard_on_close()
         except Exception:
             pass
+        # media_library_host_mount_v1: desmontar discos montados en el
+        # host antes de cerrar. Best-effort, sin dialogos.
+        try:
+            if hasattr(self, "_unmount_all_mounted_media"):
+                self._unmount_all_mounted_media()
+        except Exception:
+            pass
         # rest_api_v1: apagar el servidor HTTP y liberar el puerto.
         try:
             if hasattr(self, "_shutdown_api"):
@@ -4094,3 +4101,6 @@ if __name__ == "__main__":
         _launch_main_window()
 
     sys.exit(app.exec())
+
+
+# media_library_host_mount_v1_closeEvent

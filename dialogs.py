@@ -583,15 +583,44 @@ class _CreateMediumDialog(QDialog):
         self.input_name.setPlaceholderText(self.tr("Ej: disco_ubuntu_datos"))
         form.addRow(self.tr("Nombre:"), self.input_name)
 
+        # media_library_create_disk_v1_dialogs: tipos ampliados.
+        # QEMU llama "vpc" al formato VHD; el mapeo se hace en values().
         self.combo_type = QComboBox()
-        self.combo_type.addItem(self.tr("Disco duro QCOW2 (recomendado)"), "qcow2")
-        self.combo_type.addItem(self.tr("Disco duro RAW"), "raw")
-        self.combo_type.addItem(self.tr("Disquete IMG (RAW)"), "img")
+        self.combo_type.addItem(
+            self.tr("Disco duro QCOW2 (recomendado)"), "qcow2")
+        self.combo_type.addItem(
+            self.tr("Disco duro RAW"), "raw")
+        self.combo_type.addItem(
+            self.tr("Disco duro VMDK (VirtualBox / VMware)"), "vmdk")
+        self.combo_type.addItem(
+            self.tr("Disco duro VDI (VirtualBox nativo)"), "vdi")
+        self.combo_type.addItem(
+            self.tr("Disco duro VHD (Hyper-V antiguo)"), "vhd")
+        self.combo_type.addItem(
+            self.tr("Disco duro VHDX (Hyper-V moderno)"), "vhdx")
+        self.combo_type.addItem(
+            self.tr("Disquete IMG (RAW)"), "img")
         idx = self.combo_type.findData(default_type)
         if idx >= 0:
             self.combo_type.setCurrentIndex(idx)
         self.combo_type.currentIndexChanged.connect(self._on_type_changed)
         form.addRow(self.tr("Tipo:"), self.combo_type)
+
+        # media_library_create_disk_v1_prealloc: combo de preasignacion.
+        # Solo aplica a QCOW2, VDI y VHD. En el resto se oculta.
+        self.label_prealloc = QLabel(self.tr("Preasignación:"))
+        self.combo_prealloc = QComboBox()
+        self.combo_prealloc.addItem(
+            self.tr("Expandible (dinámico)"), "dynamic")
+        self.combo_prealloc.addItem(
+            self.tr("Fijo (preasignado)"), "fixed")
+        self.combo_prealloc.setCurrentIndex(0)
+        self.combo_prealloc.setToolTip(self.tr(
+            "Expandible: el archivo crece solo según se usa (recomendado).\n"
+            "Fijo: reserva todo el espacio en disco desde el momento de\n"
+            "su creación. Tarda más y ocupa más, pero el rendimiento de\n"
+            "escritura es más predecible."))
+        form.addRow(self.label_prealloc, self.combo_prealloc)
 
         self.combo_size = QComboBox()
         self.combo_size.setEditable(True)
@@ -621,6 +650,27 @@ class _CreateMediumDialog(QDialog):
 
     def _on_type_changed(self, *_):
         t = self.combo_type.currentData() or "qcow2"
+        # media_library_create_disk_v1_prealloc: mostrar el combo de
+        # preasignacion solo donde aplica.
+        try:
+            _show = t in ("qcow2", "vdi", "vhd")
+            self.label_prealloc.setVisible(_show)
+            self.combo_prealloc.setVisible(_show)
+            if t == "qcow2":
+                self.combo_prealloc.setToolTip(self.tr(
+                    "Expandible: preallocation=off (recomendado).\n"
+                    "Fijo: preallocation=full. Reserva todo el espacio\n"
+                    "en el host desde el momento de su creación."))
+            elif t == "vdi":
+                self.combo_prealloc.setToolTip(self.tr(
+                    "Expandible: VDI dinámico (recomendado).\n"
+                    "Fijo: static=on. Reserva todo el espacio en el host."))
+            elif t == "vhd":
+                self.combo_prealloc.setToolTip(self.tr(
+                    "Expandible: VHD dynamic (recomendado).\n"
+                    "Fijo: subformat=fixed. Reserva todo el espacio."))
+        except Exception:
+            pass
         self.combo_size.blockSignals(True)
         self.combo_size.clear()
         if t == "img":
@@ -637,15 +687,42 @@ class _CreateMediumDialog(QDialog):
                       "512G", "1T"):
                 self.combo_size.addItem(s, s)
             self.combo_size.setCurrentIndex(2)  # 40G
+            # media_library_create_disk_v1_dialogs: hints especificos.
             if t == "qcow2":
                 self.hint.setText(self.tr(
                     "Disco virtual expandible (recomendado). El archivo "
                     "en el host crece solo según se usa en el guest."
                 ))
-            else:
+            elif t == "raw":
                 self.hint.setText(self.tr(
                     "Disco RAW (imagen plana). Ocupa el tamaño completo "
                     "en el host desde el momento de su creación."
+                ))
+            elif t == "vmdk":
+                self.hint.setText(self.tr(
+                    "Formato VMDK monolithicSparse (compatible con "
+                    "VirtualBox y VMware). El archivo crece según se "
+                    "usa; las snapshots internas de QEMU no aplican."
+                ))
+            elif t == "vdi":
+                self.hint.setText(self.tr(
+                    "Formato VDI nativo de VirtualBox. El archivo crece "
+                    "según se usa."
+                ))
+            elif t == "vhd":
+                self.hint.setText(self.tr(
+                    "Formato VHD (Hyper-V hasta Windows 2008 R2). "
+                    "Compatible con la mayoría de hipervisores. QEMU lo "
+                    "llama internamente 'vpc'."
+                ))
+            elif t == "vhdx":
+                self.hint.setText(self.tr(
+                    "Formato VHDX (Hyper-V moderno, desde Windows 2012). "
+                    "Soporta discos de hasta 64 TB y bloques de 4 KB."
+                ))
+            else:
+                self.hint.setText(self.tr(
+                    "Disco virtual expandible."
                 ))
         self.combo_size.blockSignals(False)
 
@@ -661,8 +738,12 @@ class _CreateMediumDialog(QDialog):
                 self.tr("El nombre no puede contener \\ / : * ? \" < > |")
             )
             return
-        size = (self.combo_size.currentData()
-                or self.combo_size.currentText().strip())
+        # media_library_create_disk_v1_size_fix: el combo es editable.
+        # Priorizar SIEMPRE currentText() (lo que el usuario ve, sea
+        # del desplegable o tecleado). currentData() se usa solo como
+        # respaldo si el texto está vacío.
+        size = (self.combo_size.currentText().strip()
+                or str(self.combo_size.currentData() or ""))
         if not size or not re.fullmatch(
                 r"(?:\d+(?:\.\d+)?)(?:[KMGTP]i?B?|B)?",
                 size, re.IGNORECASE):
@@ -675,17 +756,76 @@ class _CreateMediumDialog(QDialog):
 
     def values(self):
         t = self.combo_type.currentData() or "qcow2"
-        ext = {"qcow2": ".qcow2", "raw": ".raw", "img": ".img"}.get(t, ".qcow2")
-        fmt = "qcow2" if t == "qcow2" else "raw"
+        # media_library_create_disk_v1_dialogs: mapeo tipo -> (ext, qemu
+        # format, kind en la biblioteca).
+        #   * QEMU llama "vpc" al formato VHD.
+        #   * IMG es RAW con extension distinta.
+        _map = {
+            "qcow2": (".qcow2", "qcow2", "qcow2"),
+            "raw":   (".raw",   "raw",   "raw"),
+            "vmdk":  (".vmdk",  "vmdk",  "vmdk"),
+            "vdi":   (".vdi",   "vdi",   "vdi"),
+            "vhd":   (".vhd",   "vpc",   "vhd"),
+            "vhdx":  (".vhdx",  "vhdx",  "vhdx"),
+            "img":   (".img",   "raw",   "img"),
+        }
+        ext, fmt, kind = _map.get(t, (".qcow2", "qcow2", "qcow2"))
+        # media_library_create_disk_v1_prealloc: valor de preasignacion.
+        # Si el combo esta oculto (formato que no aplica), se calcula el
+        # default segun el tipo: RAW e IMG son siempre "fijos" por
+        # naturaleza; VMDK y VHDX son siempre "expandibles".
+        try:
+            if t in ("qcow2", "vdi", "vhd"):
+                prealloc = self.combo_prealloc.currentData() or "dynamic"
+            elif t in ("raw", "img"):
+                prealloc = "fixed"
+            else:  # vmdk, vhdx
+                prealloc = "dynamic"
+        except Exception:
+            prealloc = "dynamic"
+        # media_library_create_disk_v1_size_fix: priorizar currentText()
+        # (lo que el usuario ve, sea del desplegable o tecleado).
+        _size_txt = self.combo_size.currentText().strip()
+        if not _size_txt:
+            _size_txt = str(self.combo_size.currentData() or "")
         return {
             "name": self.input_name.text().strip(),
             "type": t,
             "extension": ext,
             "format": fmt,
-            "kind": ("img" if t == "img" else t),
-            "size": (self.combo_size.currentData()
-                     or self.combo_size.currentText().strip()),
+            "kind": kind,
+            "prealloc": prealloc,
+            "size": _size_txt,
         }
+
+    @staticmethod
+    def build_qemu_create_cmd(values, target_path):
+        """Construye la lista de argumentos de 'qemu-img create'.
+
+        Marcador: media_library_create_disk_v1_prealloc.
+        Aplica las opciones de preasignacion segun el tipo:
+          QCOW2 + fixed   -> -o preallocation=full
+          QCOW2 + dynamic -> -o preallocation=off
+          VDI   + fixed   -> -o static=on
+          VHD   + fixed   -> -o subformat=fixed
+        El resto de combinaciones se dejan con los defaults de QEMU.
+        """
+        cmd = ["qemu-img", "create", "-f", str(values.get("format") or "qcow2")]
+        t = str(values.get("type") or "")
+        p = str(values.get("prealloc") or "dynamic")
+        if t == "qcow2":
+            if p == "fixed":
+                cmd += ["-o", "preallocation=full"]
+            else:
+                cmd += ["-o", "preallocation=off"]
+        elif t == "vdi":
+            if p == "fixed":
+                cmd += ["-o", "static=on"]
+        elif t == "vhd":
+            if p == "fixed":
+                cmd += ["-o", "subformat=fixed"]
+        cmd += [target_path, str(values.get("size") or "")]
+        return cmd
 
 
 class MediaPickerDialog(QDialog):
@@ -1256,3 +1396,12 @@ class NatPortForwardDialog(QDialog):
     def values(self):
         return [dict(r) for r in self._rules]
 
+
+
+# media_library_create_disk_v1_dialogs
+
+
+# media_library_create_disk_v1_prealloc
+
+
+# media_library_create_disk_v1_size_fix

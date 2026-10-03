@@ -3011,6 +3011,162 @@ TRANSLATIONS = {
     # kvm_preflight_v1_fix1
     'Idioma de la interfaz.':
         'Interface language.',
+
+    # --------------------------------------------------------
+    # media_library_host_mount_v1_i18n_en: montar/desmontar en
+    # host + crear discos (VMDK/VDI/VHD/VHDX) desde la
+    # biblioteca de medios.
+    # --------------------------------------------------------
+    '➕ Crear disco':
+        '➕ Create disk',
+    "Crea un disco virtual nuevo en la biblioteca con\n'qemu-img create'.\n\nFormatos soportados: QCOW2, RAW, VMDK, VDI, VHD, VHDX\ny disquete (IMG). El archivo se guarda en MediaLibrary/\ny se registra automáticamente en el índice.":
+        "Create a new virtual disk in the library with\n'qemu-img create'.\n\nSupported formats: QCOW2, RAW, VMDK, VDI, VHD, VHDX\nand floppy (IMG). The file is saved in MediaLibrary/\nand automatically registered in the index.",
+    '🔌 Montar en host':
+        '🔌 Mount on host',
+    'Monta este disco virtual en el sistema anfitrión para\ninspeccionar o copiar su contenido sin arrancar la VM.\n\nSe usa guestmount (FUSE, sin root) si está disponible,\no qemu-nbd (con pkexec) como alternativa.\n\nRequiere que ninguna VM que lo use esté encendida:\nQEMU mantiene un bloqueo de escritura sobre el archivo.':
+        'Mount this virtual disk on the host system to\ninspect or copy its contents without starting the VM.\n\nguestmount (FUSE, no root) is used if available,\nor qemu-nbd (with pkexec) as a fallback.\n\nRequires that no VM using it is running:\nQEMU holds a write lock on the file.',
+    '⏏ Desmontar del host':
+        '⏏ Unmount from host',
+    "Desmonta del sistema anfitrión el disco que se montó\npreviamente con 'Montar en host'.":
+        "Unmount from the host system the disk previously\nmounted with 'Mount on host'.",
+    'montado (rw)':
+        'mounted (rw)',
+    'montado (ro)':
+        'mounted (ro)',
+    'Herramientas de montaje':
+        'Mounting tools',
+    "No se encontró guestmount ni qemu-nbd en el sistema.\n\nInstala 'libguestfs' y 'guestfs-tools' (o 'qemu-nbd'\ncomo alternativa) con el gestor de paquetes de tu\ndistribución para poder montar discos virtuales.":
+        "Neither guestmount nor qemu-nbd was found on the system.\n\nInstall 'libguestfs' and 'guestfs-tools' (or 'qemu-nbd'\nas an alternative) with your distribution's package\nmanager to be able to mount virtual disks.",
+    "Faltan las herramientas de montaje y no se encontró\n'pkexec' para pedir permisos de administrador.\n\nEjecuta a mano:\n\n  sudo {0} install {1}":
+        "Mounting tools are missing and 'pkexec' was not found\nto request administrator permissions.\n\nRun manually:\n\n  sudo {0} install {1}",
+    'Se necesitan herramientas adicionales para montar discos\nen el host.\n\n  • guestmount (libguestfs) es lo ideal: sin root, detecta\n    particiones y sistemas de archivos automáticamente.\n  • qemu-nbd es la alternativa si no hay libguestfs.\n\n¿Quieres instalar las herramientas ahora? Se pedirá la\ncontraseña de administrador.\n\nComando:\n  {0}':
+        'Additional tools are needed to mount disks\non the host.\n\n  • guestmount (libguestfs) is ideal: no root, detects\n    partitions and filesystems automatically.\n  • qemu-nbd is the fallback if libguestfs is not available.\n\nDo you want to install the tools now? You will be asked\nfor the administrator password.\n\nCommand:\n  {0}',
+    'No se pudo ejecutar el comando de instalación.\n\n{0}':
+        'Could not run the installation command.\n\n{0}',
+    'La instalación falló.\n\n{0}':
+        'Installation failed.\n\n{0}',
+    'Instalación completada.':
+        'Installation completed.',
+    'Montajes previos detectados':
+        'Previous mounts detected',
+    'Se encontraron {0} disco(s) montados en el sistema de\nuna sesión anterior de la aplicación:\n\n{1}\n\n¿Quieres desmontarlos ahora?':
+        '{0} disk(s) mounted on the system from a previous\nsession of the application were found:\n\n{1}\n\nDo you want to unmount them now?',
+    'Montar en el host':
+        'Mount on host',
+    'Se va a montar <b>{0}</b> en el sistema anfitrión.<br><br>El disco debe estar apagado: ninguna VM que lo use puede\nestar encendida, porque QEMU mantiene un bloqueo de escritura\nsobre el archivo.':
+        '<b>{0}</b> will be mounted on the host system.<br><br>The disk must be powered off: no VM using it can be\nrunning, because QEMU holds a write lock on the file.',
+    'Permitir escritura (montar en modo read-write)':
+        'Allow writing (mount in read-write mode)',
+    '⚠ Con read-write, escribir en el disco puede corromper el\nsistema de archivos si después se arranca la VM sin\ndesmontarlo. Para inspeccionar o copiar, deja read-only.\n\nLos archivos que crees desde el host se atribuirán a tu\nusuario del guest (uid/gid {0}:{1}) cuando el sistema de\narchivos lo permita; si no, aparecerán como root.':
+        '⚠ With read-write, writing to the disk can corrupt the\nfilesystem if the VM is later started without\nunmounting it. To inspect or copy, keep read-only.\n\nFiles you create from the host will be attributed to your\nguest user (uid/gid {0}:{1}) when the filesystem\nallows it; otherwise, they will appear as root.',
+    'Montar':
+        'Mount',
+    'Selecciona un disco virtual para montarlo en el host.':
+        'Select a virtual disk to mount it on the host.',
+    'Selecciona un disco previamente montado para desmontarlo.':
+        'Select a previously mounted disk to unmount it.',
+    'Solo se pueden montar discos virtuales\n(QCOW2, RAW, VMDK, VDI, VHD, VHDX).':
+        'Only virtual disks can be mounted\n(QCOW2, RAW, VMDK, VDI, VHD, VHDX).',
+    "Este disco ya está montado. Usa '⏏ Desmontar del host'\npara liberarlo.":
+        "This disk is already mounted. Use '⏏ Unmount from host'\nto release it.",
+    "La VM '{0}' está usando este disco y está encendida.\nApágala para poder montarlo en el host.":
+        "VM '{0}' is using this disk and is running.\nShut it down to mount it on the host.",
+    'Monta este disco virtual en el sistema anfitrión para\ninspeccionar o copiar su contenido sin arrancar la VM.':
+        'Mount this virtual disk on the host system to\ninspect or copy its contents without starting the VM.',
+    'Desmontar de {0}':
+        'Unmount from {0}',
+    'Este disco no está montado en el host.':
+        'This disk is not mounted on the host.',
+    'Montar en host':
+        'Mount on host',
+    'Error inesperado al montar el disco.\n\nPuedes ver el detalle en la Consola de Progreso.\n\n{0}':
+        'Unexpected error while mounting the disk.\n\nYou can see the details in the Progress Console.\n\n{0}',
+    'Este disco ya está montado.':
+        'This disk is already mounted.',
+    "La VM '{0}' está usando este disco y está encendida.\n\nApágala antes de montar el disco en el host: QEMU\nmantiene un bloqueo de escritura sobre el archivo\ny el montaje fallaría.":
+        "VM '{0}' is using this disk and is running.\n\nShut it down before mounting the disk on the host: QEMU\nholds a write lock on the file and the mount would fail.",
+    'Las herramientas de montaje siguen sin estar\ndisponibles después de la instalación.':
+        'Mounting tools are still not available\nafter installation.',
+    'No se pudo crear el punto de montaje.\n\n{0}':
+        'Could not create the mount point.\n\n{0}',
+    'Aviso: el sistema de archivos del guest no acepta mapeo de usuario; los archivos que crees desde el host aparecerán como root en el guest. Para trabajar sin problemas de permisos, escribe desde el guest en lugar del host.':
+        'Warning: the guest filesystem does not accept user mapping; files you create from the host will appear as root in the guest. To work without permission issues, write from the guest instead of the host.',
+    'Disco montado':
+        'Disk mounted',
+    "'{0}' montado correctamente.\n\nPunto de montaje: {1}\nModo: {2}{3}":
+        "'{0}' mounted successfully.\n\nMount point: {1}\nMode: {2}{3}",
+    'read-only':
+        'read-only',
+    'read-write':
+        'read-write',
+    'No se pudo montar el disco.\n\n{0}':
+        'Could not mount the disk.\n\n{0}',
+    "Montando '{0}'":
+        "Mounting '{0}'",
+    'Preparando el punto de montaje en el host…':
+        'Preparing the mount point on the host…',
+    'Desmontar del host':
+        'Unmount from host',
+    'Error inesperado al desmontar.\n\nPuedes ver el detalle en la Consola de Progreso.\n\n{0}':
+        'Unexpected error while unmounting.\n\nYou can see the details in the Progress Console.\n\n{0}',
+    "¿Desmontar '{0}' de {1}?":
+        "Unmount '{0}' from {1}?",
+    "'{0}' desmontado correctamente.":
+        "'{0}' unmounted successfully.",
+    'No se pudo desmontar.\n\n{0}':
+        'Could not unmount.\n\n{0}',
+    "Desmontando '{0}'":
+        "Unmounting '{0}'",
+    'Liberando el punto de montaje…':
+        'Releasing the mount point…',
+    'Crear disco':
+        'Create disk',
+    'Error inesperado al crear el disco.\n\nPuedes ver el detalle en la Consola de Progreso.\n\n{0}':
+        'Unexpected error while creating the disk.\n\nYou can see the details in the Progress Console.\n\n{0}',
+    'La biblioteca no está disponible.':
+        'The library is not available.',
+    'Ya existe un archivo con ese nombre en la biblioteca:\n\n{0}\n\n¿Sobrescribir? (se perderá el contenido anterior)':
+        'A file with that name already exists in the library:\n\n{0}\n\nOverwrite? (previous contents will be lost)',
+    "No se encontró 'qemu-img'. Instálalo (paquete qemu-utils / qemu-img).":
+        "'qemu-img' was not found. Install it (package qemu-utils / qemu-img).",
+    'Disco creado':
+        'Disk created',
+    'Se creó el disco correctamente.\n\nArchivo: {0}\nTamaño: {1}\nFormato: {2}':
+        'Disk created successfully.\n\nFile: {0}\nSize: {1}\nFormat: {2}',
+    'No se pudo crear el disco.\n\n{0}':
+        'Could not create the disk.\n\n{0}',
+    "Creando '{0}'":
+        "Creating '{0}'",
+    'Ejecutando qemu-img create…':
+        'Running qemu-img create…',
+    'Disco duro VMDK (VirtualBox / VMware)':
+        'VMDK hard disk (VirtualBox / VMware)',
+    'Disco duro VDI (VirtualBox nativo)':
+        'VDI hard disk (VirtualBox native)',
+    'Disco duro VHD (Hyper-V antiguo)':
+        'VHD hard disk (legacy Hyper-V)',
+    'Disco duro VHDX (Hyper-V moderno)':
+        'VHDX hard disk (modern Hyper-V)',
+    'Preasignación:':
+        'Preallocation:',
+    'Expandible: el archivo crece solo según se usa (recomendado).\nFijo: reserva todo el espacio en disco desde el momento de\nsu creación. Tarda más y ocupa más, pero el rendimiento de\nescritura es más predecible.':
+        'Expandable: the file grows as it is used (recommended).\nFixed: reserves all disk space at creation time.\nTakes longer and uses more space, but write performance\nis more predictable.',
+    'Expandible: preallocation=off (recomendado).\nFijo: preallocation=full. Reserva todo el espacio\nen el host desde el momento de su creación.':
+        'Expandable: preallocation=off (recommended).\nFixed: preallocation=full. Reserves all the space\non the host at creation time.',
+    'Expandible: VDI dinámico (recomendado).\nFijo: static=on. Reserva todo el espacio en el host.':
+        'Expandable: dynamic VDI (recommended).\nFixed: static=on. Reserves all the space on the host.',
+    'Expandible: VHD dynamic (recomendado).\nFijo: subformat=fixed. Reserva todo el espacio.':
+        'Expandable: dynamic VHD (recommended).\nFixed: subformat=fixed. Reserves all the space.',
+    'Formato VMDK monolithicSparse (compatible con VirtualBox y VMware). El archivo crece según se usa; las snapshots internas de QEMU no aplican.':
+        'VMDK monolithicSparse format (compatible with VirtualBox and VMware). The file grows as it is used; QEMU internal snapshots do not apply.',
+    'Formato VDI nativo de VirtualBox. El archivo crece según se usa.':
+        'VDI format native to VirtualBox. The file grows as it is used.',
+    "Formato VHD (Hyper-V hasta Windows 2008 R2). Compatible con la mayoría de hipervisores. QEMU lo llama internamente 'vpc'.":
+        "VHD format (Hyper-V up to Windows 2008 R2). Compatible with most hypervisors. QEMU calls it internally 'vpc'.",
+    'Formato VHDX (Hyper-V moderno, desde Windows 2012). Soporta discos de hasta 64 TB y bloques de 4 KB.':
+        'VHDX format (modern Hyper-V, since Windows 2012). Supports disks up to 64 TB and 4 KB blocks.',
+    'Disco virtual expandible.':
+        'Expandable virtual disk.',
 }
 # --------------------------------------------------------------------
 

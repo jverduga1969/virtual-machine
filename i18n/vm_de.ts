@@ -275,103 +275,103 @@ Wird nach Gerätetyp gefiltert.</translation>
 </context><context>
     <name>MediaPickerDialog</name>
     <message>
-        <location filename="../dialogs.py" line="707" />
+        <location filename="../dialogs.py" line="847" />
         <source>Elegir medio de la biblioteca</source>
         <translation>Medium aus der Bibliothek wählen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="719" />
+        <location filename="../dialogs.py" line="859" />
         <source>Elige una ISO/IMG/DMG de la biblioteca central.&lt;br&gt;La biblioteca vive en &lt;code&gt;MediaLibrary/&lt;/code&gt;, al mismo nivel que &lt;code&gt;VirtualMachines/&lt;/code&gt;. Se reutiliza entre todas las VMs.</source>
         <translation>Ein ISO/IMG/DMG aus der zentralen Bibliothek wählen.&lt;br&gt;Die Bibliothek liegt in &lt;code&gt;MediaLibrary/&lt;/code&gt;, auf derselben Ebene wie &lt;code&gt;VirtualMachines/&lt;/code&gt;. Sie wird von allen VMs gemeinsam genutzt.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="731" />
+        <location filename="../dialogs.py" line="871" />
         <source>Buscar...</source>
         <translation>Suchen...</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="734" />
+        <location filename="../dialogs.py" line="874" />
         <source>SO:</source>
         <translation>Betriebssystem:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="751" />
-        <location filename="../dialogs.py" line="736" />
+        <location filename="../dialogs.py" line="891" />
+        <location filename="../dialogs.py" line="876" />
         <source>Todos</source>
         <translation>Alle</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="749" />
+        <location filename="../dialogs.py" line="889" />
         <source>Tipo:</source>
         <translation>Typ:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="752" />
+        <location filename="../dialogs.py" line="892" />
         <source>Disco duro</source>
         <translation>Festplatte</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="754" />
+        <location filename="../dialogs.py" line="894" />
         <source>Disquete</source>
         <translation>Diskette</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="766" />
+        <location filename="../dialogs.py" line="906" />
         <source>Nombre</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="766" />
+        <location filename="../dialogs.py" line="906" />
         <source>Tipo</source>
         <translation>Typ</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="766" />
+        <location filename="../dialogs.py" line="906" />
         <source>SO</source>
         <translation>OS</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="767" />
+        <location filename="../dialogs.py" line="907" />
         <source>Version</source>
         <translation>Version</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="767" />
+        <location filename="../dialogs.py" line="907" />
         <source>Arq.</source>
         <translation>Arch.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="767" />
+        <location filename="../dialogs.py" line="907" />
         <source>Tamano</source>
         <translation>Größe</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="768" />
+        <location filename="../dialogs.py" line="908" />
         <source>Usada por</source>
         <translation>Verwendet von</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="768" />
+        <location filename="../dialogs.py" line="908" />
         <source>Ruta</source>
         <translation>Pfad</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="793" />
+        <location filename="../dialogs.py" line="933" />
         <source>Anadir archivo a la biblioteca...</source>
         <translation>Datei zur Bibliothek hinzufügen...</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="794" />
+        <location filename="../dialogs.py" line="934" />
         <source>Registrar una ISO nueva sin salir de este dialogo.</source>
         <translation>Ein neues ISO registrieren, ohne diesen Dialog zu verlassen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="802" />
+        <location filename="../dialogs.py" line="942" />
         <source>Crear disco...</source>
         <translation>Festplatte erstellen...</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="803" />
+        <location filename="../dialogs.py" line="943" />
         <source>Crear un disco virtual (QCOW2 / RAW) o un disquete (IMG)
 directamente en la biblioteca. Equivale a 'qemu-img create'
 sobre MediaLibrary/&lt;nombre&gt;.&lt;ext&gt;.</source>
@@ -380,53 +380,53 @@ direkt in der Bibliothek erstellen. Entspricht 'qemu-img create'
 auf MediaLibrary/&lt;Name&gt;.&lt;Erw&gt;.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="811" />
+        <location filename="../dialogs.py" line="951" />
         <source>Abrir carpeta</source>
         <translation>Ordner öffnen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="812" />
+        <location filename="../dialogs.py" line="952" />
         <source>Abre MediaLibrary/ en el explorador del sistema.</source>
         <translation>Öffnet MediaLibrary/ im Dateimanager des Systems.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="819" />
+        <location filename="../dialogs.py" line="959" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="822" />
+        <location filename="../dialogs.py" line="962" />
         <source>Elegir</source>
         <translation>Auswählen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="900" />
+        <location filename="../dialogs.py" line="1040" />
         <source>{0}   (huerfano)</source>
         <translation>{0}   (verwaist)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="908" />
+        <location filename="../dialogs.py" line="1048" />
         <source>{0}, {1} (+{2})</source>
         <translation>{0}, {1} (+{2})</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="930" />
-        <location filename="../dialogs.py" line="914" />
+        <location filename="../dialogs.py" line="1070" />
+        <location filename="../dialogs.py" line="1054" />
         <source>(sin archivo)</source>
         <translation>(keine Datei)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="932" />
+        <location filename="../dialogs.py" line="1072" />
         <source>No la usa ninguna VM.</source>
         <translation>Wird von keiner VM verwendet.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="978" />
+        <location filename="../dialogs.py" line="1118" />
         <source>Archivo no disponible</source>
         <translation>Datei nicht verfügbar</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="979" />
+        <location filename="../dialogs.py" line="1119" />
         <source>El archivo de esta entrada ya no existe en el disco.
 
 Ruta esperada:
@@ -437,22 +437,22 @@ Erwarteter Pfad:
 {0}</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="997" />
+        <location filename="../dialogs.py" line="1137" />
         <source>Biblioteca no disponible</source>
         <translation>Bibliothek nicht verfügbar</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="998" />
+        <location filename="../dialogs.py" line="1138" />
         <source>La biblioteca de medios no está disponible.</source>
         <translation>Die Medienbibliothek ist nicht verfügbar.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1019" />
+        <location filename="../dialogs.py" line="1159" />
         <source>Ya existe</source>
         <translation>Existiert bereits</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1020" />
+        <location filename="../dialogs.py" line="1160" />
         <source>Ya existe un archivo con ese nombre en la biblioteca:
 
 {0}
@@ -465,21 +465,21 @@ Elige otro nombre o bórralo desde la pestaña Medios.</source>
 Wähle einen anderen Namen oder lösche sie im Medien-Tab.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1067" />
-        <location filename="../dialogs.py" line="1045" />
-        <location filename="../dialogs.py" line="1038" />
+        <location filename="../dialogs.py" line="1207" />
+        <location filename="../dialogs.py" line="1185" />
+        <location filename="../dialogs.py" line="1178" />
         <source>Crear medio</source>
         <translation>Medium erstellen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1039" />
+        <location filename="../dialogs.py" line="1179" />
         <source>No se encontró 'qemu-img'. Instálalo (paquete qemu-utils
 en Debian/Ubuntu, qemu-img en Arch) para crear discos.</source>
         <translation>'qemu-img' wurde nicht gefunden. Installiere es (Paket qemu-utils
 unter Debian/Ubuntu, qemu-img unter Arch), um Festplatten zu erstellen.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1046" />
+        <location filename="../dialogs.py" line="1186" />
         <source>No se pudo crear el medio.
 
 {0}</source>
@@ -488,12 +488,12 @@ unter Debian/Ubuntu, qemu-img unter Arch), um Festplatten zu erstellen.</transla
 {0}</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1061" />
+        <location filename="../dialogs.py" line="1201" />
         <source>Creado con qemu-img create. Tamaño: {0}.</source>
         <translation>Mit qemu-img create erstellt. Größe: {0}.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1068" />
+        <location filename="../dialogs.py" line="1208" />
         <source>El archivo se creó correctamente pero no se pudo
 registrar en la biblioteca:
 
@@ -504,12 +504,12 @@ in der Bibliothek registriert werden:
 {0}</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1082" />
+        <location filename="../dialogs.py" line="1222" />
         <source>Medio creado</source>
         <translation>Medium erstellt</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1083" />
+        <location filename="../dialogs.py" line="1223" />
         <source>Se creó el medio correctamente.
 
 Archivo: {0}
@@ -522,94 +522,94 @@ Größe: {1}
 Format: {2}</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1091" />
+        <location filename="../dialogs.py" line="1231" />
         <source>Anadir a la biblioteca</source>
         <translation>Zur Bibliothek hinzufügen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1092" />
+        <location filename="../dialogs.py" line="1232" />
         <source>Imagenes de disco (*.iso *.img *.dmg *.raw *.qcow2 *.qcow);;Todos (*)</source>
         <translation>Festplattenabbilder (*.iso *.img *.dmg *.raw *.qcow2 *.qcow);;Alle (*)</translation>
     </message>
 </context><context>
     <name>NatPortForwardDialog</name>
     <message>
-        <location filename="../dialogs.py" line="1132" />
+        <location filename="../dialogs.py" line="1272" />
         <source>Reglas de reenvío de puertos NAT</source>
         <translation>NAT-Portweiterleitungsregeln</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1140" />
+        <location filename="../dialogs.py" line="1280" />
         <source>Redirige puertos del host al guest a través del NAT de QEMU (&lt;code&gt;-netdev user,hostfwd=...&lt;/code&gt;). Cada regla conecta &lt;b&gt;localhost:puerto_host&lt;/b&gt; del anfitrión con &lt;b&gt;puerto_guest&lt;/b&gt; dentro del sistema invitado.&lt;br&gt;&lt;br&gt;Ejemplo: host 2222 → guest 22 reenvía SSH; luego entra con &lt;code&gt;ssh -p 2222 usuario@localhost&lt;/code&gt;.</source>
         <translation>Leitet Host-Ports über das NAT von QEMU an den Gast weiter (&lt;code&gt;-netdev user,hostfwd=...&lt;/code&gt;). Jede Regel verbindet &lt;b&gt;localhost:Host-Port&lt;/b&gt; des Hosts mit &lt;b&gt;Gast-Port&lt;/b&gt; im Gastsystem.&lt;br&gt;&lt;br&gt;Beispiel: Host 2222 → Gast 22 leitet SSH weiter; dann verbindet man mit &lt;code&gt;ssh -p 2222 benutzer@localhost&lt;/code&gt;.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1154" />
+        <location filename="../dialogs.py" line="1294" />
         <source>Puerto host:</source>
         <translation>Host-Port:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1158" />
+        <location filename="../dialogs.py" line="1298" />
         <source>Puerto en el host (donde tú te conectas).</source>
         <translation>Port auf dem Host (von dem aus du dich verbindest).</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1161" />
+        <location filename="../dialogs.py" line="1301" />
         <source>Puerto guest:</source>
         <translation>Gast-Port:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1165" />
+        <location filename="../dialogs.py" line="1305" />
         <source>Puerto dentro de la VM (a donde se reenvía).</source>
         <translation>Port innerhalb der VM (an den weitergeleitet wird).</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1168" />
+        <location filename="../dialogs.py" line="1308" />
         <source>Protocolo:</source>
         <translation>Protokoll:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1174" />
+        <location filename="../dialogs.py" line="1314" />
         <source>➕ Añadir regla</source>
         <translation>➕ Regel hinzufügen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1182" />
+        <location filename="../dialogs.py" line="1322" />
         <source>Puerto host</source>
         <translation>Host-Port</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1182" />
+        <location filename="../dialogs.py" line="1322" />
         <source>Puerto guest</source>
         <translation>Gast-Port</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1183" />
+        <location filename="../dialogs.py" line="1323" />
         <source>Protocolo</source>
         <translation>Protokoll</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1199" />
+        <location filename="../dialogs.py" line="1339" />
         <source>🗑 Quitar seleccionada</source>
         <translation>🗑 Ausgewählte entfernen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1203" />
+        <location filename="../dialogs.py" line="1343" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1206" />
+        <location filename="../dialogs.py" line="1346" />
         <source>Aceptar</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1237" />
+        <location filename="../dialogs.py" line="1377" />
         <source>Regla duplicada</source>
         <translation>Doppelte Regel</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="1238" />
+        <location filename="../dialogs.py" line="1378" />
         <source>Ya existe una regla para el puerto host {0} ({1}).
 
 Elige otro puerto host o cambia el protocolo.</source>
@@ -7758,8 +7758,7 @@ Ein Root Hub darf nicht ausgewählt werden. Der USB-Stick muss vom Host ausgehä
         <source>FDC</source>
         <translation>FDC</translation>
     </message>
-<message>
-        <location filename="../install_flow_mixin.py" line="287" />
+    <message>
         <source>/dev/kvm no está disponible. La VM arrancará con emulación por software (TCG), que es 10-100× más lenta que KVM.
 
 {0}</source>
@@ -7768,7 +7767,6 @@ Ein Root Hub darf nicht ausgewählt werden. Der USB-Stick muss vom Host ausgehä
 {0}</translation>
     </message>
     <message>
-        <location filename="../install_flow_mixin.py" line="293" />
         <source>Tu usuario no puede usar /dev/kvm (no está en el grupo 'kvm'). La VM arrancará con emulación por software (muy lenta).
 
 {0}</source>
@@ -7776,7 +7774,523 @@ Ein Root Hub darf nicht ausgewählt werden. Der USB-Stick muss vom Host ausgehä
 
 {0}</translation>
     </message>
-    </context><context>
+<message>
+        <location filename="../media_library_mixin.py" line="232" />
+        <source>➕ Crear disco</source>
+        <translation>➕ Disk erstellen</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="234" />
+        <source>Crea un disco virtual nuevo en la biblioteca con
+'qemu-img create'.
+
+Formatos soportados: QCOW2, RAW, VMDK, VDI, VHD, VHDX
+y disquete (IMG). El archivo se guarda en MediaLibrary/
+y se registra automáticamente en el índice.</source>
+        <translation>Erstellt eine neue virtuelle Festplatte in der Bibliothek mit
+'qemu-img create'.
+
+Unterstützte Formate: QCOW2, RAW, VMDK, VDI, VHD, VHDX
+und Diskette (IMG). Die Datei wird in MediaLibrary/ gespeichert
+und automatisch im Index registriert.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="333" />
+        <source>🔌 Montar en host</source>
+        <translation>🔌 Auf Host einbinden</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="334" />
+        <source>Monta este disco virtual en el sistema anfitrión para
+inspeccionar o copiar su contenido sin arrancar la VM.
+
+Se usa guestmount (FUSE, sin root) si está disponible,
+o qemu-nbd (con pkexec) como alternativa.
+
+Requiere que ninguna VM que lo use esté encendida:
+QEMU mantiene un bloqueo de escritura sobre el archivo.</source>
+        <translation>Bindet diese virtuelle Festplatte in das Hostsystem ein, um
+ihren Inhalt zu prüfen oder zu kopieren, ohne die VM zu starten.
+
+guestmount (FUSE, ohne root) wird verwendet, falls verfügbar,
+oder qemu-nbd (mit pkexec) als Alternative.
+
+Erfordert, dass keine VM, die sie verwendet, läuft:
+QEMU hält eine Schreibsperre auf der Datei.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="341" />
+        <source>⏏ Desmontar del host</source>
+        <translation>⏏ Vom Host aushängen</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="342" />
+        <source>Desmonta del sistema anfitrión el disco que se montó
+previamente con 'Montar en host'.</source>
+        <translation>Hängt die zuvor mit 'Auf Host einbinden' eingebundene
+Festplatte aus dem Hostsystem aus.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="667" />
+        <source>montado (rw)</source>
+        <translation>eingebunden (rw)</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="668" />
+        <source>montado (ro)</source>
+        <translation>eingebunden (ro)</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1713" />
+        <location filename="../media_library_mixin.py" line="1707" />
+        <location filename="../media_library_mixin.py" line="1701" />
+        <location filename="../media_library_mixin.py" line="1682" />
+        <location filename="../media_library_mixin.py" line="1668" />
+        <location filename="../media_library_mixin.py" line="1658" />
+        <source>Herramientas de montaje</source>
+        <translation>Einbindungswerkzeuge</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1659" />
+        <source>No se encontró guestmount ni qemu-nbd en el sistema.
+
+Instala 'libguestfs' y 'guestfs-tools' (o 'qemu-nbd'
+como alternativa) con el gestor de paquetes de tu
+distribución para poder montar discos virtuales.</source>
+        <translation>Weder guestmount noch qemu-nbd wurden auf dem System gefunden.
+
+Installieren Sie 'libguestfs' und 'guestfs-tools' (oder 'qemu-nbd'
+als Alternative) mit dem Paketmanager Ihrer Distribution,
+um virtuelle Festplatten einbinden zu können.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1669" />
+        <source>Faltan las herramientas de montaje y no se encontró
+'pkexec' para pedir permisos de administrador.
+
+Ejecuta a mano:
+
+  sudo {0} install {1}</source>
+        <translation>Die Einbindungswerkzeuge fehlen und 'pkexec' wurde nicht
+gefunden, um Administratorrechte anzufordern.
+
+Führen Sie manuell aus:
+
+  sudo {0} install {1}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1683" />
+        <source>Se necesitan herramientas adicionales para montar discos
+en el host.
+
+  • guestmount (libguestfs) es lo ideal: sin root, detecta
+    particiones y sistemas de archivos automáticamente.
+  • qemu-nbd es la alternativa si no hay libguestfs.
+
+¿Quieres instalar las herramientas ahora? Se pedirá la
+contraseña de administrador.
+
+Comando:
+  {0}</source>
+        <translation>Zusätzliche Werkzeuge sind erforderlich, um Festplatten
+auf dem Host einzubinden.
+
+  • guestmount (libguestfs) ist ideal: ohne root, erkennt
+    Partitionen und Dateisysteme automatisch.
+  • qemu-nbd ist die Alternative, wenn libguestfs fehlt.
+
+Möchten Sie die Werkzeuge jetzt installieren? Sie werden
+nach dem Administratorkennwort gefragt.
+
+Befehl:
+  {0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1702" />
+        <source>No se pudo ejecutar el comando de instalación.
+
+{0}</source>
+        <translation>Der Installationsbefehl konnte nicht ausgeführt werden.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1708" />
+        <source>La instalación falló.
+
+{0}</source>
+        <translation>Die Installation ist fehlgeschlagen.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1714" />
+        <source>Instalación completada.</source>
+        <translation>Installation abgeschlossen.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1778" />
+        <source>Montajes previos detectados</source>
+        <translation>Frühere Einbindungen erkannt</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1779" />
+        <source>Se encontraron {0} disco(s) montados en el sistema de
+una sesión anterior de la aplicación:
+
+{1}
+
+¿Quieres desmontarlos ahora?</source>
+        <translation>Es wurden {0} Festplatte(n) gefunden, die aus einer früheren
+Sitzung der Anwendung im System eingebunden sind:
+
+{1}
+
+Möchten Sie sie jetzt aushängen?</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1812" />
+        <source>Montar en el host</source>
+        <translation>Auf Host einbinden</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1816" />
+        <source>Se va a montar &lt;b&gt;{0}&lt;/b&gt; en el sistema anfitrión.&lt;br&gt;&lt;br&gt;El disco debe estar apagado: ninguna VM que lo use puede
+estar encendida, porque QEMU mantiene un bloqueo de escritura
+sobre el archivo.</source>
+        <translation>&lt;b&gt;{0}&lt;/b&gt; wird in das Hostsystem eingebunden.&lt;br&gt;&lt;br&gt;Die Festplatte muss ausgeschaltet sein: keine VM, die sie
+verwendet, darf laufen, da QEMU eine Schreibsperre auf
+der Datei hält.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1824" />
+        <source>Permitir escritura (montar en modo read-write)</source>
+        <translation>Schreiben erlauben (im Lese-/Schreibmodus einbinden)</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1828" />
+        <source>⚠ Con read-write, escribir en el disco puede corromper el
+sistema de archivos si después se arranca la VM sin
+desmontarlo. Para inspeccionar o copiar, deja read-only.
+
+Los archivos que crees desde el host se atribuirán a tu
+usuario del guest (uid/gid {0}:{1}) cuando el sistema de
+archivos lo permita; si no, aparecerán como root.</source>
+        <translation>⚠ Im Lese-/Schreibmodus kann das Beschreiben der Festplatte
+das Dateisystem beschädigen, wenn die VM danach gestartet
+wird, ohne sie auszuhängen. Zum Prüfen oder Kopieren im
+Nur-Lese-Modus belassen.
+
+Dateien, die Sie vom Host aus erstellen, werden Ihrem
+Gastbenutzer (uid/gid {0}:{1}) zugewiesen, sofern das
+Dateisystem es zulässt; andernfalls erscheinen sie als root.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1843" />
+        <source>Montar</source>
+        <translation>Einbinden</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1867" />
+        <source>Selecciona un disco virtual para montarlo en el host.</source>
+        <translation>Wählen Sie eine virtuelle Festplatte aus, um sie auf dem Host
+einzubinden.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1869" />
+        <source>Selecciona un disco previamente montado para desmontarlo.</source>
+        <translation>Wählen Sie eine zuvor eingebundene Festplatte aus, um sie
+auszuhängen.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1961" />
+        <location filename="../media_library_mixin.py" line="1883" />
+        <source>Solo se pueden montar discos virtuales
+(QCOW2, RAW, VMDK, VDI, VHD, VHDX).</source>
+        <translation>Nur virtuelle Festplatten können eingebunden werden
+(QCOW2, RAW, VMDK, VDI, VHD, VHDX).</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1887" />
+        <source>Este disco ya está montado. Usa '⏏ Desmontar del host'
+para liberarlo.</source>
+        <translation>Diese Festplatte ist bereits eingebunden. Verwenden Sie
+'⏏ Vom Host aushängen', um sie freizugeben.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1891" />
+        <source>La VM '{0}' está usando este disco y está encendida.
+Apágala para poder montarlo en el host.</source>
+        <translation>Die VM '{0}' verwendet diese Festplatte und läuft.
+Schalten Sie sie aus, um sie auf dem Host einzubinden.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1895" />
+        <source>Monta este disco virtual en el sistema anfitrión para
+inspeccionar o copiar su contenido sin arrancar la VM.</source>
+        <translation>Bindet diese virtuelle Festplatte in das Hostsystem ein,
+um ihren Inhalt zu prüfen oder zu kopieren, ohne die VM
+zu starten.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1900" />
+        <source>Desmontar de {0}</source>
+        <translation>Aushängen von {0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2192" />
+        <location filename="../media_library_mixin.py" line="1902" />
+        <source>Este disco no está montado en el host.</source>
+        <translation>Diese Festplatte ist nicht auf dem Host eingebunden.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2147" />
+        <location filename="../media_library_mixin.py" line="2015" />
+        <location filename="../media_library_mixin.py" line="1998" />
+        <location filename="../media_library_mixin.py" line="1987" />
+        <location filename="../media_library_mixin.py" line="1977" />
+        <location filename="../media_library_mixin.py" line="1970" />
+        <location filename="../media_library_mixin.py" line="1960" />
+        <location filename="../media_library_mixin.py" line="1950" />
+        <location filename="../media_library_mixin.py" line="1937" />
+        <source>Montar en host</source>
+        <translation>Auf Host einbinden</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1938" />
+        <source>Error inesperado al montar el disco.
+
+Puedes ver el detalle en la Consola de Progreso.
+
+{0}</source>
+        <translation>Unerwarteter Fehler beim Einbinden der Festplatte.
+
+Details finden Sie in der Fortschrittskonsole.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1971" />
+        <source>Este disco ya está montado.</source>
+        <translation>Diese Festplatte ist bereits eingebunden.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1978" />
+        <source>La VM '{0}' está usando este disco y está encendida.
+
+Apágala antes de montar el disco en el host: QEMU
+mantiene un bloqueo de escritura sobre el archivo
+y el montaje fallaría.</source>
+        <translation>Die VM '{0}' verwendet diese Festplatte und läuft.
+
+Schalten Sie sie aus, bevor Sie die Festplatte auf dem Host
+einbinden: QEMU hält eine Schreibsperre auf der Datei und
+das Einbinden würde fehlschlagen.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="1999" />
+        <source>Las herramientas de montaje siguen sin estar
+disponibles después de la instalación.</source>
+        <translation>Die Einbindungswerkzeuge sind nach der Installation
+weiterhin nicht verfügbar.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2016" />
+        <source>No se pudo crear el punto de montaje.
+
+{0}</source>
+        <translation>Der Einbindungspunkt konnte nicht erstellt werden.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2126" />
+        <source>Aviso: el sistema de archivos del guest no acepta mapeo de usuario; los archivos que crees desde el host aparecerán como root en el guest. Para trabajar sin problemas de permisos, escribe desde el guest en lugar del host.</source>
+        <translation>Warnung: Das Gastdateisystem akzeptiert keine Benutzerzuordnung; Dateien, die Sie vom Host aus erstellen, erscheinen im Gast als root. Um ohne Berechtigungsprobleme zu arbeiten, schreiben Sie vom Gast aus statt vom Host.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2133" />
+        <source>Disco montado</source>
+        <translation>Festplatte eingebunden</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2134" />
+        <source>'{0}' montado correctamente.
+
+Punto de montaje: {1}
+Modo: {2}{3}</source>
+        <translation>'{0}' erfolgreich eingebunden.
+
+Einbindungspunkt: {1}
+Modus: {2}{3}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2138" />
+        <source>read-only</source>
+        <translation>Nur-Lesen</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2138" />
+        <source>read-write</source>
+        <translation>Lese-Schreiben</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2148" />
+        <source>No se pudo montar el disco.
+
+{0}</source>
+        <translation>Die Festplatte konnte nicht eingebunden werden.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2152" />
+        <source>Montando '{0}'</source>
+        <translation>Einbinden von '{0}'</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2157" />
+        <source>Preparando el punto de montaje en el host…</source>
+        <translation>Einbindungspunkt auf dem Host wird vorbereitet…</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2257" />
+        <location filename="../media_library_mixin.py" line="2252" />
+        <location filename="../media_library_mixin.py" line="2207" />
+        <location filename="../media_library_mixin.py" line="2191" />
+        <location filename="../media_library_mixin.py" line="2181" />
+        <location filename="../media_library_mixin.py" line="2168" />
+        <source>Desmontar del host</source>
+        <translation>Vom Host aushängen</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2169" />
+        <source>Error inesperado al desmontar.
+
+Puedes ver el detalle en la Consola de Progreso.
+
+{0}</source>
+        <translation>Unerwarteter Fehler beim Aushängen.
+
+Details finden Sie in der Fortschrittskonsole.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2208" />
+        <source>¿Desmontar '{0}' de {1}?</source>
+        <translation>'{0}' von {1} aushängen?</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2253" />
+        <source>'{0}' desmontado correctamente.</source>
+        <translation>'{0}' erfolgreich ausgehängt.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2258" />
+        <source>No se pudo desmontar.
+
+{0}</source>
+        <translation>Aushängen fehlgeschlagen.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2262" />
+        <source>Desmontando '{0}'</source>
+        <translation>Aushängen von '{0}'</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2267" />
+        <source>Liberando el punto de montaje…</source>
+        <translation>Einbindungspunkt wird freigegeben…</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2420" />
+        <location filename="../media_library_mixin.py" line="2342" />
+        <location filename="../media_library_mixin.py" line="2330" />
+        <source>Crear disco</source>
+        <translation>Disk erstellen</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2331" />
+        <source>Error inesperado al crear el disco.
+
+Puedes ver el detalle en la Consola de Progreso.
+
+{0}</source>
+        <translation>Unerwarteter Fehler beim Erstellen der Festplatte.
+
+Details finden Sie in der Fortschrittskonsole.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2343" />
+        <source>La biblioteca no está disponible.</source>
+        <translation>Die Bibliothek ist nicht verfügbar.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2358" />
+        <source>Ya existe un archivo con ese nombre en la biblioteca:
+
+{0}
+
+¿Sobrescribir? (se perderá el contenido anterior)</source>
+        <translation>In der Bibliothek existiert bereits eine Datei mit diesem Namen:
+
+{0}
+
+Überschreiben? (der vorherige Inhalt geht verloren)</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2378" />
+        <source>No se encontró 'qemu-img'. Instálalo (paquete qemu-utils / qemu-img).</source>
+        <translation>'qemu-img' wurde nicht gefunden. Installieren Sie es (Paket qemu-utils / qemu-img).</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2395" />
+        <source>Creado con qemu-img create. Tamaño: {0}.</source>
+        <translation>Mit qemu-img create erstellt. Größe: {0}.</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2411" />
+        <source>Disco creado</source>
+        <translation>Festplatte erstellt</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2412" />
+        <source>Se creó el disco correctamente.
+
+Archivo: {0}
+Tamaño: {1}
+Formato: {2}</source>
+        <translation>Festplatte erfolgreich erstellt.
+
+Datei: {0}
+Größe: {1}
+Format: {2}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2421" />
+        <source>No se pudo crear el disco.
+
+{0}</source>
+        <translation>Die Festplatte konnte nicht erstellt werden.
+
+{0}</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2425" />
+        <source>Creando '{0}'</source>
+        <translation>Erstellen von '{0}'</translation>
+    </message>
+    <message>
+        <location filename="../media_library_mixin.py" line="2430" />
+        <source>Ejecutando qemu-img create…</source>
+        <translation>qemu-img create wird ausgeführt…</translation>
+    </message>
+</context><context>
     <name>_CreateMediumDialog</name>
     <message>
         <location filename="../dialogs.py" line="575" />
@@ -7794,82 +8308,176 @@ Ein Root Hub darf nicht ausgewählt werden. Der USB-Stick muss vom Host ausgehä
         <translation>Name:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="587" />
+        <location filename="../dialogs.py" line="590" />
         <source>Disco duro QCOW2 (recomendado)</source>
         <translation>QCOW2-Festplatte (empfohlen)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="588" />
+        <location filename="../dialogs.py" line="592" />
         <source>Disco duro RAW</source>
         <translation>RAW-Festplatte</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="589" />
+        <location filename="../dialogs.py" line="594" />
+        <source>Disco duro VMDK (VirtualBox / VMware)</source>
+        <translation>VMDK-Festplatte (VirtualBox / VMware)</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="596" />
+        <source>Disco duro VDI (VirtualBox nativo)</source>
+        <translation>VDI-Festplatte (VirtualBox nativ)</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="598" />
+        <source>Disco duro VHD (Hyper-V antiguo)</source>
+        <translation>VHD-Festplatte (älteres Hyper-V)</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="600" />
+        <source>Disco duro VHDX (Hyper-V moderno)</source>
+        <translation>VHDX-Festplatte (modernes Hyper-V)</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="602" />
         <source>Disquete IMG (RAW)</source>
         <translation>IMG-Diskette (RAW)</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="594" />
+        <location filename="../dialogs.py" line="607" />
         <source>Tipo:</source>
         <translation>Typ:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="599" />
+        <location filename="../dialogs.py" line="611" />
+        <source>Preasignación:</source>
+        <translation>Vorbelegung:</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="614" />
+        <source>Expandible (dinámico)</source>
+        <translation>Erweiterbar (dynamisch)</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="616" />
+        <source>Fijo (preasignado)</source>
+        <translation>Fest (vorab zugewiesen)</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="618" />
+        <source>Expandible: el archivo crece solo según se usa (recomendado).
+Fijo: reserva todo el espacio en disco desde el momento de
+su creación. Tarda más y ocupa más, pero el rendimiento de
+escritura es más predecible.</source>
+        <translation>Erweiterbar: Die Datei wächst mit der Nutzung (empfohlen).
+Fest: Reserviert den gesamten Speicherplatz bei der Erstellung.
+Dauert länger und belegt mehr Speicher, aber die Schreibleistung
+ist besser vorhersehbar.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="628" />
         <source>Tamaño:</source>
         <translation>Größe:</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="611" />
+        <location filename="../dialogs.py" line="640" />
         <source>Cancelar</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="613" />
+        <location filename="../dialogs.py" line="642" />
         <source>Crear</source>
         <translation>Erstellen</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="630" />
+        <location filename="../dialogs.py" line="660" />
+        <source>Expandible: preallocation=off (recomendado).
+Fijo: preallocation=full. Reserva todo el espacio
+en el host desde el momento de su creación.</source>
+        <translation>Erweiterbar: preallocation=off (empfohlen).
+Fest: preallocation=full. Reserviert den gesamten Speicher
+auf dem Host bei der Erstellung.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="665" />
+        <source>Expandible: VDI dinámico (recomendado).
+Fijo: static=on. Reserva todo el espacio en el host.</source>
+        <translation>Erweiterbar: dynamische VDI (empfohlen).
+Fest: static=on. Reserviert den gesamten Speicher auf dem Host.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="669" />
+        <source>Expandible: VHD dynamic (recomendado).
+Fijo: subformat=fixed. Reserva todo el espacio.</source>
+        <translation>Erweiterbar: dynamische VHD (empfohlen).
+Fest: subformat=fixed. Reserviert den gesamten Speicher.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="680" />
         <source>Disquete formateado como RAW. Se registra como tipo 'Disquete' en la biblioteca. Tamaños típicos: 720 KB, 1.44 MB, 2.88 MB.</source>
         <translation>Als RAW formatierte Diskette. Wird als Typ 'Diskette' in der Bibliothek registriert. Typische Größen: 720 KB, 1,44 MB, 2,88 MB.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="641" />
+        <location filename="../dialogs.py" line="692" />
         <source>Disco virtual expandible (recomendado). El archivo en el host crece solo según se usa en el guest.</source>
         <translation>Erweiterbare virtuelle Festplatte (empfohlen). Die Datei auf dem Host wächst nur bei Nutzung im Gast.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="646" />
+        <location filename="../dialogs.py" line="697" />
         <source>Disco RAW (imagen plana). Ocupa el tamaño completo en el host desde el momento de su creación.</source>
         <translation>RAW-Festplatte (flaches Abbild). Belegt die volle Größe auf dem Host ab dem Zeitpunkt der Erstellung.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="655" />
+        <location filename="../dialogs.py" line="702" />
+        <source>Formato VMDK monolithicSparse (compatible con VirtualBox y VMware). El archivo crece según se usa; las snapshots internas de QEMU no aplican.</source>
+        <translation>VMDK-Format monolithicSparse (kompatibel mit VirtualBox und VMware). Die Datei wächst mit der Nutzung; interne QEMU-Snapshots sind nicht anwendbar.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="708" />
+        <source>Formato VDI nativo de VirtualBox. El archivo crece según se usa.</source>
+        <translation>VDI-Format, nativ für VirtualBox. Die Datei wächst mit der Nutzung.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="713" />
+        <source>Formato VHD (Hyper-V hasta Windows 2008 R2). Compatible con la mayoría de hipervisores. QEMU lo llama internamente 'vpc'.</source>
+        <translation>VHD-Format (Hyper-V bis Windows 2008 R2). Kompatibel mit den meisten Hypervisoren. QEMU nennt es intern 'vpc'.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="719" />
+        <source>Formato VHDX (Hyper-V moderno, desde Windows 2012). Soporta discos de hasta 64 TB y bloques de 4 KB.</source>
+        <translation>VHDX-Format (modernes Hyper-V, seit Windows 2012). Unterstützt Festplatten bis 64 TB und 4-KB-Blöcke.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="724" />
+        <source>Disco virtual expandible.</source>
+        <translation>Erweiterbare virtuelle Festplatte.</translation>
+    </message>
+    <message>
+        <location filename="../dialogs.py" line="732" />
         <source>Nombre requerido</source>
         <translation>Name erforderlich</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="656" />
+        <location filename="../dialogs.py" line="733" />
         <source>Escribe un nombre para el medio.</source>
         <translation>Gib einen Namen für das Medium ein.</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="660" />
+        <location filename="../dialogs.py" line="737" />
         <source>Nombre inválido</source>
         <translation>Ungültiger Name</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="661" />
+        <location filename="../dialogs.py" line="738" />
         <source>El nombre no puede contener \ / : * ? " &lt; &gt; |</source>
         <translation>Der Name darf folgende Zeichen nicht enthalten: \ / : * ? " &lt; &gt; |</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="670" />
+        <location filename="../dialogs.py" line="751" />
         <source>Tamaño inválido</source>
         <translation>Ungültige Größe</translation>
     </message>
     <message>
-        <location filename="../dialogs.py" line="671" />
+        <location filename="../dialogs.py" line="752" />
         <source>Usa un tamaño como 40G, 512M o 1T.</source>
         <translation>Verwende eine Größe wie 40G, 512M oder 1T.</translation>
     </message>

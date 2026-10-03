@@ -46,7 +46,9 @@ LIBRARY_DIRNAME = "MediaLibrary"
 INDEX_FILENAME = "_index.json"
 INDEX_VERSION = 1
 
-VALID_KINDS = ("iso", "img", "dmg", "raw", "qcow2", "other")
+# media_library_host_mount_v1: anadidos vmdk/vdi/vhd/vhdx.
+VALID_KINDS = ("iso", "img", "dmg", "raw", "qcow2",
+               "vmdk", "vdi", "vhd", "vhdx", "other")
 VALID_OS_TYPES = ("linux", "windows", "macos", "android", "guest-tools", "other")
 
 
@@ -84,6 +86,15 @@ def kind_from_ext(path):
         return "raw"
     if ext in ("qcow2", "qcow"):
         return "qcow2"
+    # media_library_host_mount_v1: formatos que QEMU abre como disco.
+    if ext == "vmdk":
+        return "vmdk"
+    if ext == "vdi":
+        return "vdi"
+    if ext == "vhd":
+        return "vhd"
+    if ext == "vhdx":
+        return "vhdx"
     return "other"
 
 
@@ -711,7 +722,10 @@ class MediaLibrary:
     @staticmethod
     def _looks_like_media(filename):
         ext = os.path.splitext(filename)[1].lower()
-        return ext in (".iso", ".img", ".dmg", ".raw", ".qcow2", ".qcow")
+        # media_library_host_mount_v1: reconocer tambien los formatos
+        # de disco que QEMU puede abrir como bloque.
+        return ext in (".iso", ".img", ".dmg", ".raw", ".qcow2", ".qcow",
+                       ".vmdk", ".vdi", ".vhd", ".vhdx")
 
     def _file_exists(self, entry):
         abs_path = self._to_absolute(entry.get("path") or "")
