@@ -1,6 +1,6 @@
 # Maintainer: Jimmy Verduga <jverduga1969@users.noreply.github.com>
 pkgname=virtual-machine
-pkgver=0.57.0
+pkgver=0.57.1
 pkgrel=1
 pkgdesc="Administrador grafico de VMs QEMU/KVM (estilo VirtualBox) en Python + PyQt6"
 arch=('any')
@@ -64,6 +64,7 @@ package() {
     done
 
     install -Dm755 run.sh "$_libdir/run.sh"
+    install -Dm644 README_console.md "$_libdir/README_console.md"
 
     install -dm755 "$pkgdir/usr/bin"
     cat > "$pkgdir/usr/bin/$pkgname" << 'WRAPEOF'

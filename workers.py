@@ -1929,7 +1929,12 @@ class InstallWorker(QThread):
             # OSX-KVM dentro de cada VM. El administrador construye directamente la
             # línea QEMU y solo conserva en la VM el estado que realmente es propio
             # de ella (disco, NVRAM OVMF y recovery).
-            osx_kvm_source = self.extra_params.get("osx_kvm_source") or os.path.abspath("OSX-KVM")
+            osx_kvm_source = self.extra_params.get("osx_kvm_source") or ""
+            # osx_kvm_pkg_paths_v1: si falta o ya no existe (p. ej. VM importada
+            # con una ruta de /usr/lib), usar la ruta que decide vm_config.
+            if not osx_kvm_source or not os.path.isdir(osx_kvm_source):
+                import vm_config as _vmc
+                osx_kvm_source = _vmc.OSX_KVM_DIR
             source_opencore = os.path.join(osx_kvm_source, "OpenCore", "OpenCore.qcow2")
             if not os.path.isfile(source_opencore) or os.path.getsize(source_opencore) == 0:
                 raise RuntimeError(

@@ -61,8 +61,14 @@ def default_base_dir():
     vm_config.BASE_VM_DIR: no depende del CWD, así la app puede
     arrancarse desde cualquier sitio.
     """
-    here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(here, LIBRARY_DIRNAME)
+    # media_library_xdg_v1: en modo paquete el modulo vive en /usr/lib
+    # (solo lectura); la biblioteca va junto a VirtualMachines/.
+    try:
+        import vm_config
+        root = os.path.dirname(os.path.abspath(vm_config.BASE_VM_DIR))
+    except Exception:
+        root = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(root, LIBRARY_DIRNAME)
 
 
 def kind_from_ext(path):
@@ -779,8 +785,13 @@ class MediaLibrary:
         Se calcula desde la ubicacion de este modulo para no depender
         de vm_config.py (este modulo debe seguir siendo independiente).
         """
-        here = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(here, "VirtualMachines")
+        # media_library_xdg_v1
+        try:
+            import vm_config
+            return vm_config.BASE_VM_DIR
+        except Exception:
+            here = os.path.dirname(os.path.abspath(__file__))
+            return os.path.join(here, "VirtualMachines")
 
     def _role_for_filename(self, filename):
         """Deduce el rol de un archivo por su nombre (heuristica)."""

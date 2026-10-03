@@ -4045,6 +4045,7 @@ if __name__ == "__main__":
     # instalación antigua que lo tenga junto al directorio de trabajo.
     _app_dir = os.path.dirname(os.path.abspath(__file__))
     _osx_kvm_candidates = [
+        vm_config.OSX_KVM_DIR,  # osx_kvm_pkg_paths_v1
         os.path.join(_app_dir, "OSX-KVM"),
         os.path.join(os.getcwd(), "OSX-KVM"),
     ]

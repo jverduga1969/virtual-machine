@@ -8194,8 +8194,7 @@ class VmLifecycleMixin:
 
                 # OSX-KVM en el host (auto-descarga si falta).
                 try:
-                    _app_dir_i = os.path.dirname(os.path.abspath(__file__))
-                    _osx_kvm_i = os.path.join(_app_dir_i, "OSX-KVM")
+                    _osx_kvm_i = vm_config.OSX_KVM_DIR  # osx_kvm_pkg_paths_v1
                     if not os.path.isdir(_osx_kvm_i):
                         progress_emit(85, "Descargando OSX-KVM...")
                         log_emit("==> OSX-KVM no encontrado; descargando "
@@ -8233,10 +8232,7 @@ class VmLifecycleMixin:
                 extra["cdrom_path"] = ""
                 extra["imported_from_ovf"] = True
                 try:
-                    _app_dir_cfg = os.path.dirname(os.path.abspath(__file__))
-                    extra["osx_kvm_source"] = os.path.join(
-                        _app_dir_cfg, "OSX-KVM"
-                    )
+                    extra["osx_kvm_source"] = vm_config.OSX_KVM_DIR  # osx_kvm_pkg_paths_v1
                 except Exception:
                     pass
                 cfg_path = os.path.join(target_dir, "vm_config.ini")
