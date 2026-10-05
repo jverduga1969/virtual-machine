@@ -6,18 +6,6 @@ validar/generar nombres de interfaces TAP. Sin dependencias de PyQt.
 """
 import os
 import re
-import json
-import shutil
-import shlex
-import glob
-import zipfile
-import configparser
-import subprocess
-import uuid
-import time
-from datetime import date, timedelta
-import requests
-from packaging import version
 
 def list_host_network_interfaces():
     """Lista interfaces de red reales del host (excluye looper/virtuales obvias)."""

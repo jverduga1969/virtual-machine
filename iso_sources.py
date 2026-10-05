@@ -9,16 +9,7 @@ para separar "de dónde saco la ISO" de la lógica de la interfaz.
 """
 import os
 import re
-import json
-import shutil
-import shlex
-import glob
-import zipfile
-import configparser
 import subprocess
-import uuid
-import time
-from datetime import date, timedelta
 import requests
 from packaging import version
 

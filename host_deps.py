@@ -12,17 +12,12 @@ import os
 import re
 import json
 import shutil
-import shlex
 import glob
 import zipfile
-import configparser
 import subprocess
-import uuid
 import time
 from pathlib import Path
-from datetime import date, timedelta
 import requests
-from packaging import version
 
 def ensure_osx_kvm_present(log_func=print):
     """Si la carpeta 'OSX-KVM' no existe, la descarga desde

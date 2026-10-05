@@ -10,17 +10,7 @@ módulos que necesiten esa ruta deben importarla de aquí, no redefinirla.
 import os
 import re
 import json
-import shutil
-import shlex
-import glob
-import zipfile
 import configparser
-import subprocess
-import uuid
-import time
-from datetime import date, timedelta
-import requests
-from packaging import version
 
 # portable_paths_v1: BASE_VM_DIR se ancla a la ubicación de este módulo,
 # no a os.getcwd(). Antes, si la app se lanzaba desde otro directorio (o

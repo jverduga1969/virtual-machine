@@ -6,19 +6,8 @@ bash, localización de virtiofsd en el host, y chequeo/instalación de sus
 dependencias.
 """
 import os
-import re
-import json
 import shutil
-import shlex
-import glob
-import zipfile
-import configparser
 import subprocess
-import uuid
-import time
-from datetime import date, timedelta
-import requests
-from packaging import version
 
 from host_deps import _run_privileged_install, detect_linux_package_manager
 

@@ -7,18 +7,6 @@ para instalar la integración host<->guest desde dentro del propio guest.
 """
 import os
 import re
-import json
-import shutil
-import shlex
-import glob
-import zipfile
-import configparser
-import subprocess
-import uuid
-import time
-from datetime import date, timedelta
-import requests
-from packaging import version
 
 GUEST_TOOLS_ISO_NAME = "VM-Manager-GuestTools.iso"
 GUEST_TOOLS_WINDOWS_URLS = {
