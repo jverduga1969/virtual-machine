@@ -96,6 +96,7 @@ from guest_integration_mixin import GuestIntegrationMixin
 from passthrough_mixin import PassthroughMixin
 from storage_mixin import StorageMixin
 from vm_lifecycle_mixin import VmLifecycleMixin
+from vm_grid_delegate import VmCardDelegate  # vm_grid_view_v2_card
 from install_flow_mixin import InstallFlowMixin
 from suggestions_mixin import SuggestionsMixin
 from health_dashboard_mixin import HealthDashboardMixin
@@ -284,6 +285,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         )
         # Ventana redimensionable: tamaño inicial cómodo, sin bloquear al usuario.
         self.current_vm_dir = None
+        # config_tab_gating_v1: modo creación de VM nueva. Cuando
+        # está a True, la pestaña "Configuración VM" (índice 1)
+        # está habilitada aunque no haya ninguna VM seleccionada.
+        self._new_vm_mode = False
         self.disk_size_setting = "128G"
         self.disk_type_setting = "dynamic"
         self.disk_format_setting = "qcow2"
@@ -525,14 +530,28 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         h_main_os.addSpacing(14)
         h_main_os.addWidget(QLabel("<b>Plataforma:</b>"))
         self.combo_main_os = QComboBox()
-        self.combo_main_os.addItem("macOS", "macos")
-        self.combo_main_os.addItem("Microsoft Windows", "windows")
-        self.combo_main_os.addItem("GNU / Linux", "linux")
-        self.combo_main_os.addItem("Android (Android-x86 / Bliss OS)", "android")
+        # Orden pensado para que la plataforma más usada en Linux
+        # (Linux) sea la primera, y macOS no quede por defecto: la
+        # app empezó siendo un front-end de OSX-KVM, pero hoy cubre
+        # los 4 SO. Además, evitar que macOS sea el valor inicial
+        # evita disparar el aviso legal al arrancar la app.
+        # macos_eula_order_fix_v1
+        self.combo_main_os.addItem(self.tr("GNU / Linux"), "linux")
+        self.combo_main_os.addItem(self.tr("Microsoft Windows"), "windows")
+        self.combo_main_os.addItem(self.tr("macOS"), "macos")
+        self.combo_main_os.addItem(
+            self.tr("Android (Android-x86 / Bliss OS)"), "android"
+        )
         self.combo_main_os.setMaximumWidth(200)
         self.combo_main_os.currentIndexChanged.connect(self.change_os_panel)
         self.combo_main_os.currentIndexChanged.connect(self.maybe_autofill_vm_name)
         self.combo_main_os.currentIndexChanged.connect(lambda *_: self._update_vm_summary())
+        # macos_eula_notice_v1: aviso breve al seleccionar macOS
+        # (una vez por sesión). El modal completo se muestra al
+        # arrancar la VM (ver install_flow_mixin).
+        self.combo_main_os.currentIndexChanged.connect(
+            self._maybe_show_macos_create_notice
+        )
         # Re-aplicar el modo compatibilidad de snapshots al cambiar de SO
         # (macOS lo deshabilita con tooltip).
         self.combo_main_os.currentIndexChanged.connect(
@@ -1045,7 +1064,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         #     o un .dmg que se convierte con dmg2img.
         v_mac.addStretch(1)
 
-        stack.addWidget(page_macos)
+        self._version_stack_index = {}
+        self._version_stack_index["macos"] = stack.addWidget(page_macos)
 
         # --- Windows ---
         page_win = QWidget()
@@ -1065,7 +1085,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.check_win_auto.toggled.connect(self.toggle_win_iso_mode)
         for _w in (self.input_win_iso, self.check_win_auto):
             _w.setVisible(False)
-        stack.addWidget(page_win)
+        self._version_stack_index["windows"] = stack.addWidget(page_win)
 
         # --- Linux ---
         page_linux = QWidget()
@@ -1081,7 +1101,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_lin_distro.currentIndexChanged.connect(self.maybe_autofill_vm_name)
         self.combo_lin_distro.currentIndexChanged.connect(self.apply_os_profile_defaults)
         v_lin.addWidget(self.combo_lin_distro)
-        stack.addWidget(page_linux)
+        self._version_stack_index["linux"] = stack.addWidget(page_linux)
 
         # --- Android ---
         # La ISO se elige como medio de la unidad CD/DVD "Principal" en
@@ -1094,7 +1114,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         v_android.addStretch(1)
 
-        stack.addWidget(page_android)
+        self._version_stack_index["android"] = stack.addWidget(page_android)
 
         return stack
 
@@ -1605,7 +1625,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             self.btn_network_edit.setEnabled(not checked),
             self.btn_network_remove.setEnabled(not checked),
             self._update_vm_summary(),
-            self._save_hardware_lists() if self.current_vm_dir else None,
+            self._on_config_dirty() if self.current_vm_dir else None,
         ))
         lay.addWidget(self.check_no_network)
 
@@ -1946,7 +1966,27 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self.input_vm_search.textChanged.connect(self._filter_vm_list)
-        left_layout.addWidget(self.input_vm_search)
+        # vm_grid_view_v1: fila con buscador + toggle de vista.
+        # El toggle muestra la ACCIÓN (🗂 = pasar a tarjetas,
+        # 📋 = pasar a lista), no el estado actual.
+        search_row = QHBoxLayout()
+        search_row.setSpacing(4)
+        search_row.addWidget(self.input_vm_search, 1)
+        self.btn_toggle_vm_view = QToolButton()
+        self.btn_toggle_vm_view.setText("\U0001f5c2")
+        self.btn_toggle_vm_view.setToolTip(
+            self.tr("Alternar entre vista de lista y vista de tarjetas.")
+        )
+        self.btn_toggle_vm_view.setMinimumHeight(28)
+        self.btn_toggle_vm_view.setMinimumWidth(32)
+        self.btn_toggle_vm_view.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self.btn_toggle_vm_view.clicked.connect(
+            self._on_toggle_vm_view
+        )
+        search_row.addWidget(self.btn_toggle_vm_view, 0)
+        left_layout.addLayout(search_row)
 
         # Selector de orden de la lista. Los tres modos estan descritos
         # en _apply_vm_order() (vm_lifecycle_mixin.py). La eleccion se
@@ -2052,7 +2092,140 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # volver a la consola cuando el usuario se había movido a
         # otra pestaña.
         self.vm_list.itemClicked.connect(self.on_vm_list_item_clicked)
-        left_layout.addWidget(self.vm_list, 1)
+        # vm_context_menu_v1: menú contextual (clic derecho) y doble clic.
+        self.vm_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.vm_list.customContextMenuRequested.connect(
+            self._show_vm_context_menu
+        )
+        self.vm_list.itemDoubleClicked.connect(
+            self._on_vm_item_double_clicked
+        )
+        # welcome_screen_v1: envolver la lista en un QStackedWidget
+        # con dos páginas: la lista de VMs (0) y la pantalla de
+        # bienvenida cuando no hay ninguna (1).
+        self.vm_area_stack = QStackedWidget()
+        # Página 0: ya tiene el vm_list como hijo (creado antes).
+        _page_list = QWidget()
+        _pl_lay = QVBoxLayout(_page_list)
+        _pl_lay.setContentsMargins(0, 0, 0, 0)
+        _pl_lay.setSpacing(0)
+        _pl_lay.addWidget(self.vm_list)
+        self.vm_area_stack.addWidget(_page_list)
+
+        # Página 1: bienvenida.
+        _page_welcome = QWidget()
+        _welcome_layout = QVBoxLayout(_page_welcome)
+        _welcome_layout.setContentsMargins(16, 24, 16, 16)
+        _welcome_layout.setSpacing(12)
+
+        _welcome_layout.addStretch(1)
+
+        # Iconos de los 4 SO soportados, en fila y centrados.
+        try:
+            from vm_icons import icon_for_vm as _icon_for_vm
+            _icons_row = QHBoxLayout()
+            _icons_row.setSpacing(8)
+            _icons_row.addStretch(1)
+            for _os_t, _distro in (("linux", ""), ("windows", ""),
+                                    ("macos", ""), ("android", "")):
+                _ic = _icon_for_vm(_os_t, _distro, size=64)
+                _lbl = QLabel()
+                _lbl.setPixmap(_ic.pixmap(64, 64))
+                _lbl.setFixedSize(64, 64)
+                _icons_row.addWidget(_lbl)
+            _icons_row.addStretch(1)
+            _welcome_layout.addLayout(_icons_row)
+        except Exception:
+            pass
+
+        # Título.
+        _title = QLabel(self.tr("Bienvenido a Virtual.Machine"))
+        try:
+            from PyQt6.QtGui import QFont as _QFontW
+            _f = _QFontW()
+            _f.setPointSize(16)
+            _f.setBold(True)
+            _title.setFont(_f)
+        except Exception:
+            pass
+        _title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        _title.setWordWrap(True)
+        _welcome_layout.addWidget(_title)
+
+        # Subtítulo.
+        _sub = QLabel(self.tr(
+            "Todavía no tienes máquinas virtuales.\n"
+            "Crea una nueva o importa una existente para empezar."
+        ))
+        _sub.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        _sub.setWordWrap(True)
+        _sub.setStyleSheet("color: palette(mid);")
+        _welcome_layout.addWidget(_sub)
+
+        _welcome_layout.addSpacing(6)
+
+        # Botones (4). El orden refleja el flujo más común.
+        self.btn_welcome_create = QPushButton(
+            self.tr("\u2795  Crear una VM nueva")
+        )
+        self.btn_welcome_import = QPushButton(
+            self.tr("\U0001f4e5  Importar desde OVA/OVF…")
+        )
+        self.btn_welcome_media = QPushButton(
+            self.tr("\U0001f4da  Abrir Biblioteca de Medios")
+        )
+        self.btn_welcome_help = QPushButton(
+            self.tr("\u2753  Ver la Ayuda")
+        )
+        for _b in (self.btn_welcome_create,
+                   self.btn_welcome_import,
+                   self.btn_welcome_media,
+                   self.btn_welcome_help):
+            _b.setMinimumHeight(46)
+            _b.setSizePolicy(QSizePolicy.Policy.Expanding,
+                             QSizePolicy.Policy.Fixed)
+        # Estilos destacados para los dos primeros.
+        self.btn_welcome_create.setStyleSheet(
+            "QPushButton { background-color: #2e7d32; color: white; "
+            "font-weight: bold; border: 1px solid #1b5e20; "
+            "border-radius: 6px; padding: 8px 14px; }"
+            "QPushButton:hover { background-color: #1b5e20; }"
+        )
+        self.btn_welcome_import.setStyleSheet(
+            "QPushButton { background-color: #1976d2; color: white; "
+            "font-weight: bold; border: 1px solid #0d47a1; "
+            "border-radius: 6px; padding: 8px 14px; }"
+            "QPushButton:hover { background-color: #0d47a1; }"
+        )
+        # Los dos últimos quedan con el estilo del tema.
+
+        self.btn_welcome_create.clicked.connect(self._welcome_create_vm)
+        self.btn_welcome_import.clicked.connect(self._welcome_import_vm)
+        self.btn_welcome_media.clicked.connect(self._welcome_open_media)
+        self.btn_welcome_help.clicked.connect(self._welcome_open_help)
+
+        _welcome_layout.addWidget(self.btn_welcome_create)
+        _welcome_layout.addWidget(self.btn_welcome_import)
+        _welcome_layout.addWidget(self.btn_welcome_media)
+        _welcome_layout.addWidget(self.btn_welcome_help)
+
+        _welcome_layout.addSpacing(8)
+
+        # Pie.
+        _foot = QLabel(self.tr(
+            "Atajo: Ctrl+N para crear una VM nueva."
+        ))
+        _foot.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        _foot.setStyleSheet("color: palette(mid); font-size: 10px;")
+        _welcome_layout.addWidget(_foot)
+
+        _welcome_layout.addStretch(1)
+
+        self._welcome_page = _page_welcome
+        self.vm_area_stack.addWidget(_page_welcome)
+        self.vm_area_stack.setCurrentIndex(0)
+
+        left_layout.addWidget(self.vm_area_stack, 1)
 
         self.vm_control_status = QLabel(self.tr("● Sin VM seleccionada"))
         self.vm_control_status.setStyleSheet("font-weight:bold; color:#757575; padding:4px;")
@@ -2821,7 +2994,78 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             pass
         self.main_tabs.setDocumentMode(True)
         self.main_tabs.addTab(details_page, self.tr("Resumen"))
-        self.main_tabs.addTab(config_scroll, self.tr("Configuración VM"))
+        # vm_config_save_cancel_v1_ui: barra superior fija con los
+        # botones de Guardar / Descartar y el indicador de cambios
+        # pendientes. La barra no hace scroll: el scroll solo
+        # envuelve el contenido de la pestaña (sidebar + páginas).
+        config_tab = QWidget()
+        config_tab_layout = QVBoxLayout(config_tab)
+        config_tab_layout.setContentsMargins(0, 0, 0, 0)
+        config_tab_layout.setSpacing(0)
+
+        config_bar = QWidget()
+        config_bar.setObjectName("configTabBar")
+        config_bar_layout = QHBoxLayout(config_bar)
+        config_bar_layout.setContentsMargins(12, 8, 12, 8)
+        config_bar_layout.setSpacing(10)
+
+        self.config_bar_label = QLabel(self.tr("Configuración VM"))
+        self.config_bar_label.setStyleSheet(
+            "font-weight: bold; font-size: 13px;"
+        )
+        config_bar_layout.addWidget(self.config_bar_label)
+
+        self.config_bar_dirty_label = QLabel("")
+        self.config_bar_dirty_label.setStyleSheet(
+            "color: #b36b00; font-weight: bold; font-size: 11px;"
+        )
+        self.config_bar_dirty_label.setVisible(False)
+        config_bar_layout.addWidget(self.config_bar_dirty_label)
+
+        config_bar_layout.addStretch(1)
+
+        self.btn_config_discard = QPushButton(
+            self.tr("\u21ba Descartar cambios")
+        )
+        self.btn_config_discard.setToolTip(self.tr(
+            "Recarga la configuración de la VM desde el disco,\n"
+            "descartando los cambios pendientes en la interfaz."
+        ))
+        self.btn_config_discard.setEnabled(False)
+        config_bar_layout.addWidget(self.btn_config_discard)
+
+        self.btn_config_save = QPushButton(
+            self.tr("\U0001f4be Guardar configuración")
+        )
+        self.btn_config_save.setToolTip(self.tr(
+            "Guarda en el disco los cambios pendientes de la\n"
+            "configuración de esta máquina virtual."
+        ))
+        self.btn_config_save.setEnabled(False)
+        self.btn_config_save.setStyleSheet(
+            "QPushButton { background-color: #2e7d32; color: white; "
+            "font-weight: bold; border: 1px solid #1b5e20; "
+            "border-radius: 6px; padding: 6px 12px; }"
+            "QPushButton:hover { background-color: #1b5e20; }"
+            "QPushButton:disabled { background-color: #bdbdbd; "
+            "color: #eeeeee; }"
+        )
+        config_bar_layout.addWidget(self.btn_config_save)
+
+        # vm_config_save_cancel_v1_actions: conectar los dos botones.
+        self.btn_config_save.clicked.connect(self._save_config_from_ui)
+        self.btn_config_discard.clicked.connect(self._discard_config_changes)
+
+        config_bar.setStyleSheet(
+            "QWidget#configTabBar { background: palette(window); "
+            "border-bottom: 1px solid palette(mid); }"
+        )
+        config_tab_layout.addWidget(config_bar)
+        config_tab_layout.addWidget(config_scroll, 1)
+
+        self.config_tab_container = config_tab
+
+        self.main_tabs.addTab(config_tab, self.tr("Configuración VM"))
 
         # split_vm_host_config_v1: nueva pestana "Configuracion Host".
         # Agrupa todo lo que toca al sistema anfitrion (no se guarda con
@@ -3581,6 +3825,52 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self._resumen_grid.addWidget(self._resources_panel, 1, 0)
         self._resumen_grid.addWidget(last_snap_box, 1, 1)
         self._resumen_grid.addWidget(suggestions_box, 2, 0, 1, 2)
+
+        # vm_history_v1 — E3a: sección compacta de historial de uso.
+        # Muestra 4 datos resumidos + botón para abrir el diálogo
+        # completo (que se implementa en E3b).
+        history_box = QGroupBox(self.tr("\U0001f4ca Historial de uso"))
+        history_layout = QVBoxLayout(history_box)
+        history_layout.setContentsMargins(10, 10, 10, 10)
+        history_layout.setSpacing(4)
+
+        self.history_total_label = QLabel("\u2014")
+        self.history_uptime_label = QLabel("\u2014")
+        self.history_last_label = QLabel("\u2014")
+        self.history_current_label = QLabel("\u2014")
+        for _lbl in (self.history_total_label,
+                     self.history_uptime_label,
+                     self.history_last_label,
+                     self.history_current_label):
+            _lbl.setTextFormat(Qt.TextFormat.RichText)
+            _lbl.setWordWrap(True)
+            _lbl.setStyleSheet("font-size: 11px;")
+
+        history_layout.addWidget(self.history_total_label)
+        history_layout.addWidget(self.history_uptime_label)
+        history_layout.addWidget(self.history_last_label)
+        history_layout.addWidget(self.history_current_label)
+
+        _hist_btn_row = QHBoxLayout()
+        self.btn_show_history = QPushButton(
+            self.tr("Ver historial completo")
+        )
+        self.btn_show_history.setToolTip(self.tr(
+            "Abre una tabla con todas las sesiones registradas de "
+            "esta VM: inicio, fin, duración y motivo del cierre."
+        ))
+        try:
+            self.btn_show_history.clicked.connect(
+                self._show_history_dialog
+            )
+        except Exception:
+            pass
+        _hist_btn_row.addWidget(self.btn_show_history)
+        _hist_btn_row.addStretch(1)
+        history_layout.addLayout(_hist_btn_row)
+
+        self._resumen_grid.addWidget(history_box, 3, 0, 1, 2)
+        self._history_card = history_box
         self._resumen_grid.setColumnStretch(0, 1)
         self._resumen_grid.setColumnStretch(1, 1)
 
@@ -3684,9 +3974,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             try:
                 splitter.setSizes([int(x) for x in saved])
             except (TypeError, ValueError):
-                splitter.setSizes([210, 600, 300])
+                splitter.setSizes([310, 500, 300])  # welcome_panel_310_v1
         else:
-            splitter.setSizes([210, 600, 300])
+            splitter.setSizes([310, 500, 300])  # welcome_panel_310_v1
 
         def _on_splitter_moved(_pos, _index):
             # Guardar tamaños en la clave correspondiente al estado
@@ -3895,6 +4185,18 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             )
         self.refresh_vm_list()
         self._update_manager_details()
+        # vm_grid_view_v1: aplicar el modo de vista guardado
+        # (lista por defecto). Se hace tras refresh_vm_list()
+        # para que los items ya existan cuando se ajuste el
+        # sizeHint / iconSize según el modo.
+        try:
+            _mode0 = self._vm_view_mode()
+            self._apply_vm_view_mode(_mode0)
+        except Exception as _vm_view_err:
+            try:
+                print(f"[AVISO] vm_grid_view_v1: {_vm_view_err}")
+            except Exception:
+                pass
 
         # Aplicar el estado inicial del modo compatibilidad de snapshots
         # (deshabilitar VirGL/Venus si el flag está activo, ajustar el
@@ -3920,6 +4222,75 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # extra["autostart_on_launch"] = true.
         try:
             QTimer.singleShot(2000, self._auto_start_marked_vms)
+        except Exception:
+            pass
+
+        # config_tab_gating_v1: sincronizar la habilitación de la
+        # pestaña "Configuración VM" con el estado inicial. Sin VM
+        # ni modo creación, la pestaña queda deshabilitada.
+        try:
+            self._update_config_tab_gating()
+        except Exception:
+            pass
+
+        # vm_config_save_cancel_v1_dirty: conectar las señales
+        # del Grupo A al slot _on_config_dirty. Al cambiar
+        # cualquiera de estos widgets, se recalcula el estado
+        # "hay cambios pendientes" y se actualizan los botones.
+        try:
+            self._wire_config_dirty_signals()
+        except Exception as _wcd_err:
+            try:
+                print(f"[AVISO] No se pudieron conectar las señales "
+                      f"de dirty tracking: {_wcd_err}")
+            except Exception:
+                pass
+
+        # version_stack_index_v2: sincronizar el stack de versiones
+        # con el data del combo de plataforma. Al arrancar, la
+        # señal currentIndexChanged no se dispara (el combo ya
+        # tiene su primer item seleccionado cuando se conecta),
+        # así que hay que llamar a change_os_panel explícitamente.
+        # singleShot(0) para asegurar que el stack está construido.
+        try:
+            QTimer.singleShot(
+                0,
+                lambda: self.change_os_panel(
+                    self.combo_main_os.currentIndex()
+                ),
+            )
+        except Exception:
+            pass
+
+        # version_stack_index_v3: misma idea para el combo de
+        # versiones de la distro Linux. _refresh_lin_versions está
+        # conectado a currentIndexChanged de combo_main_os y de
+        # combo_lin_distro, pero al arrancar ya tienen su primer
+        # item seleccionado antes de que se conecten las señales.
+        # Por eso el combo queda vacío hasta que el usuario cambia
+        # de SO y vuelve a Linux.
+        try:
+            QTimer.singleShot(
+                0,
+                lambda: self._refresh_lin_versions()
+                if getattr(self, "combo_main_os", None)
+                and self.combo_main_os.currentData() == "linux"
+                and hasattr(self, "_refresh_lin_versions")
+                else None,
+            )
+        except Exception:
+            pass
+
+        # macos_eula_order_fix_v1: defensa en profundidad. Si por
+        # cualquier motivo (config antigua, orden cambiado en el
+        # futuro, un usuario que dejó macOS preseleccionado) el
+        # combo arranca en macOS, disparamos el aviso breve una
+        # vez que la UI está construida. Con el nuevo orden no
+        # debería ocurrir, pero no cuesta nada cubrirlo.
+        try:
+            QTimer.singleShot(
+                300, self._maybe_show_macos_create_notice
+            )
         except Exception:
             pass
 
@@ -4010,6 +4381,43 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
                 pass
 
     def closeEvent(self, event):
+        # vm_config_save_cancel_v1_actions: aviso de cambios pendientes.
+        try:
+            if (getattr(self, "current_vm_dir", None)
+                    and getattr(self, "_has_pending_changes", None)
+                    and self._has_pending_changes()):
+                _vm_name = os.path.basename(self.current_vm_dir)
+                _box = QMessageBox(self)
+                _box.setWindowTitle(self.tr("Cambios sin guardar"))
+                _box.setIcon(QMessageBox.Icon.Question)
+                _box.setTextFormat(Qt.TextFormat.RichText)
+                _box.setText(self.tr(
+                    "La VM <b>{0}</b> tiene cambios sin guardar."
+                ).format(_vm_name))
+                _btn_save = _box.addButton(
+                    self.tr("💾 Guardar y salir"),
+                    QMessageBox.ButtonRole.AcceptRole,
+                )
+                _btn_discard = _box.addButton(
+                    self.tr("↺ Descartar y salir"),
+                    QMessageBox.ButtonRole.DestructiveRole,
+                )
+                _btn_cancel = _box.addButton(
+                    self.tr("Cancelar"),
+                    QMessageBox.ButtonRole.RejectRole,
+                )
+                _box.setDefaultButton(_btn_save)
+                _box.exec()
+                _clicked = _box.clickedButton()
+                if _clicked is _btn_cancel:
+                    event.ignore()
+                    return
+                if _clicked is _btn_save:
+                    if not self._save_config_from_ui():
+                        event.ignore()
+                        return
+        except Exception:
+            pass
         # Garantiza que el teclado X11 quede libre aunque el cierre se
         # produzca por la X de la ventana y no por QApplication.quit().
         try:
@@ -4104,3 +4512,7 @@ if __name__ == "__main__":
 
 
 # media_library_host_mount_v1_closeEvent
+
+# vm_config_save_cancel_v1_dirty_2b1
+
+# vm_config_save_cancel_v1_actions

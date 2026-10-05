@@ -46,10 +46,15 @@ class SnapshotCompatMixin:
     # Slot del checkbox
     # ------------------------------------------------------------------
     def _on_snapshot_compat_toggled(self, checked):
-        """Guarda el flag y reaplica toda la UI afectada."""
-        if getattr(self, "current_vm_dir", None) and hasattr(self, "_save_hardware_lists"):
+        """Marca el flag como pendiente y reaplica toda la UI afectada."""
+        # vm_config_save_cancel_v1_dirty_2b1: no persistir aquí.
+        # snapshot_compat forma parte del Grupo A; se guarda al pulsar
+        # "💾 Guardar configuración". El flag solo se lee al arrancar
+        # la VM, así que no hay consumidores en caliente que dependan
+        # de que esté persistido durante la edición.
+        if getattr(self, "current_vm_dir", None):
             try:
-                self._save_hardware_lists()
+                self._on_config_dirty()
             except Exception:
                 pass
         self._apply_snapshot_compat_ui()
@@ -273,3 +278,5 @@ class SnapshotCompatMixin:
                 "en Pantalla y Passthrough."
             )
         self._apply_snapshot_compat_ui()
+
+# vm_config_save_cancel_v1_dirty_2b1

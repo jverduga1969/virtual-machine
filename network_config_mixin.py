@@ -74,7 +74,7 @@ class NetworkConfigMixin:
         dlg=NetworkDeviceDialog(self, {"name":f"Red {self.network_devices_list.count()+1}","model":"virtio-net-pci","mode":"nat"})
         if dlg.exec()==QDialog.DialogCode.Accepted:
             self.network_devices_list.addItem(QListWidgetItem())
-            item=self.network_devices_list.item(self.network_devices_list.count()-1); val=dlg.values(); item.setData(Qt.ItemDataRole.UserRole,val); self._render_network_item(item,val); self._update_vm_summary(); self._save_hardware_lists() if self.current_vm_dir else None; self._save_hardware_lists() if self.current_vm_dir else None
+            item=self.network_devices_list.item(self.network_devices_list.count()-1); val=dlg.values(); item.setData(Qt.ItemDataRole.UserRole,val); self._render_network_item(item,val); self._update_vm_summary(); self._on_config_dirty() if self.current_vm_dir else None
 
     def _render_network_item(self,item,d):
         mode={"nat":"NAT","bridge":"Bridge","tap":"TAP"}.get(d.get("mode"),d.get("mode","NAT"))
@@ -91,11 +91,13 @@ class NetworkConfigMixin:
         if not item: return
         dlg=NetworkDeviceDialog(self,item.data(Qt.ItemDataRole.UserRole) or {})
         if dlg.exec()==QDialog.DialogCode.Accepted:
-            val=dlg.values(); item.setData(Qt.ItemDataRole.UserRole,val); self._render_network_item(item,val); self._update_vm_summary(); self._save_hardware_lists() if self.current_vm_dir else None
+            val=dlg.values(); item.setData(Qt.ItemDataRole.UserRole,val); self._render_network_item(item,val); self._update_vm_summary(); self._on_config_dirty() if self.current_vm_dir else None
 
     def remove_network_device(self):
         row=self.network_devices_list.currentRow()
         if row>=0:
-            self.network_devices_list.takeItem(row); self._update_vm_summary(); self._save_hardware_lists() if self.current_vm_dir else None
+            self.network_devices_list.takeItem(row); self._update_vm_summary(); self._on_config_dirty() if self.current_vm_dir else None
         if self.network_devices_list.count()==0: self.refresh_network_devices_ui()
 
+
+# vm_config_save_cancel_v1_dirty_2b1

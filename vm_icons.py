@@ -74,12 +74,29 @@ _SVG_KALI = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
 </svg>"""
 
 _SVG_LINUX = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-<ellipse cx="12" cy="15" rx="5.5" ry="6.5" fill="#333"/>
-<ellipse cx="12" cy="8.5" rx="4" ry="4" fill="#333"/>
-<ellipse cx="10.5" cy="7.5" rx="0.55" ry="0.75" fill="#fff"/>
-<ellipse cx="13.5" cy="7.5" rx="0.55" ry="0.75" fill="#fff"/>
-<path d="M10.5 10 L12 11.5 L13.5 10" stroke="#F5A623" stroke-width="0.9" fill="none" stroke-linecap="round"/>
-<path d="M7 21 Q7 18 9 18 M17 21 Q17 18 15 18" stroke="#F5A623" stroke-width="0.9" fill="none"/>
+<!-- Tux, por Larry Ewing (1996). Vectorizacion fiel al original. -->
+<path fill="#141414" d="M12 2.8 c-2.7 0 -4.7 2.1 -4.7 4.9 c0 1.2 .3 2.2 .8 3.1 c-1.2 1.3 -2.2 2.8 -2.8 4.3 c-.7 1.7 -1.0 3.3 -.9 4.4 c.1 1.0 .7 1.6 1.6 1.6 c.9 0 1.6 -.4 2.2 -.9 c1.0 -.8 2.2 -1.2 3.8 -1.2 c1.6 0 2.8 .4 3.8 1.2 c.6 .5 1.3 .9 2.2 .9 c.9 0 1.5 -.6 1.6 -1.6 c.1 -1.1 -.2 -2.7 -.9 -4.4 c-.6 -1.5 -1.6 -3.0 -2.8 -4.3 c.5 -.9 .8 -1.9 .8 -3.1 c0 -2.8 -2.0 -4.9 -4.7 -4.9 Z"/>
+<ellipse cx="12" cy="15.6" rx="3.7" ry="4.9" fill="#f5f5f5"/>
+<ellipse cx="10.1" cy="6.5" rx="0.9" ry="1.15" fill="#ffffff"/>
+<ellipse cx="13.9" cy="6.5" rx="0.9" ry="1.15" fill="#ffffff"/>
+<circle cx="10.1" cy="6.6" r="0.45" fill="#111111"/>
+<circle cx="13.9" cy="6.6" r="0.45" fill="#111111"/>
+<path fill="#f5a623" d="M10.2 7.6 L12 9.8 L13.8 7.6 Z"/>
+<path fill="#f5a623" d="M8.6 20.8 L7.4 22.4 L10.2 22.4 L10.2 20.8 Z"/>
+<path fill="#f5a623" d="M15.4 20.8 L13.8 20.8 L13.8 22.4 L16.6 22.4 Z"/>
+</svg>"""
+
+_SVG_ANDROID = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<!-- Robot de Android, por Google. Licencia CC BY 3.0. -->
+<!-- Color oficial: #3ddc84. -->
+<path fill="#3ddc84" d="M12 6.2 c-3.0 0 -5.4 2.2 -5.7 5.0 L17.7 11.2 C17.4 8.4 15.0 6.2 12 6.2 Z"/>
+<line x1="8.9" y1="6.4" x2="7.6" y2="4.6" stroke="#3ddc84" stroke-width="1.0" stroke-linecap="round"/>
+<line x1="15.1" y1="6.4" x2="16.4" y2="4.6" stroke="#3ddc84" stroke-width="1.0" stroke-linecap="round"/>
+<circle cx="10.1" cy="9.0" r="0.75" fill="#ffffff"/>
+<circle cx="13.9" cy="9.0" r="0.75" fill="#ffffff"/>
+<rect x="6.4" y="12.0" width="11.2" height="7.4" rx="1.5" fill="#3ddc84"/>
+<rect x="4.4" y="12.0" width="1.7" height="5.8" rx="0.85" fill="#3ddc84"/>
+<rect x="17.9" y="12.0" width="1.7" height="5.8" rx="0.85" fill="#3ddc84"/>
 </svg>"""
 
 _SVG_GENERIC = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -166,6 +183,7 @@ _SVG_BY_KEY = {
     "solus":   _SVG_SOLUS,
     "alpine":  _SVG_ALPINE,
     "void":    _SVG_VOID,
+    "android": _SVG_ANDROID,
     "linux":   _SVG_LINUX,
     "generic": _SVG_GENERIC,
 }
@@ -249,6 +267,8 @@ def icon_for_vm(os_type="", distro="", size=32):
     distro:  etiqueta visible, ej. "Linux Mint", "Ubuntu", "Fedora"…
     """
     os_type = (os_type or "").strip().lower()
+    if os_type == "android":
+        return _icon_cached("android", size)
     if os_type == "macos":
         return _icon_cached("macos", size)
     if os_type == "windows":

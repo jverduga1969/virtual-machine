@@ -15,11 +15,18 @@ import time
 import configparser
 from PyQt6.QtWidgets import (
     QMessageBox, QFileDialog, QInputDialog, QLineEdit,
-    QSizePolicy, QWidget, QDialog, QCheckBox,  # QDialog/QCheckBox: ovf_ova_io_v1
+    QSizePolicy, QWidget, QDialog, QCheckBox,
+    QTreeWidgetItem as _QTreeWidgetItemBase,  # vm_history_v1 E3b
 )
+# vm_config_save_cancel_v1_actions: Qt a nivel de módulo. Antes
+# cada función que lo necesitaba hacía 'from PyQt6.QtCore import
+# Qt as _Qt' local; eso funciona pero fragmenta el estilo y hace
+# fácil tropezar como pasó en on_vm_list_changed.
+from PyQt6.QtCore import Qt
 
 import vm_config
 import vm_paths  # portable_paths_v1
+from vm_grid_delegate import VmCardDelegate  # vm_grid_view_v2_card_fix1
 import ovf_io  # ovf_ova_io_v1
 from vm_config import load_vm_config, get_os_profile, list_existing_vms
 from host_deps import detect_host_graphics, qemu_graphics_capabilities
@@ -50,13 +57,18 @@ _VM_USER_ROLE = 256
 
 
 class _ExportOvfDialog(QDialog):
-    """Dialogo de exportacion OVF/OVA (marcador ovf_auto_compress_v1)."""
+    """Dialogo de exportacion OVF/OVA.
+
+    Marcador ovf_auto_compress_v1: compresion automatica QCOW2.
+    Marcador ovf_export_destino_v1: selector explicito de destino
+    (VMware / VirtualBox / Virtual.Machine).
+    """
 
     def __init__(self, parent, vm_name, is_macos):
         super().__init__(parent)
         self.setWindowTitle(self.tr("Exportar como OVF/OVA - {0}").format(vm_name))
         self.setModal(True)
-        self.resize(580, 460)
+        self.resize(620, 660)
 
         from PyQt6.QtCore import Qt as _Qt
         from PyQt6.QtWidgets import (
@@ -77,25 +89,65 @@ class _ExportOvfDialog(QDialog):
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        fmt_group = QGroupBox(self.tr("Formato del disco"))
-        fmt_lay = QVBoxLayout(fmt_group)
+        # --- Destino ---
+        dest_group = QGroupBox(self.tr("Destino de la exportación"))
+        dest_lay = QVBoxLayout(dest_group)
+
+        self.radio_dest_vmware = QRadioButton(
+            self.tr("VMware Workstation / ESXi")
+        )
+        self.radio_dest_vmware.setToolTip(self.tr(
+            "Emite un descriptor OVF con VirtualSystemType=vmx-14 y "
+            "disco VMDK stream-optimized. Es el único formato que "
+            "VMware acepta."
+        ))
+        dest_lay.addWidget(self.radio_dest_vmware)
+
+        self.radio_dest_vbox = QRadioButton(self.tr("VirtualBox"))
+        self.radio_dest_vbox.setChecked(True)
+        self.radio_dest_vbox.setToolTip(self.tr(
+            "Descriptor orientado a VirtualBox. Elige abajo el formato "
+            "de disco: QCOW2 (recomendado) o VMDK."
+        ))
+        dest_lay.addWidget(self.radio_dest_vbox)
+
+        self.radio_dest_vm = QRadioButton(
+            self.tr("Virtual.Machine (QEMU/KVM en Linux)")
+        )
+        self.radio_dest_vm.setToolTip(self.tr(
+            "Descriptor optimizado para reimportar en esta misma app "
+            "u otro host Linux con QEMU/KVM. Disco QCOW2 aplanado y "
+            "comprimido."
+        ))
+        dest_lay.addWidget(self.radio_dest_vm)
+
+        self._dest_group = QButtonGroup(self)
+        self._dest_group.addButton(self.radio_dest_vmware)
+        self._dest_group.addButton(self.radio_dest_vbox)
+        self._dest_group.addButton(self.radio_dest_vm)
+
+        layout.addWidget(dest_group)
+
+        # --- Formato del disco (solo relevante para VirtualBox) ---
+        self.fmt_group = QGroupBox(self.tr("Formato del disco"))
+        fmt_lay = QVBoxLayout(self.fmt_group)
 
         self.radio_qcow2 = QRadioButton(
-            self.tr("QCOW2 (recomendado) - instantaneo y comprimido")
+            self.tr("QCOW2 (recomendado) - instantáneo y comprimido")
         )
         self.radio_qcow2.setChecked(True)
         self.radio_qcow2.setToolTip(self.tr(
             "El disco se aplana (descartando snapshots internos) y se "
-            "comprime con zlib. Ideal para reimportar en esta misma app."
+            "comprime con zlib."
         ))
         fmt_lay.addWidget(self.radio_qcow2)
 
         self.radio_vmdk = QRadioButton(
-            self.tr("VMDK stream-optimized - maxima compatibilidad con VirtualBox/VMware")
+            self.tr("VMDK stream-optimized")
         )
         self.radio_vmdk.setToolTip(self.tr(
-            "Requiere conversion previa con qemu-img. Tarda mas y necesita "
-            "espacio temporal. VMDK stream-optimized ya descarta snapshots."
+            "Requiere conversión previa con qemu-img. VMDK "
+            "stream-optimized ya descarta snapshots por diseño."
         ))
         fmt_lay.addWidget(self.radio_vmdk)
 
@@ -103,24 +155,26 @@ class _ExportOvfDialog(QDialog):
         self._fmt_group.addButton(self.radio_qcow2)
         self._fmt_group.addButton(self.radio_vmdk)
 
-        layout.addWidget(fmt_group)
+        layout.addWidget(self.fmt_group)
 
-        self.lbl_compression_info = QLabel("")
-        self.lbl_compression_info.setTextFormat(_Qt.TextFormat.RichText)
-        self.lbl_compression_info.setWordWrap(True)
-        self.lbl_compression_info.setStyleSheet(
+        # --- Aviso contextual ---
+        self.lbl_destino_info = QLabel("")
+        self.lbl_destino_info.setTextFormat(_Qt.TextFormat.RichText)
+        self.lbl_destino_info.setWordWrap(True)
+        self.lbl_destino_info.setStyleSheet(
             "color: #0d3c7a; background: #e3f2fd; "
             "border: 1px solid #90caf9; border-radius: 6px; "
             "padding: 8px; font-size: 11px;"
         )
-        layout.addWidget(self.lbl_compression_info)
+        layout.addWidget(self.lbl_destino_info)
 
+        # --- Opciones adicionales ---
         opt_group = QGroupBox(self.tr("Opciones adicionales"))
         opt_lay = QVBoxLayout(opt_group)
 
         if self._is_macos:
             self.chk_iso = QCheckBox(
-                self.tr("Incluir medio de instalacion (BaseSystem.img)")
+                self.tr("Incluir medio de instalación (BaseSystem.img)")
             )
         else:
             self.chk_iso = QCheckBox(self.tr("Incluir archivos ISO en el OVA"))
@@ -128,9 +182,13 @@ class _ExportOvfDialog(QDialog):
         opt_lay.addWidget(self.chk_iso)
         layout.addWidget(opt_group)
 
+        # Conexiones
+        self.radio_dest_vmware.toggled.connect(self._on_dest_changed)
+        self.radio_dest_vbox.toggled.connect(self._on_dest_changed)
+        self.radio_dest_vm.toggled.connect(self._on_dest_changed)
         self.radio_qcow2.toggled.connect(self._on_fmt_changed)
         self.radio_vmdk.toggled.connect(self._on_fmt_changed)
-        self._on_fmt_changed()
+        self._on_dest_changed()
 
         layout.addStretch(1)
 
@@ -145,23 +203,86 @@ class _ExportOvfDialog(QDialog):
         btns.addWidget(ok)
         layout.addLayout(btns)
 
+    def _destino(self):
+        if self.radio_dest_vmware.isChecked():
+            return "vmware"
+        if self.radio_dest_vm.isChecked():
+            return "virtmachine"
+        return "virtualbox"
+
+    def _on_dest_changed(self, *_):
+        """Habilita o deshabilita el combo de formato segun el destino y
+        actualiza el texto del aviso contextual.
+        """
+        destino = self._destino()
+
+        if destino == "vmware":
+            self.radio_vmdk.setChecked(True)
+            self.radio_vmdk.setEnabled(False)
+            self.radio_qcow2.setEnabled(False)
+            self.fmt_group.setEnabled(False)
+            info_text = self.tr(
+                "Se emitirá un descriptor OVF con "
+                "<b>VirtualSystemType=vmx-14</b>, disco "
+                "<b>VMDK stream-optimized</b> y NIC E1000. "
+                "Es el formato que VMware acepta."
+            )
+            if self._is_macos:
+                info_text += self.tr(
+                    "<br><br><b>⚠ macOS:</b> la VM resultante en VMware "
+                    "<b>no arrancará macOS</b>. La cadena OpenCore+OSX-KVM "
+                    "no es compatible con VMware. Este OVA sirve para "
+                    "reimportar en Virtual.Machine u otro Linux con QEMU, "
+                    "no para migrar a VMware."
+                )
+        elif destino == "virtmachine":
+            self.radio_qcow2.setChecked(True)
+            self.radio_qcow2.setEnabled(False)
+            self.radio_vmdk.setEnabled(False)
+            self.fmt_group.setEnabled(False)
+            info_text = self.tr(
+                "Descriptor orientado a <b>QEMU/KVM</b>. Disco "
+                "<b>QCOW2 aplanado y comprimido con zlib</b> "
+                "(descarta snapshots internos). Es el formato ideal "
+                "para reimportar en esta misma app u otro host Linux."
+            )
+        else:  # virtualbox
+            self.radio_qcow2.setEnabled(True)
+            self.radio_vmdk.setEnabled(True)
+            self.fmt_group.setEnabled(True)
+            if self.radio_vmdk.isChecked():
+                info_text = self.tr(
+                    "Destino <b>VirtualBox</b>. Disco "
+                    "<b>VMDK stream-optimized</b>: descarta snapshots "
+                    "internos por diseño."
+                )
+            else:
+                info_text = self.tr(
+                    "Destino <b>VirtualBox</b>. Disco <b>QCOW2 "
+                    "aplanado y comprimido</b>: se descartan los "
+                    "snapshots internos y se aplica compresión zlib "
+                    "(reduce el OVA entre un 40% y un 60%)."
+                )
+        self.lbl_destino_info.setText(info_text)
+
     def _on_fmt_changed(self, *_):
-        if self.radio_vmdk.isChecked():
-            self.lbl_compression_info.setText(self.tr(
-                "El disco se convertira a <b>VMDK stream-optimized</b>. "
-                "Este formato ya descarta los snapshots internos."
-            ))
-        else:
-            self.lbl_compression_info.setText(self.tr(
-                "Los discos QCOW2 se <b>aplanan y comprimen</b> "
-                "automaticamente al exportar: se descartan los snapshots "
-                "internos y se aplica compresion zlib. Reduce el OVA "
-                "entre un 40% y un 60%."
-            ))
+        """Redibuja el aviso contextual al cambiar el formato de disco
+        (solo relevante en destino VirtualBox).
+        """
+        if self._destino() == "virtualbox":
+            self._on_dest_changed()
 
     def _accept(self):
+        destino = self._destino()
+        if destino == "vmware":
+            to_vmdk = True
+        elif destino == "virtmachine":
+            to_vmdk = False
+        else:
+            to_vmdk = bool(self.radio_vmdk.isChecked())
         self._result = {
-            "to_vmdk": bool(self.radio_vmdk.isChecked()),
+            "destino": destino,
+            "to_vmdk": to_vmdk,
             "include_iso": bool(self.chk_iso.isChecked()),
         }
         self.accept()
@@ -350,7 +471,1309 @@ class _OvfImportPreviewDialog(QDialog):
         return self._result
 
 
+# vm_history_v1 — E3b: item de árbol para el diálogo de historial.
+# Sobrescribe __lt__ para que QTreeWidget ordene por el valor guardado
+# en Qt.UserRole de la columna activa, en vez de por el texto mostrado
+# ("2 min 12 s" no ordena como 212; una fecha formateada no ordena
+# como ISO). Sin esta clase, ordenar por "Duración" daría un orden
+# alfabético sin sentido.
+class _HistoryTreeItem(_QTreeWidgetItemBase):
+    def __lt__(self, other):
+        try:
+            tw = self.treeWidget()
+            col = tw.sortColumn() if tw is not None else 0
+        except Exception:
+            col = 0
+        try:
+            from PyQt6.QtCore import Qt as _Qt2
+            role = _Qt2.ItemDataRole.UserRole
+        except Exception:
+            role = 256  # Qt.ItemDataRole.UserRole
+        a = self.data(col, role)
+        b = (other.data(col, role) if other is not None else None)
+        try:
+            if a is None:
+                return True
+            if b is None:
+                return False
+            return a < b
+        except Exception:
+            try:
+                return str(a) < str(b)
+            except Exception:
+                return False
+
+
 class VmLifecycleMixin:
+    # ==================================================================
+    # Sistema de "cambios pendientes" (vm_config_save_cancel_v1_dirty)
+    # ==================================================================
+    # La pestaña "Configuración VM" muestra dos botones:
+    #   💾 Guardar configuración  — persiste los cambios.
+    #   ↺ Descartar cambios       — recarga desde el .ini.
+    #
+    # Solo el "Grupo A" de widgets entra en este modelo:
+    #   nombre, plataforma (solo creación), versión de SO, RAM,
+    #   núcleos, CPU model, chipset, firmware, secure boot, TPM,
+    #   gráficos, VRAM, audio, auto-inicio, snapshot_compat, red,
+    #   passthrough, orden de arranque, notas, grupo/color,
+    #   guest agent, clipboard.
+    #
+    # El "Grupo B" sigue auto-guardándose:
+    #   discos, CD/DVD, disquetes (crear/modificar/eliminar),
+    #   puntero, serial a archivo.
+
+    def _collect_config_from_ui(self):
+        """Devuelve un dict con los valores del Grupo A que hay en
+        los widgets ahora mismo. NO toca el .ini.
+
+        Solo incluye los campos que tienen widget asociado, para
+        evitar falsos positivos por campos que no son editables
+        (disk_size, disk_type, etc.).
+        """
+        out = {}
+        try:
+            out["name"] = (self.input_vm_name.text() or "").strip()
+        except Exception:
+            out["name"] = ""
+        # Plataforma: solo cuenta en modo creación.
+        try:
+            out["_os_type"] = self.combo_main_os.currentData() or ""
+        except Exception:
+            out["_os_type"] = ""
+        # Versión de SO (según plataforma).
+        try:
+            _os = out.get("_os_type") or ""
+            if _os == "macos":
+                out["_os_ver"] = self.combo_macos_ver.currentText()
+            elif _os == "windows":
+                out["_os_ver"] = self.combo_win_ver.currentText()
+            elif _os == "linux":
+                out["_os_ver"] = self.combo_lin_distro.currentText()
+                try:
+                    out["_iso_choice"] = self._selected_lin_version()
+                except Exception:
+                    out["_iso_choice"] = ""
+            else:
+                out["_os_ver"] = ""
+        except Exception:
+            out["_os_ver"] = ""
+        # RAM, núcleos, CPU.
+        try:
+            out["ram"] = f"{self.slider_ram.value()}G"
+        except Exception:
+            out["ram"] = ""
+        try:
+            out["cores"] = str(self.slider_cores.value())
+        except Exception:
+            out["cores"] = ""
+        try:
+            out["cpu_model"] = self.combo_cpu_model.currentData() or "auto"
+        except Exception:
+            out["cpu_model"] = "auto"
+        # Chipset, firmware.
+        try:
+            out["chipset"] = self.combo_chipset.currentData() or "pc"
+        except Exception:
+            out["chipset"] = "pc"
+        try:
+            out["firmware"] = self.combo_firmware.currentData() or "bios"
+        except Exception:
+            out["firmware"] = "bios"
+        # Secure Boot, TPM.
+        try:
+            out["secure_boot"] = bool(self.check_secure_boot.isChecked())
+        except Exception:
+            out["secure_boot"] = False
+        try:
+            out["tpm"] = bool(self.check_tpm.isChecked())
+        except Exception:
+            out["tpm"] = False
+        # Gráficos.
+        try:
+            out["graphics_mode"] = self.combo_graphics.currentData() or "auto"
+        except Exception:
+            out["graphics_mode"] = "auto"
+        try:
+            out["graphics_vram"] = self.combo_graphics_vram.currentData() or "256M"
+        except Exception:
+            out["graphics_vram"] = "256M"
+        # Audio.
+        try:
+            out["audio_device"] = self.combo_audio.currentData() or "intel-hda"
+        except Exception:
+            out["audio_device"] = "intel-hda"
+        # Auto-inicio, snapshot_compat.
+        try:
+            out["autostart_on_launch"] = bool(
+                self.check_autostart_on_launch.isChecked())
+        except Exception:
+            out["autostart_on_launch"] = False
+        try:
+            out["snapshot_compat"] = bool(
+                self.check_snapshot_compat.isChecked())
+        except Exception:
+            out["snapshot_compat"] = False
+        # vm_config_save_cancel_v1_dirty_2b1: red y passthrough.
+        try:
+            out["network_devices"] = json.loads(json.dumps(
+                self._network_devices() or []))
+        except Exception:
+            out["network_devices"] = []
+        try:
+            out["no_network"] = bool(self.check_no_network.isChecked())
+        except Exception:
+            out["no_network"] = False
+        try:
+            out["passthrough_devices"] = json.loads(json.dumps(
+                getattr(self, "_passthrough_saved", []) or []))
+        except Exception:
+            out["passthrough_devices"] = []
+        try:
+            out["boot_order"] = list(self._current_boot_order_tokens())
+        except Exception:
+            out["boot_order"] = []
+        return out
+
+    def _load_config_comparable(self, vm_dir):
+        """Carga la parte COMPARABLE del .ini (mismos campos que
+        _collect_config_from_ui). Devuelve un dict homogéneo."""
+        if not vm_dir:
+            return {}
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+        except Exception:
+            return {}
+        extra = data.get("extra") or {}
+        os_type = data.get("os_type") or ""
+        os_ver = ""
+        if os_type == "macos":
+            os_ver = extra.get("os_choice", "")
+            # El .ini guarda el id ("1", "2", …), pero el combo
+            # muestra el texto ("High Sierra (10.13)", …). Es un
+            # mismatch estructural: comparamos por texto del combo
+            # contra un texto derivado, no por id.
+            try:
+                for _name, _val in self.os_options:
+                    if _val == os_ver:
+                        os_ver = _name
+                        break
+            except Exception:
+                pass
+        elif os_type == "windows":
+            os_ver = extra.get("win_ver", "Windows 11")
+        elif os_type == "linux":
+            os_ver = extra.get("distro", "")
+        out = {
+            "name": data.get("name", ""),
+            "_os_type": os_type,
+            "_os_ver": os_ver,
+            "ram": data.get("ram", ""),
+            "cores": str(data.get("cores", "")),
+            "cpu_model": extra.get("cpu_model", "auto"),
+            "chipset": data.get("chipset", "pc"),
+            "firmware": data.get("firmware", "bios"),
+            "secure_boot": bool(data.get("secure_boot", False)),
+            "tpm": bool(data.get("tpm", False)),
+            "graphics_mode": data.get("graphics_mode", "auto"),
+            "graphics_vram": data.get("graphics_vram", "256M"),
+            "audio_device": data.get("audio_device", "intel-hda"),
+            "autostart_on_launch": bool(
+                extra.get("autostart_on_launch", False)),
+            "snapshot_compat": bool(extra.get("snapshot_compat", False)),
+        }
+        # vm_config_save_cancel_v1_dirty_2b1: red y passthrough.
+        try:
+            out["network_devices"] = data.get("network_devices") or []
+        except Exception:
+            out["network_devices"] = []
+        try:
+            out["no_network"] = (not out["network_devices"])
+        except Exception:
+            out["no_network"] = False
+        try:
+            out["passthrough_devices"] = (data.get("passthrough_devices") or [])
+        except Exception:
+            out["passthrough_devices"] = []
+        try:
+            out["boot_order"] = list(data.get("boot_order") or [])
+        except Exception:
+            out["boot_order"] = []
+        # El ISO choice no lo comparamos (es dinámico y ruidoso).
+        return out
+
+    def _has_pending_changes(self):
+        """True si hay cambios sin guardar en el Grupo A.
+
+        Modo creación (no hay current_vm_dir + _new_vm_mode):
+        devuelve True en cuanto hay nombre, para que el botón
+        Guardar se active y _create_from_form() pueda ejecutarse.
+
+        Modo edición: compara el formulario contra el .ini.
+        """
+        # vm_config_save_cancel_v1_create_from_form_gating:
+        # en modo creación el botón Guardar se activa en cuanto el
+        # usuario escribe un nombre. Sin esto, el botón quedaba
+        # deshabilitado y _create_from_form() nunca se invocaba.
+        if not getattr(self, "current_vm_dir", None):
+            if getattr(self, "_new_vm_mode", False):
+                try:
+                    return bool((self.input_vm_name.text() or "").strip())
+                except Exception:
+                    return False
+            return False
+        try:
+            ui = self._collect_config_from_ui()
+            ini = self._load_config_comparable(self.current_vm_dir)
+        except Exception:
+            return False
+        # Comparar campo por campo, ignorando los que no coinciden
+        # por razones estructurales (por ejemplo, _os_ver con valores
+        # por defecto distintos entre UI y .ini).
+        for k in ("name", "ram", "cores", "cpu_model", "chipset",
+                  "firmware", "secure_boot", "tpm",
+                  "graphics_mode", "graphics_vram", "audio_device",
+                  "autostart_on_launch", "snapshot_compat",
+                  # vm_config_save_cancel_v1_dirty_2b1:
+                  "network_devices", "no_network",
+                  "passthrough_devices", "boot_order"):
+            a = ui.get(k)
+            b = ini.get(k)
+            # Normalizar ram por si "8G" vs "8G" o "8192M".
+            if k == "ram":
+                a = self._normalize_ram(a)
+                b = self._normalize_ram(b)
+            if a != b:
+                return True
+        return False
+
+    @staticmethod
+    def _normalize_ram(v):
+        """Normaliza '8G' / '8G' / '8192M' a un entero de GB."""
+        if not v:
+            return 0
+        s = str(v).strip().upper()
+        try:
+            if s.endswith("G"):
+                return int(float(s[:-1]))
+            if s.endswith("M"):
+                return int(float(s[:-1]) / 1024)
+        except Exception:
+            return 0
+        try:
+            return int(s)
+        except Exception:
+            return 0
+
+    def _update_config_dirty_state(self):
+        """Actualiza la UI (botones, indicador, asterisco) según el
+        estado actual de cambios pendientes.
+
+        Modo creación (_new_vm_mode):
+          • Guardar → habilitado si _has_pending_changes() (nombre).
+          • Descartar → habilitado siempre (equivale a limpiar el
+            formulario llamando a new_vm()).
+        Modo edición: ambos dependen de _has_pending_changes().
+        """
+        if not hasattr(self, "btn_config_save"):
+            return
+        try:
+            dirty = self._has_pending_changes()
+        except Exception:
+            dirty = False
+        # vm_config_save_cancel_v1_create_from_form_gating:
+        # en modo creación el botón Descartar siempre está
+        # disponible, aunque no haya nombre escrito, para que el
+        # usuario pueda resetear el formulario sin tener que
+        # seleccionar otra VM.
+        new_mode = bool(getattr(self, "_new_vm_mode", False))
+        try:
+            self.btn_config_save.setEnabled(dirty)
+        except Exception:
+            pass
+        try:
+            self.btn_config_discard.setEnabled(dirty or new_mode)
+        except Exception:
+            pass
+        try:
+            self.config_bar_dirty_label.setText(
+                self.tr("\u25cf cambios sin guardar") if dirty else ""
+            )
+            self.config_bar_dirty_label.setVisible(dirty)
+        except Exception:
+            pass
+        # Asterisco en el título de la pestaña (índice 1).
+        try:
+            if hasattr(self, "main_tabs") and self.main_tabs.count() > 1:
+                base = self.tr("Configuración VM")
+                self.main_tabs.setTabText(
+                    1, base + (" *" if dirty else "")
+                )
+        except Exception:
+            pass
+
+    def _wire_config_dirty_signals(self):
+        """Conecta las señales de los widgets del Grupo A a
+        _on_config_dirty. Idempotente: si ya están conectadas,
+        PyQt permite duplicar; para evitarlo, se hace solo una vez
+        (flag en self).
+        """
+        if getattr(self, "_dirty_signals_wired", False):
+            return
+        self._dirty_signals_wired = True
+        slot = self._on_config_dirty
+        pairs = [
+            ("input_vm_name", "textChanged"),
+            ("slider_ram", "valueChanged"),
+            ("slider_cores", "valueChanged"),
+            ("combo_cpu_model", "currentIndexChanged"),
+            ("combo_chipset", "currentIndexChanged"),
+            ("combo_firmware", "currentIndexChanged"),
+            ("check_secure_boot", "stateChanged"),
+            ("check_tpm", "stateChanged"),
+            ("combo_graphics", "currentIndexChanged"),
+            ("combo_graphics_vram", "currentIndexChanged"),
+            ("combo_audio", "currentIndexChanged"),
+            ("combo_macos_ver", "currentIndexChanged"),
+            ("combo_win_ver", "currentIndexChanged"),
+            ("combo_lin_distro", "currentIndexChanged"),
+            ("combo_lin_version", "currentIndexChanged"),
+            ("check_autostart_on_launch", "stateChanged"),
+            ("check_snapshot_compat", "stateChanged"),
+        ]
+        for attr, sig in pairs:
+            w = getattr(self, attr, None)
+            if w is None:
+                continue
+            try:
+                getattr(w, sig).connect(slot)
+            except Exception:
+                pass
+
+    def _on_config_dirty(self, *_args):
+        """Slot que se conecta a las señales de los widgets del Grupo A.
+
+        No guarda nada: solo recalcula si hay cambios pendientes y
+        actualiza la UI.
+        """
+        try:
+            self._update_config_dirty_state()
+        except Exception:
+            pass
+
+    # ==================================================================
+    # Persistencia real: Guardar / Descartar (marcador
+    # vm_config_save_cancel_v1_actions)
+    # ==================================================================
+
+    # ==================================================================
+    # Crear VM desde el formulario (marcador
+    # vm_config_save_cancel_v1_create_from_form)
+    # ==================================================================
+    # Este método es el que se ejecuta cuando el usuario está en modo
+    # "Nueva VM" (sin current_vm_dir) y pulsa "💾 Guardar configuración".
+    #
+    # Flujo:
+    #   1. Leer los widgets del formulario (_collect_config_from_ui).
+    #   2. Validar nombre (no vacío, saneado, no reservado, no duplicado).
+    #   3. Forzar coherencias por SO (macOS → uefi/q35; Win11 → uefi+sb+tpm;
+    #      Android → bios/q35).
+    #   4. Crear la carpeta de la VM.
+    #   5. Escribir vm_config.ini con save_vm_config().
+    #   6. Actualizar current_vm_dir, apagar _new_vm_mode, refrescar lista.
+    #
+    # Almacenamiento: NO se crea ningún disco. El usuario lo añade después
+    # desde Configuración → Almacenamiento (mismo camino que el workaround
+    # antiguo, pero ya sin necesitar el "truco" de tocar Almacenamiento).
+
+    _RESERVED_VM_NAMES = (".", "..", "Nueva Máquina Virtual", "_templates")
+
+    def _create_from_form(self):
+        """Crea una VM nueva a partir del formulario."""
+        # Si por alguna razón ya hay VM seleccionada, delegar.
+        if self.current_vm_dir:
+            return self._save_config_from_ui()
+
+        if not getattr(self, "_new_vm_mode", False):
+            QMessageBox.information(
+                self, self.tr("Guardar configuración"),
+                self.tr("No hay ninguna máquina virtual seleccionada."),
+            )
+            return False
+
+        try:
+            ui = self._collect_config_from_ui()
+        except Exception as e:
+            QMessageBox.warning(
+                self, self.tr("Guardar configuración"),
+                self.tr("No se pudieron leer los datos del formulario.\n\n{0}").format(e),
+            )
+            return False
+
+        # --- 1. Nombre ---
+        raw_name = (ui.get("name") or "").strip()
+        if not raw_name:
+            QMessageBox.warning(
+                self, self.tr("Guardar configuración"),
+                self.tr("El nombre de la máquina virtual no puede quedar vacío."),
+            )
+            return False
+
+        if raw_name in self._RESERVED_VM_NAMES:
+            QMessageBox.warning(
+                self, self.tr("Guardar configuración"),
+                self.tr("El nombre '{0}' está reservado. Elige otro.").format(raw_name),
+            )
+            return False
+
+        folder = vm_config.vm_folder_name(raw_name)
+
+        existing = set()
+        try:
+            existing = set(list_existing_vms())
+        except Exception:
+            pass
+        if folder in existing or os.path.exists(os.path.join(vm_config.BASE_VM_DIR, folder)):
+            QMessageBox.warning(
+                self, self.tr("Guardar configuración"),
+                self.tr("Ya existe una máquina virtual llamada '{0}'.\n\n"
+                        "Elige otro nombre.").format(folder),
+            )
+            return False
+
+        target_dir = os.path.join(vm_config.BASE_VM_DIR, folder)
+
+        # --- 2. OS + versión ---
+        os_type = ui.get("_os_type") or "linux"
+        os_ver = (ui.get("_os_ver") or "").strip()
+
+        # Forzar coherencias por SO (con aviso si corregimos algo).
+        firmware = ui.get("firmware") or "bios"
+        chipset = ui.get("chipset") or "pc"
+        secure_boot = bool(ui.get("secure_boot"))
+        tpm = bool(ui.get("tpm"))
+
+        def _force(field, want, current):
+            if current == want:
+                return current, False
+            return want, True
+
+        if os_type == "macos":
+            firmware, c1 = _force("firmware", "uefi", firmware)
+            chipset, c2 = _force("chipset", "q35", chipset)
+            if secure_boot:
+                secure_boot = False; c3 = True
+            else:
+                c3 = False
+            if tpm:
+                tpm = False; c4 = True
+            else:
+                c4 = False
+            if c1 or c2 or c3 or c4:
+                try:
+                    self.log_message(
+                        "==> macOS: ajustado firmware=uefi, chipset=q35, "
+                        "secure_boot=False, tpm=False (reglas de macOS)."
+                    )
+                except Exception:
+                    pass
+        elif os_type == "windows":
+            is_win11 = (os_ver == "Windows 11")
+            if is_win11:
+                firmware, c1 = _force("firmware", "uefi", firmware)
+                if not secure_boot:
+                    secure_boot = True; c2 = True
+                else:
+                    c2 = False
+                if not tpm:
+                    tpm = True; c3 = True
+                else:
+                    c3 = False
+                if c1 or c2 or c3:
+                    try:
+                        self.log_message(
+                            "==> Windows 11: ajustado firmware=uefi, "
+                            "secure_boot=True, tpm=True."
+                        )
+                    except Exception:
+                        pass
+        elif os_type == "android":
+            firmware, c1 = _force("firmware", "bios", firmware)
+            chipset, c2 = _force("chipset", "q35", chipset)
+            if secure_boot:
+                secure_boot = False; c3 = True
+            else:
+                c3 = False
+            if tpm:
+                tpm = False; c4 = True
+            else:
+                c4 = False
+            if c1 or c2 or c3 or c4:
+                try:
+                    self.log_message(
+                        "==> Android: ajustado firmware=bios, chipset=q35, "
+                        "secure_boot=False, tpm=False."
+                    )
+                except Exception:
+                    pass
+
+        # --- 3. Red por defecto si el formulario no trae ninguna ---
+        networks = ui.get("network_devices") or []
+        if not isinstance(networks, list) or not networks:
+            try:
+                _mac = self._new_qemu_mac()
+            except Exception:
+                _mac = ""
+            networks = [{
+                "name": "Red 1",
+                "model": "virtio-net-pci",
+                "mode": "nat",
+                "interface": "",
+                "mac": _mac,
+            }]
+            try:
+                self.log_message(
+                    "==> VM nueva: creado adaptador de red por defecto "
+                    "(NAT + virtio-net-pci)."
+                )
+            except Exception:
+                pass
+
+        # --- 4. Extra ---
+        # Mapear versión del formulario a la clave real que espera cada SO.
+        extra = {
+            "cpu_model": ui.get("cpu_model") or "auto",
+            "autostart_on_launch": bool(ui.get("autostart_on_launch", False)),
+            "snapshot_compat": bool(ui.get("snapshot_compat", False)),
+            "pointer_device": "auto",
+            "serial_to_file": False,
+            "storage_devices": [],
+            "cdrom_path": "",
+            "notes": "",
+            "group": "",
+            "color": "",
+        }
+
+        # Dispositivo de señalización: leer del combo si existe.
+        try:
+            _ptr = getattr(self, "combo_pointer", None)
+            if _ptr is not None:
+                extra["pointer_device"] = _ptr.currentData() or "auto"
+        except Exception:
+            pass
+
+        # Captura del puerto serie: leer del checkbox si existe.
+        try:
+            _ser = getattr(self, "check_serial_to_file", None)
+            if _ser is not None:
+                extra["serial_to_file"] = bool(_ser.isChecked())
+        except Exception:
+            pass
+
+        # Versión del SO a la clave correcta de extra.
+        if os_type == "macos":
+            # En macOS el .ini guarda el id ("1", "2", …), no el texto.
+            _mac_id = os_ver
+            try:
+                for _name, _val in self.os_options:
+                    if _name == os_ver:
+                        _mac_id = _val
+                        break
+            except Exception:
+                pass
+            extra["os_choice"] = _mac_id or os_ver or ""
+        elif os_type == "windows":
+            extra["win_ver"] = os_ver or "Windows 11"
+        elif os_type == "linux":
+            extra["distro"] = os_ver or ""
+            # La elección de ISO de Linux (si el usuario la había dejado
+            # fijada) se conserva como metadato, pero no persiste aquí
+            # como widget propio: la unidad CD/DVD "Principal" es la
+            # única fuente de verdad.
+        # android: sin clave de versión.
+
+        # --- 5. Crear carpeta ---
+        try:
+            os.makedirs(target_dir, exist_ok=False)
+        except FileExistsError:
+            QMessageBox.warning(
+                self, self.tr("Guardar configuración"),
+                self.tr("La carpeta destino ya existe:\n\n{0}").format(target_dir),
+            )
+            return False
+        except Exception as e:
+            QMessageBox.critical(
+                self, self.tr("Guardar configuración"),
+                self.tr("No se pudo crear la carpeta de la VM.\n\n{0}").format(e),
+            )
+            return False
+
+        # --- 6. Escribir vm_config.ini con rollback si algo falla ---
+        try:
+            vm_config.save_vm_config(
+                target_dir,
+                folder,
+                os_type,
+                ui.get("ram") or "4G",
+                int(ui.get("cores") or 2),
+                getattr(self, "disk_size_setting", "128G"),
+                getattr(self, "disk_type_setting", "dynamic"),
+                getattr(self, "disk_format_setting", "qcow2"),
+                getattr(self, "disk_ext_setting", "qcow2"),
+                extra,
+                firmware=firmware,
+                secure_boot=secure_boot,
+                tpm=tpm,
+                boot_device="cdrom",
+                network_model="virtio-net-pci",
+                audio_device=ui.get("audio_device") or "intel-hda",
+                network_mode="nat",
+                network_interface="",
+                network_count=1,
+                graphics_mode=ui.get("graphics_mode") or "auto",
+                graphics_vram=ui.get("graphics_vram") or "256M",
+                boot_order=["cdrom", "disk", "network"],
+                network_devices=networks,
+                passthrough_devices=ui.get("passthrough_devices") or [],
+                chipset=chipset,
+                log_func=self.log_message,
+            )
+        except Exception as e:
+            # Rollback: borrar la carpeta recién creada.
+            try:
+                shutil.rmtree(target_dir, ignore_errors=True)
+            except Exception:
+                pass
+            QMessageBox.critical(
+                self, self.tr("Guardar configuración"),
+                self.tr("No se pudo guardar la configuración de la VM.\n\n"
+                        "La carpeta creada se ha eliminado para no dejar "
+                        "datos a medias.\n\n{0}").format(e),
+            )
+            return False
+
+        # --- 7. Actualizar estado de la app ---
+        self.current_vm_dir = target_dir
+        self._new_vm_mode = False
+
+        if hasattr(self, "_invalidate_vm_config_cache"):
+            self._invalidate_vm_config_cache(target_dir)
+
+        try:
+            self.refresh_vm_list(select_name=folder)
+        except Exception:
+            pass
+        try:
+            self._update_manager_details()
+        except Exception:
+            pass
+        try:
+            self._update_config_dirty_state()
+        except Exception:
+            pass
+        try:
+            self._update_config_tab_gating()
+        except Exception:
+            pass
+
+        try:
+            self.log_message(
+                f"==> VM '{folder}' creada. Añade un disco en "
+                f"Configuración → Almacenamiento antes de arrancarla."
+            )
+        except Exception:
+            pass
+
+        QMessageBox.information(
+            self, self.tr("VM creada"),
+            self.tr("La máquina virtual '{0}' se ha creado correctamente.\n\n"
+                    "Antes de arrancarla, añade al menos un disco en "
+                    "Configuración → Almacenamiento y elige el medio de "
+                    "instalación en la unidad CD/DVD 'Principal'.").format(folder),
+        )
+        return True
+
+    def _save_config_from_ui(self):
+        """Persiste el Grupo A en vm_config.ini."""
+        if not self.current_vm_dir:
+            if getattr(self, "_new_vm_mode", False):
+                # vm_config_save_cancel_v1_create_from_form:
+                # en modo creación el botón Guardar crea la VM
+                # desde el formulario en vez de avisar de "no
+                # implementado".
+                return self._create_from_form()
+            QMessageBox.information(
+                self, self.tr("Guardar configuración"),
+                self.tr("No hay ninguna máquina virtual seleccionada."),
+            )
+            return False
+
+        try:
+            ui = self._collect_config_from_ui()
+        except Exception as e:
+            QMessageBox.warning(
+                self, self.tr("Guardar configuración"),
+                self.tr("No se pudieron leer los cambios de la interfaz.\n\n{0}").format(e),
+            )
+            return False
+
+        vm_dir = self.current_vm_dir
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+        except Exception as e:
+            QMessageBox.warning(
+                self, self.tr("Guardar configuración"),
+                self.tr("No se pudo leer la configuración actual.\n\n{0}").format(e),
+            )
+            return False
+
+        new_name = (ui.get("name") or "").strip()
+        if not new_name:
+            QMessageBox.warning(
+                self, self.tr("Guardar configuración"),
+                self.tr("El nombre de la máquina virtual no puede quedar vacío."),
+            )
+            return False
+
+        # --- Extra: partir del .ini y sobrescribir SOLO Grupo A ---
+        extra = dict(data.get("extra") or {})
+        if "cpu_model" in ui:
+            extra["cpu_model"] = ui["cpu_model"]
+        if "autostart_on_launch" in ui:
+            extra["autostart_on_launch"] = bool(ui["autostart_on_launch"])
+        if "snapshot_compat" in ui:
+            extra["snapshot_compat"] = bool(ui["snapshot_compat"])
+        try:
+            if data.get("os_type") == "macos" and ui.get("_os_ver"):
+                _want = ui["_os_ver"]
+                for _name, _val in self.os_options:
+                    if _name == _want:
+                        extra["os_choice"] = _val
+                        break
+            elif data.get("os_type") == "windows" and ui.get("_os_ver"):
+                extra["win_ver"] = ui["_os_ver"]
+        except Exception:
+            pass
+
+        # --- Llamar a save_vm_config ---
+        try:
+            import vm_config as _vc
+            _vc.save_vm_config(
+                vm_dir,
+                new_name,
+                data.get("os_type") or "linux",
+                ui.get("ram") or data.get("ram") or "4G",
+                int(ui.get("cores") or data.get("cores") or 2),
+                data.get("disk_size") or "128G",
+                data.get("disk_type") or "dynamic",
+                data.get("disk_format") or "qcow2",
+                data.get("disk_ext") or "qcow2",
+                extra,
+                firmware=ui.get("firmware") or data.get("firmware") or "bios",
+                secure_boot=bool(ui.get("secure_boot")),
+                tpm=bool(ui.get("tpm")),
+                boot_device=data.get("boot_device") or "cdrom",
+                network_model=data.get("network_model") or "virtio-net-pci",
+                audio_device=ui.get("audio_device") or data.get("audio_device") or "intel-hda",
+                network_mode=data.get("network_mode") or "nat",
+                network_interface=data.get("network_interface") or "",
+                network_count=int(data.get("network_count") or 1),
+                graphics_mode=ui.get("graphics_mode") or "auto",
+                graphics_vram=ui.get("graphics_vram") or "256M",
+                boot_order=data.get("boot_order") or ["cdrom", "disk", "network"],
+                network_devices=ui.get("network_devices") or data.get("network_devices") or [],
+                passthrough_devices=ui.get("passthrough_devices") or data.get("passthrough_devices") or [],
+                chipset=ui.get("chipset") or data.get("chipset") or "pc",
+                log_func=self.log_message,
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self, self.tr("Guardar configuración"),
+                self.tr("No se pudo guardar la configuración.\n\n{0}").format(e),
+            )
+            return False
+
+        if hasattr(self, "_invalidate_vm_config_cache"):
+            self._invalidate_vm_config_cache(vm_dir)
+
+        try:
+            self.refresh_vm_list(select_name=os.path.basename(vm_dir))
+        except Exception:
+            pass
+        try:
+            self._update_manager_details()
+        except Exception:
+            pass
+        try:
+            self._update_config_dirty_state()
+        except Exception:
+            pass
+
+        try:
+            self.log_message(f"==> Configuración guardada para '{new_name}'.")
+        except Exception:
+            pass
+        return True
+
+    def _discard_config_changes(self):
+        """Descarta los cambios pendientes recargando desde disco."""
+        if not self.current_vm_dir:
+            if getattr(self, "_new_vm_mode", False):
+                self.new_vm()
+            return
+        vm_name = os.path.basename(self.current_vm_dir)
+        try:
+            self.log_message(
+                f"==> Cambios descartados para '{vm_name}' (recargando desde disco)."
+            )
+        except Exception:
+            pass
+        self.open_vm(vm_name)
+
+
+    # ==================================================================
+    # Habilitación de la pestaña "Configuración VM" (config_tab_gating_v1)
+    # ==================================================================
+    # La pestaña solo se puede usar si:
+    #   • hay una VM seleccionada (self.current_vm_dir), o
+    #   • estamos en modo creación de VM nueva (self._new_vm_mode).
+    #
+    # Si la pestaña estaba seleccionada y pasa a deshabilitarse, se
+    # salta a Resumen (índice 0).
+
+    def _update_config_tab_gating(self):
+        """Habilita/deshabilita la pestaña "Configuración VM" (índice 1)."""
+        if not hasattr(self, "main_tabs"):
+            return
+        try:
+            has_vm = bool(getattr(self, "current_vm_dir", None))
+            new_mode = bool(getattr(self, "_new_vm_mode", False))
+            enabled = has_vm or new_mode
+            # Índice 1 = "Configuración VM" (Resumen = 0).
+            idx = 1
+            if idx >= self.main_tabs.count():
+                return
+            self.main_tabs.setTabEnabled(idx, enabled)
+            # Si estaba seleccionada y se deshabilita, saltar a Resumen.
+            if not enabled and self.main_tabs.currentIndex() == idx:
+                self.main_tabs.setCurrentIndex(0)
+        except Exception as e:
+            try:
+                if hasattr(self, "log_message"):
+                    self.log_message(
+                        f"[AVISO] config_tab_gating_v1: {e}"
+                    )
+            except Exception:
+                pass
+
+    # ==================================================================
+    # Aviso legal de macOS (marcador macos_eula_notice_v1)
+    # ==================================================================
+    # macOS es software propietario de Apple Inc. Este gestor permite
+    # instalarlo sobre QEMU/KVM con fines de ESTUDIO, INVESTIGACIÓN o
+    # USO PERSONAL, tal como se describe en la licencia de Apple para
+    # sistemas operativos. No se permite el uso comercial, la
+    # redistribución, ni la instalación en hardware que no sea Apple.
+    #
+    # Se avisa al usuario:
+    #   1. Al seleccionar macOS como plataforma (aviso breve, una vez
+    #      por sesión).
+    #   2. Al arrancar una VM macOS por primera vez (modal, persistente
+    #      en extra["macos_eula_acknowledged"]).
+
+    _MACOS_EULA_LINK = "https://www.apple.com/legal/sla/"
+
+    def _macos_eula_short_text(self):
+        """Texto breve del aviso al crear una VM macOS."""
+        return self.tr(
+            "macOS es una marca registrada y software propietario de "
+            "Apple Inc.\n\n"
+            "Este gestor te permite instalar macOS sobre QEMU/KVM con "
+            "fines exclusivamente de estudio, investigación o uso "
+            "personal. No se permite el uso comercial, la redistribución "
+            "ni la instalación en hardware que no sea Apple."
+        )
+
+    def _macos_eula_full_text(self):
+        """Texto completo del modal al arrancar por primera vez."""
+        return self.tr(
+            "Antes de arrancar esta máquina virtual macOS, lee y acepta "
+            "el siguiente aviso legal:\n\n"
+            "macOS es una marca registrada y software propietario de "
+            "Apple Inc.\n\n"
+            "Esta aplicación permite instalar macOS sobre QEMU/KVM con "
+            "fines EXCLUSIVAMENTE de estudio, investigación o uso "
+            "personal, tal como se describe en la licencia de software "
+            "de Apple para sistemas operativos.\n\n"
+            "NO se permite:\n"
+            "  • el uso comercial,\n"
+            "  • la redistribución de la VM resultante,\n"
+            "  • la instalación en hardware que no sea Apple.\n\n"
+            "Al continuar, confirmas que aceptas estos términos. Si no "
+            "estás de acuerdo, cancela el arranque.\n\n"
+            "Más información: {0}"
+        ).format(self._MACOS_EULA_LINK)
+
+    def _macos_eula_already_acknowledged(self, vm_dir):
+        """True si el usuario ya aceptó el aviso para esta VM."""
+        if not vm_dir:
+            return False
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+            return bool((data.get("extra") or {}).get(
+                "macos_eula_acknowledged", False))
+        except Exception:
+            return False
+
+    def _macos_eula_mark_acknowledged(self, vm_dir):
+        """Persiste extra["macos_eula_acknowledged"] = True en el .ini."""
+        if not vm_dir:
+            return False
+        cfg_path = os.path.join(vm_dir, "vm_config.ini")
+        if not os.path.isfile(cfg_path):
+            return False
+        try:
+            import json as _json, configparser as _cfg
+            c = _cfg.ConfigParser(interpolation=None)
+            c.read(cfg_path, encoding="utf-8")
+            if not c.has_section("extra"):
+                c.add_section("extra")
+            try:
+                extra = _json.loads(c["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["macos_eula_acknowledged"] = True
+            c.set("extra", "data", _json.dumps(extra, ensure_ascii=False))
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                c.write(f)
+            if hasattr(self, "_invalidate_vm_config_cache"):
+                self._invalidate_vm_config_cache(vm_dir)
+            return True
+        except Exception as e:
+            try:
+                self.log_message(
+                    f"[AVISO] No se pudo guardar la aceptación del "
+                    f"aviso de macOS: {e}"
+                )
+            except Exception:
+                pass
+            return False
+
+    def _show_macos_eula_modal(self, vm_dir, vm_name):
+        """Modal de aceptación. Devuelve True si el usuario acepta.
+
+        Se muestra solo si no estaba ya aceptado para esta VM.
+        """
+        from PyQt6.QtWidgets import QMessageBox
+        if self._macos_eula_already_acknowledged(vm_dir):
+            return True
+        box = QMessageBox(self)
+        box.setWindowTitle(self.tr("Aviso legal — macOS"))
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(self.tr("Aviso legal antes de arrancar macOS"))
+        box.setInformativeText(self._macos_eula_full_text())
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        yes_btn = box.button(QMessageBox.StandardButton.Yes)
+        if yes_btn is not None:
+            yes_btn.setText(self.tr("Acepto y continúo"))
+        cancel_btn = box.button(QMessageBox.StandardButton.Cancel)
+        if cancel_btn is not None:
+            cancel_btn.setText(self.tr("Cancelar"))
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is yes_btn:
+            self._macos_eula_mark_acknowledged(vm_dir)
+            try:
+                self.log_message(
+                    f"==> Aviso legal de macOS aceptado para '{vm_name}'."
+                )
+            except Exception:
+                pass
+            return True
+        try:
+            self.log_message(
+                f"==> Arranque de '{vm_name}' cancelado: aviso legal de "
+                f"macOS no aceptado."
+            )
+        except Exception:
+            pass
+        return False
+
+    def _maybe_show_macos_create_notice(self, *_args):
+        """Aviso breve al seleccionar macOS como plataforma.
+
+        Se muestra UNA vez por sesión (flag en memoria, no persistente).
+        No bloquea: es un QMessageBox.information informativo.
+        """
+        # config_tab_gating_v2: si estamos abriendo una VM existente
+        # (open_vm), no mostramos el aviso breve. Solo aplica a la
+        # creación de VMs nuevas.
+        if getattr(self, "_opening_vm", False):
+            return
+        try:
+            os_type = self.combo_main_os.currentData()
+        except Exception:
+            return
+        if os_type != "macos":
+            return
+        if getattr(self, "_macos_notice_shown_this_session", False):
+            return
+        self._macos_notice_shown_this_session = True
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self,
+                self.tr("Aviso legal — macOS"),
+                self._macos_eula_short_text(),
+            )
+        except Exception:
+            pass
+
+    # ==================================================================
+    # Pantalla de bienvenida (marcador welcome_screen_v1)
+    # ==================================================================
+    # Cuando no existe ninguna VM, el panel izquierdo muestra una
+    # pantalla de bienvenida en vez de la lista vacía. La comprobación
+    # se hace al final de refresh_vm_list, que es el punto por el que
+    # pasa cualquier cambio en el conjunto de VMs (crear, importar,
+    # borrar, clonar).
+
+    def _update_vm_list_stack(self):
+        """Decide qué página del vm_area_stack mostrar.
+
+        Página 0 → lista de VMs (comportamiento normal).
+        Página 1 → bienvenida (cuando list_existing_vms() == []).
+
+        También deshabilita el buscador, el combo de orden, el combo
+        de grupo y el toggle de vista cuando la bienvenida está visible:
+        sin VMs no tienen sentido y su estado deshabilitado evita
+        confusión visual.
+        """
+        stack = getattr(self, "vm_area_stack", None)
+        if stack is None:
+            return
+        try:
+            vms = list_existing_vms()
+        except Exception:
+            vms = []
+        has_vms = bool(vms)
+        try:
+            stack.setCurrentIndex(0 if has_vms else 1)
+        except Exception:
+            pass
+        # Deshabilitar los controles del panel izquierdo si no hay VMs.
+        for attr in ("input_vm_search", "combo_vm_order",
+                     "combo_vm_group", "btn_toggle_vm_view"):
+            w = getattr(self, attr, None)
+            if w is None:
+                continue
+            try:
+                w.setEnabled(has_vms)
+            except Exception:
+                pass
+        # El botón "Nueva VM" sigue siempre habilitado: sin él no se
+        # podría crear la primera VM si por algún motivo no se quiere
+        # usar el botón grande de la bienvenida.
+        # config_tab_gating_v1: reevaluar la habilitación de la
+        # pestaña "Configuración VM" cuando cambia el conjunto de VMs.
+        try:
+            self._update_config_tab_gating()
+        except Exception:
+            pass
+
+    def _welcome_create_vm(self, *_args):
+        """Botón 'Crear una VM nueva' de la bienvenida."""
+        try:
+            self.new_vm()
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] welcome: {e}")
+            except Exception:
+                pass
+
+    def _welcome_import_vm(self, *_args):
+        """Botón 'Importar desde OVA/OVF…' de la bienvenida."""
+        try:
+            self.import_vm()
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] welcome: {e}")
+            except Exception:
+                pass
+
+    def _welcome_open_media(self, *_args):
+        """Botón 'Abrir Biblioteca de Medios' de la bienvenida."""
+        try:
+            idx = getattr(self, "_media_tab_index", -1)
+            if idx is not None and idx >= 0 and hasattr(self, "main_tabs"):
+                self.main_tabs.setCurrentIndex(idx)
+        except Exception:
+            pass
+
+    def _welcome_open_help(self, *_args):
+        """Botón 'Ver la Ayuda' de la bienvenida."""
+        try:
+            idx = getattr(self, "_help_tab_index", -1)
+            if idx is not None and idx >= 0 and hasattr(self, "main_tabs"):
+                self.main_tabs.setCurrentIndex(idx)
+        except Exception:
+            pass
+
+    # ==================================================================
+    # Vista de lista / tarjetas (marcador vm_grid_view_v1)
+    # ==================================================================
+    # Un solo QListWidget con dos modos:
+    #   • "list" (por defecto) → QListView.ViewMode.ListMode.
+    #   • "grid"               → QListView.ViewMode.IconMode.
+    #
+    # Al cambiar de modo hay que reajustar:
+    #   - iconSize del widget.
+    #   - gridSize (solo aplica en IconMode).
+    #   - sizeHint de cada item (QSize(0,36) en lista, QSize(160,180) en grid).
+    #   - resizeMode (Adjust en grid, Fixed en lista).
+    # Después, doItemsLayout() fuerza el re-layout: sin esta llamada, Qt
+    # no repinta el widget al cambiar viewMode en runtime.
+    #
+    # El modo se persiste en QSettings("layout/vm_view_mode").
+
+    _VM_VIEW_MODES = ("list", "grid")
+
+    def _vm_view_mode(self):
+        """Devuelve 'list' o 'grid'. Default: 'list'."""
+        try:
+            from PyQt6.QtCore import QSettings
+            m = str(QSettings().value("layout/vm_view_mode", "list") or "list")
+        except Exception:
+            m = "list"
+        return m if m in self._VM_VIEW_MODES else "list"
+
+    def _vm_view_is_grid(self):
+        return self._vm_view_mode() == "grid"
+
+    def _apply_vm_view_mode(self, mode):
+        """Aplica `mode` ('list' | 'grid') al vm_list y ajusta los items.
+
+        Idempotente: se puede llamar tantas veces como se quiera.
+        """
+        if mode not in self._VM_VIEW_MODES:
+            mode = "list"
+        w = getattr(self, "vm_list", None)
+        if w is None:
+            return
+        try:
+            from PyQt6.QtWidgets import QListView, QListWidget
+            from PyQt6.QtCore import QSize
+        except Exception:
+            return
+
+        if mode == "grid":
+            w.setViewMode(QListView.ViewMode.IconMode)
+            w.setIconSize(QSize(96, 96))
+            w.setGridSize(QSize(180, 200))
+            w.setResizeMode(QListView.ResizeMode.Adjust)
+            w.setMovement(QListView.Movement.Static)
+            w.setWordWrap(True)
+            w.setSpacing(6)
+            new_hint = QSize(170, 190)
+        else:
+            w.setViewMode(QListView.ViewMode.ListMode)
+            w.setIconSize(QSize(28, 28))
+            w.setGridSize(QSize())   # 0×0 = sin grid en ListMode
+            w.setResizeMode(QListView.ResizeMode.Fixed)
+            w.setMovement(QListView.Movement.Static)
+            w.setWordWrap(False)
+            w.setSpacing(0)
+            new_hint = QSize(0, 36)
+
+        # Reajustar el sizeHint de cada item para que Qt recalcule las
+        # celdas. Sin esto, las tarjetas se ven con el alto de la lista
+        # (36 px), es decir, aplastadas.
+        for i in range(w.count()):
+            it = w.item(i)
+            if it is None:
+                continue
+            try:
+                it.setSizeHint(new_hint)
+            except Exception:
+                pass
+
+        # Forzar el re-layout. Sin doItemsLayout(), cambiar viewMode en
+        # runtime no repinta nada hasta el próximo resize.
+        try:
+            w.doItemsLayout()
+        except Exception:
+            pass
+
+        # vm_grid_view_v2_card: instalar el delegate solo en modo tarjeta.
+        # En modo lista se quita y se vuelve al pintado estándar de Qt.
+        try:
+            if mode == "grid":
+                if getattr(self, "_vm_card_delegate", None) is None:
+                    self._vm_card_delegate = VmCardDelegate(w)
+                w.setItemDelegate(self._vm_card_delegate)
+            else:
+                from PyQt6.QtWidgets import QStyledItemDelegate as _SID
+                w.setItemDelegate(_SID(w))
+        except Exception as _e:
+            try:
+                print(f"[AVISO] vm_grid_view_v2_card: {_e}")
+                if hasattr(self, "log_message"):
+                    self.log_message(f"[AVISO] vm_grid_view_v2_card: {_e}")
+            except Exception:
+                pass
+        # Actualizar el botón toggle (muestra la ACCIÓN, no el estado).
+        self._update_vm_view_toggle_button()
+
+    def _update_vm_view_toggle_button(self):
+        """Ajusta texto y tooltip del botón toggle al modo actual."""
+        btn = getattr(self, "btn_toggle_vm_view", None)
+        if btn is None:
+            return
+        mode = self._vm_view_mode()
+        try:
+            if mode == "grid":
+                # La acción al pulsar es "pasar a lista".
+                btn.setText("\U0001f4cb")  # 📋
+                btn.setToolTip(self.tr("Cambiar a vista de lista."))
+            else:
+                # La acción al pulsar es "pasar a tarjetas".
+                btn.setText("\U0001f5c2")  # 🗂
+                btn.setToolTip(self.tr("Cambiar a vista de tarjetas."))
+        except Exception:
+            pass
+
+    def _on_toggle_vm_view(self, *_args):
+        """Slot del botón 📋/🗂: alterna el modo y lo persiste."""
+        cur = self._vm_view_mode()
+        new = "grid" if cur == "list" else "list"
+        try:
+            from PyQt6.QtCore import QSettings
+            QSettings().setValue("layout/vm_view_mode", new)
+        except Exception:
+            pass
+        # Refrescar la lista ANTES de aplicar el modo: refresh_vm_list
+        # recrea los items con el sizeHint de lista por defecto, así que
+        # hay que aplicar el modo nuevo DESPUÉS.
+        try:
+            self.refresh_vm_list()
+        except Exception:
+            pass
+        self._apply_vm_view_mode(new)
+
+    def _vm_view_size_hint(self):
+        """Devuelve el QSize que corresponde al modo actual."""
+        try:
+            from PyQt6.QtCore import QSize
+        except Exception:
+            return None
+        if self._vm_view_is_grid():
+            return QSize(170, 190)
+        return QSize(0, 36)
+
     # ------------------------------------------------------------------
     # Notas contextuales por SO
     # ------------------------------------------------------------------
@@ -508,6 +1931,23 @@ class VmLifecycleMixin:
             pass
         return sorted(groups)
 
+        # vm_config_save_cancel_v1_grupo_b_doc:
+        # Este campo forma parte del "Grupo B" y se auto-guarda a
+        # proposito: NO pasa por el modelo Guardar/Descartar del
+        # "Grupo A" (vm_config_save_cancel_v1_*). Motivos:
+        #   1. No tiene widget persistente en la pestana Configuracion
+        #      VM (este ajuste vive en su propio dialogo o su propio
+        #      panel).
+        #   2. El usuario espera que un cambio aqui se aplique ya, sin
+        #      un paso extra de "Guardar configuracion".
+        #   3. Coherente con guest_agent_enabled y clipboard_mode, que
+        #      estan en el mismo caso.
+        # Si en el futuro se quisiera integrar en el modelo dirty,
+        # habria que:
+        #   - Darle un widget persistente en la pestana Configuracion VM,
+        #   - Anadirlo a _collect_config_from_ui() y _load_config_comparable(),
+        #   - Engancharlo a _wire_config_dirty_signals(),
+        #   - Anadirlo a la lista de claves comparadas en _has_pending_changes().
     def edit_vm_label(self):
         """Abre el diálogo de grupo + color para la VM seleccionada."""
         if not self._vm_is_selected():
@@ -672,6 +2112,1002 @@ class VmLifecycleMixin:
                 pass
 
 
+    # ==================================================================
+    # Historial — diálogo completo (marcador vm_history_v1, E3b)
+    # ==================================================================
+
+    def _show_history_dialog(self):
+        """Abre el diálogo modal con la tabla completa de sesiones."""
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+            QTreeWidget, QTreeWidgetItem, QHeaderView, QAbstractItemView,
+            QFileDialog, QMessageBox,
+        )
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtGui import QColor, QBrush
+
+        if not self.current_vm_dir:
+            QMessageBox.information(
+                self, self.tr("Historial"),
+                self.tr("Selecciona primero una máquina virtual."),
+            )
+            return
+
+        vm_dir = self.current_vm_dir
+        vm_name = os.path.basename(vm_dir)
+        data = self._history_load(vm_dir)
+        sessions = data.get("sessions") or []
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(
+            self.tr("Historial de uso — {0}").format(vm_name)
+        )
+        dlg.setModal(True)
+        dlg.resize(820, 540)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(8)
+
+        info = QLabel(self.tr(
+            "Todas las sesiones registradas de esta máquina virtual.<br>"
+            "Haz clic en el título de una columna para ordenar "
+            "(ascendente / descendente)."
+        ))
+        info.setTextFormat(_Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        tree = QTreeWidget()
+        tree.setColumnCount(4)
+        tree.setHeaderLabels([
+            self.tr("Inicio"),
+            self.tr("Fin"),
+            self.tr("Duración"),
+            self.tr("Motivo"),
+        ])
+        tree.setRootIsDecorated(False)
+        tree.setAlternatingRowColors(False)
+        tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        tree.setSortingEnabled(True)
+        tree.setUniformRowHeights(True)
+
+        header = tree.header()
+        header.setSectionsClickable(True)
+        header.setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        header.setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        header.setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        header.setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Stretch
+        )
+
+        # Colores por motivo del cierre.
+        _colores = {
+            "acpi":    QColor("#e8f5e9"),  # verde claro
+            "forced":  QColor("#fff3e0"),  # ámbar claro
+            "crash":   QColor("#ffebee"),  # rojo claro
+            "unknown": QColor("#f5f5f5"),  # gris claro
+        }
+        _etiquetas_motivo = {
+            "acpi":    self.tr("ACPI (apagado ordenado)"),
+            "forced":  self.tr("Forzado (por el usuario)"),
+            "crash":   self.tr("Cierre anómalo"),
+            "unknown": self.tr("Desconocido"),
+        }
+
+        for s in sessions:
+            start_iso = s.get("start") or ""
+            end_iso = s.get("end")
+            dur = s.get("duration_sec")
+            reason = (s.get("stop_reason") or "unknown")
+
+            it = _HistoryTreeItem()
+            # Columna 0 — Inicio
+            it.setText(0, self._format_history_datetime(start_iso))
+            it.setData(0, _Qt.ItemDataRole.UserRole, start_iso)
+            # Columna 1 — Fin
+            it.setText(1, self._format_history_datetime(end_iso)
+                       if end_iso else self.tr("(en curso)"))
+            it.setData(1, _Qt.ItemDataRole.UserRole, end_iso or "")
+            # Columna 2 — Duración
+            it.setText(2, self._format_history_duration(dur)
+                       if dur is not None else "—")
+            try:
+                it.setData(2, _Qt.ItemDataRole.UserRole, int(dur or 0))
+            except Exception:
+                it.setData(2, _Qt.ItemDataRole.UserRole, 0)
+            # Columna 3 — Motivo
+            it.setText(3, _etiquetas_motivo.get(reason, reason))
+            it.setData(3, _Qt.ItemDataRole.UserRole,
+                       _etiquetas_motivo.get(reason, reason))
+
+            # Fondo por motivo.
+            bg = _colores.get(reason)
+            if bg is not None:
+                brush = QBrush(bg)
+                for c in range(4):
+                    it.setBackground(c, brush)
+
+            tree.addTopLevelItem(it)
+
+        # Orden por defecto: Inicio descendente (lo más reciente arriba).
+        # Lo dejamos en desc porque es lo que un usuario quiere ver.
+        try:
+            tree.sortItems(0, _Qt.SortOrder.DescendingOrder)
+        except Exception:
+            pass
+
+        # Guardar estado de ordenación por si el usuario hace clic.
+        self._history_sort_col = 0
+        self._history_sort_asc = False
+
+        def _on_header_clicked(col):
+            # Alternar asc/desc si es la misma columna; si es otra,
+            # empezar por ascendente (excepto si es "Inicio"/"Fin",
+            # donde ascendente tiene poco sentido).
+            if col == getattr(self, "_history_sort_col", 0):
+                asc = not getattr(self, "_history_sort_asc", False)
+            else:
+                asc = (col not in (0, 1))  # fechas: empezar por desc
+            self._history_sort_col = col
+            self._history_sort_asc = asc
+            order = (_Qt.SortOrder.AscendingOrder if asc
+                     else _Qt.SortOrder.DescendingOrder)
+            tree.sortItems(col, order)
+
+        try:
+            header.sectionClicked.connect(_on_header_clicked)
+        except Exception:
+            pass
+
+        layout.addWidget(tree, 1)
+
+        # --- Resumen al pie ---
+        summary = self._history_summary(vm_dir)
+        total = int(summary.get("total") or 0)
+        uptime = int(summary.get("total_uptime") or 0)
+        if summary.get("current_open"):
+            uptime += int(summary.get("current_uptime") or 0)
+        foot = QLabel(self.tr(
+            "<b>Total:</b> {0} sesiones · "
+            "<b>Uptime acumulado:</b> {1}"
+        ).format(total, self._format_history_duration(uptime)))
+        foot.setTextFormat(_Qt.TextFormat.RichText)
+        layout.addWidget(foot)
+
+        # --- Botones ---
+        row = QHBoxLayout()
+
+        btn_csv = QPushButton(self.tr("\U0001f4c4 Exportar a CSV"))
+        btn_csv.setToolTip(self.tr(
+            "Guarda el historial completo como archivo CSV para "
+            "abrilo con LibreOffice, Excel o cualquier hoja de cálculo."
+        ))
+        row.addWidget(btn_csv)
+
+        btn_clear = QPushButton(self.tr("\U0001f5d1 Borrar historial"))
+        btn_clear.setToolTip(self.tr(
+            "Elimina TODO el historial de esta VM. La acción no se "
+            "puede deshacer."
+        ))
+        row.addWidget(btn_clear)
+
+        row.addStretch(1)
+
+        btn_close = QPushButton(self.tr("Cerrar"))
+        btn_close.setDefault(True)
+        row.addWidget(btn_close)
+
+        layout.addLayout(row)
+
+        # --- Callbacks ---
+        def _refresh_dialog():
+            """Recarga el historial (tras un borrado o cambio)."""
+            try:
+                new_data = self._history_load(vm_dir)
+                new_sessions = new_data.get("sessions") or []
+                tree.clear()
+                for s2 in new_sessions:
+                    start_iso2 = s2.get("start") or ""
+                    end_iso2 = s2.get("end")
+                    dur2 = s2.get("duration_sec")
+                    reason2 = (s2.get("stop_reason") or "unknown")
+
+                    it2 = _HistoryTreeItem()
+                    it2.setText(0, self._format_history_datetime(start_iso2))
+                    it2.setData(0, _Qt.ItemDataRole.UserRole, start_iso2)
+                    it2.setText(1, self._format_history_datetime(end_iso2)
+                                if end_iso2 else self.tr("(en curso)"))
+                    it2.setData(1, _Qt.ItemDataRole.UserRole, end_iso2 or "")
+                    it2.setText(2, self._format_history_duration(dur2)
+                                if dur2 is not None else "—")
+                    try:
+                        it2.setData(2, _Qt.ItemDataRole.UserRole,
+                                    int(dur2 or 0))
+                    except Exception:
+                        it2.setData(2, _Qt.ItemDataRole.UserRole, 0)
+                    it2.setText(3, _etiquetas_motivo.get(reason2, reason2))
+                    it2.setData(3, _Qt.ItemDataRole.UserRole,
+                                _etiquetas_motivo.get(reason2, reason2))
+                    bg2 = _colores.get(reason2)
+                    if bg2 is not None:
+                        brush2 = QBrush(bg2)
+                        for c in range(4):
+                            it2.setBackground(c, brush2)
+                    tree.addTopLevelItem(it2)
+                # Reaplicar el orden actual.
+                try:
+                    order = (_Qt.SortOrder.AscendingOrder
+                             if getattr(self, "_history_sort_asc", False)
+                             else _Qt.SortOrder.DescendingOrder)
+                    tree.sortItems(getattr(self, "_history_sort_col", 0),
+                                   order)
+                except Exception:
+                    pass
+                # Actualizar resumen al pie.
+                new_summary = self._history_summary(vm_dir)
+                _t = int(new_summary.get("total") or 0)
+                _u = int(new_summary.get("total_uptime") or 0)
+                if new_summary.get("current_open"):
+                    _u += int(new_summary.get("current_uptime") or 0)
+                foot.setText(self.tr(
+                    "<b>Total:</b> {0} sesiones · "
+                    "<b>Uptime acumulado:</b> {1}"
+                ).format(_t, self._format_history_duration(_u)))
+            except Exception:
+                pass
+
+        def _on_export_csv():
+            try:
+                suggested = os.path.join(
+                    os.path.expanduser("~"),
+                    f"{vm_name}-historial.csv",
+                )
+                path, _ = QFileDialog.getSaveFileName(
+                    dlg, self.tr("Guardar historial como CSV"),
+                    suggested,
+                    self.tr("Archivos CSV (*.csv);;Todos los archivos (*)"),
+                )
+                if not path:
+                    return
+                if not path.lower().endswith(".csv"):
+                    path += ".csv"
+                import csv as _csv
+                with open(path, "w", newline="", encoding="utf-8") as f:
+                    w = _csv.writer(f)
+                    w.writerow([
+                        "inicio", "fin", "duracion_seg",
+                        "duracion_texto", "motivo", "start_reason",
+                    ])
+                    for s3 in (self._history_load(vm_dir).get("sessions") or []):
+                        w.writerow([
+                            s3.get("start") or "",
+                            s3.get("end") or "",
+                            s3.get("duration_sec") or 0,
+                            self._format_history_duration(
+                                s3.get("duration_sec") or 0),
+                            s3.get("stop_reason") or "unknown",
+                            s3.get("start_reason") or "user",
+                        ])
+                QMessageBox.information(
+                    dlg, self.tr("Exportar CSV"),
+                    self.tr("Historial guardado en:\n\n{0}").format(path),
+                )
+            except Exception as e:
+                QMessageBox.warning(
+                    dlg, self.tr("Exportar CSV"),
+                    self.tr("No se pudo guardar el CSV.\n\n{0}").format(e),
+                )
+
+        def _on_clear():
+            resp = QMessageBox.question(
+                dlg, self.tr("Borrar historial"),
+                self.tr(
+                    "Se eliminará TODO el historial de '{0}'.\n\n"
+                    "Esta acción no se puede deshacer.\n\n"
+                    "¿Continuar?"
+                ).format(vm_name),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if resp != QMessageBox.StandardButton.Yes:
+                return
+            try:
+                empty = {"version": self._HISTORY_VERSION, "sessions": []}
+                self._history_save(vm_dir, empty)
+                # Invalidar la caché del resumen.
+                cache = getattr(self, "_history_cache", None)
+                if cache is not None:
+                    cache.pop(vm_dir, None)
+                _refresh_dialog()
+                # Refrescar también la sección compacta del Resumen.
+                if hasattr(self, "_refresh_history_summary"):
+                    try:
+                        self._refresh_history_summary()
+                    except Exception:
+                        pass
+                QMessageBox.information(
+                    dlg, self.tr("Historial borrado"),
+                    self.tr("El historial de '{0}' se ha borrado.").format(vm_name),
+                )
+            except Exception as e:
+                QMessageBox.warning(
+                    dlg, self.tr("Borrar historial"),
+                    self.tr("No se pudo borrar el historial.\n\n{0}").format(e),
+                )
+
+        btn_csv.clicked.connect(_on_export_csv)
+        btn_clear.clicked.connect(_on_clear)
+        btn_close.clicked.connect(dlg.accept)
+
+        dlg.exec()
+
+    # ==================================================================
+    # Historial — UI compacta (marcador vm_history_v1, E3a)
+    # ==================================================================
+
+    def _history_summary_cached(self, vm_dir):
+        """Envuelve _history_summary con caché por (vm_dir, mtime).
+
+        refresh_vm_runtime_status corre cada 1.5 s. Sin caché, leeríamos
+        el history.json del disco ~40 veces por minuto por cada VM
+        abierta. Con la caché, solo se re-lee si el archivo cambió.
+
+        OJO: `current_uptime` NO se cachea. Mientras la VM está encendida,
+        el history.json no cambia (la sesión abierta tiene end:null y no
+        se reescribe), pero `current_uptime` depende de la hora actual.
+        Cachearlo dejaba el contador clavado en el valor del primer tick
+        (bug detectado el 2026-10-04 con la VM recién arrancada: se
+        quedaba en "hace 1 s"). Solución: cachear solo lo que viene del
+        archivo; recalcular el "uptime en vivo" en cada llamada.
+        """
+        if not vm_dir:
+            return None
+        cache = getattr(self, "_history_cache", None)
+        if cache is None:
+            cache = {}
+            try:
+                self._history_cache = cache
+            except Exception:
+                pass
+        path = self._history_path(vm_dir)
+        try:
+            mtime = os.path.getmtime(path) if path else 0
+        except OSError:
+            mtime = 0
+        entry = cache.get(vm_dir)
+        if entry is not None and entry[0] == mtime:
+            data = dict(entry[1])
+        else:
+            data = self._history_summary(vm_dir)
+            cache[vm_dir] = (mtime, dict(data))
+        # Recalcular SIEMPRE el uptime en vivo, si hay sesión abierta.
+        if data.get("current_open"):
+            from datetime import datetime as _dt
+            try:
+                t0 = _dt.fromisoformat(data.get("current_start") or "")
+                data["current_uptime"] = int(
+                    (_dt.now() - t0).total_seconds()
+                )
+            except Exception:
+                data["current_uptime"] = 0
+        return data
+
+    @staticmethod
+    def _format_history_duration(seconds):
+        """Formatea una duración en segundos: '45 s', '5 min 12 s',
+        '1 h 22 min', '2 d 3 h 5 min'."""
+        try:
+            s = int(seconds or 0)
+        except Exception:
+            return "—"
+        if s < 0:
+            s = 0
+        if s < 60:
+            return f"{s} s"
+        mins, sec = divmod(s, 60)
+        if mins < 60:
+            if sec:
+                return f"{mins} min {sec} s"
+            return f"{mins} min"
+        hours, mins = divmod(mins, 60)
+        if hours < 24:
+            if mins:
+                return f"{hours} h {mins} min"
+            return f"{hours} h"
+        days, hours = divmod(hours, 24)
+        if hours:
+            return f"{days} d {hours} h"
+        return f"{days} d"
+
+    @staticmethod
+    def _format_history_datetime(iso):
+        """ISO → '04 oct 2026 13:44'."""
+        if not iso:
+            return "—"
+        try:
+            from datetime import datetime as _dt
+            d = _dt.fromisoformat(iso)
+            _meses = ("ene", "feb", "mar", "abr", "may", "jun",
+                      "jul", "ago", "sep", "oct", "nov", "dic")
+            return (f"{d.day:02d} {_meses[d.month - 1]} {d.year} "
+                    f"{d.hour:02d}:{d.minute:02d}")
+        except Exception:
+            return str(iso)
+
+    @staticmethod
+    def _format_history_relative(iso):
+        """ISO → 'hace 2 h', 'hace 5 min', 'hace 3 d'."""
+        if not iso:
+            return "—"
+        try:
+            from datetime import datetime as _dt
+            d = _dt.fromisoformat(iso)
+            delta = _dt.now() - d
+            secs = int(delta.total_seconds())
+            if secs < 0:
+                return "en el futuro"
+            if secs < 60:
+                return f"hace {secs} s"
+            mins = secs // 60
+            if mins < 60:
+                return f"hace {mins} min"
+            hours = mins // 60
+            if hours < 24:
+                return f"hace {hours} h"
+            days = hours // 24
+            return f"hace {days} d"
+        except Exception:
+            return "—"
+
+    def _refresh_history_summary(self):
+        """Actualiza los 4 labels de la sección 'Historial de uso'.
+
+        Se llama desde refresh_vm_runtime_status (cada tick), open_vm y
+        new_vm. Si no hay VM seleccionada, limpia los labels.
+        """
+        if not hasattr(self, "history_total_label"):
+            return
+        vm_dir = self.current_vm_dir
+
+        # Sin VM: todo a "—".
+        if not vm_dir:
+            self.history_total_label.setText(
+                f"<b>{self.tr('Arranques totales')}:</b> \u2014"
+            )
+            self.history_uptime_label.setText(
+                f"<b>{self.tr('Uptime acumulado')}:</b> \u2014"
+            )
+            self.history_last_label.setText(
+                f"<b>{self.tr('Última sesión')}:</b> \u2014"
+            )
+            self.history_current_label.setText("")
+            return
+
+        try:
+            s = self._history_summary_cached(vm_dir) or {}
+        except Exception:
+            s = {}
+
+        total = int(s.get("total") or 0)
+        uptime = int(s.get("total_uptime") or 0)
+
+        # Uptime "en vivo" si hay una sesión abierta ahora mismo:
+        # sumamos también el tiempo que lleva la sesión actual.
+        if s.get("current_open"):
+            uptime += int(s.get("current_uptime") or 0)
+
+        self.history_total_label.setText(
+            f"<b>{self.tr('Arranques totales')}:</b> {total}"
+        )
+        self.history_uptime_label.setText(
+            f"<b>{self.tr('Uptime acumulado')}:</b> "
+            f"{self._format_history_duration(uptime)}"
+        )
+
+        # Última sesión cerrada.
+        last_end = s.get("last_end")
+        last_dur = s.get("last_duration")
+        if last_end:
+            self.history_last_label.setText(
+                f"<b>{self.tr('Última sesión')}:</b> "
+                f"{self._format_history_relative(last_end)} "
+                f"({self._format_history_duration(last_dur)})"
+            )
+        else:
+            self.history_last_label.setText(
+                f"<b>{self.tr('Última sesión')}:</b> \u2014"
+            )
+
+        # Estado actual.
+        if s.get("current_open"):
+            up = int(s.get("current_uptime") or 0)
+            self.history_current_label.setText(
+                "<span style=\"color:#2e7d32;font-weight:bold;\">"
+                f"\u25cf {self.tr('Encendida')}</span> "
+                f"{self.tr('desde hace')} "
+                f"{self._format_history_duration(up)}"
+            )
+        else:
+            self.history_current_label.setText(
+                "<span style=\"color:#9e9e9e;\">"
+                f"\u25cb {self.tr('Apagada')}</span>"
+            )
+
+    # ==================================================================
+    # Historial de arranques / uptime (marcador vm_history_v1)
+    # ==================================================================
+    # Archivo por VM: <vm_dir>/history.json
+    #
+    # Modelo:
+    #   {
+    #     "version": 1,
+    #     "sessions": [
+    #       {"start": ISO8601, "end": ISO8601 | null,
+    #        "duration_sec": int | null,
+    #        "stop_reason": "acpi"|"forced"|"crash"|"unknown" | null,
+    #        "start_reason": "user"|"autostart"|"force_reboot"}
+    #     ]
+    #   }
+    #
+    # Si la última sesión tiene "end": null, la VM está encendida
+    # ahora mismo. Solo puede haber una sesión abierta a la vez.
+    #
+    # Rotación: máximo _HISTORY_MAX_SESSIONS (500). Al superarlo se
+    # eliminan las más antiguas. La sesión abierta (si la hay) nunca
+    # se elimina.
+
+    _HISTORY_MAX_SESSIONS = 500
+    _HISTORY_VERSION = 1
+
+    def _history_path(self, vm_dir):
+        """Ruta al history.json de la VM (o None si vm_dir está vacío)."""
+        if not vm_dir:
+            return None
+        return os.path.join(vm_dir, "history.json")
+
+    def _history_load(self, vm_dir):
+        """Carga el historial de la VM. Devuelve siempre un dict válido.
+
+        Si el archivo no existe o está corrupto, devuelve un historial
+        vacío (con versión actual). Nunca lanza excepción: el historial
+        es informativo, no crítico.
+        """
+        empty = {"version": self._HISTORY_VERSION, "sessions": []}
+        path = self._history_path(vm_dir)
+        if not path or not os.path.isfile(path):
+            return empty
+        try:
+            import json as _json
+            with open(path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+            if not isinstance(data, dict):
+                return empty
+            sessions = data.get("sessions")
+            if not isinstance(sessions, list):
+                sessions = []
+            # Validar mínimamente cada entrada (no petar si el JSON
+            # fue editado a mano con campos raros).
+            clean = []
+            for s in sessions:
+                if not isinstance(s, dict):
+                    continue
+                entry = {
+                    "start": s.get("start") or "",
+                    "end": s.get("end"),
+                    "duration_sec": s.get("duration_sec"),
+                    "stop_reason": s.get("stop_reason"),
+                    "start_reason": s.get("start_reason") or "user",
+                }
+                clean.append(entry)
+            return {"version": self._HISTORY_VERSION, "sessions": clean}
+        except Exception as e:
+            # El historial es prescindible: si falla, se empieza limpio.
+            try:
+                if hasattr(self, "log_message"):
+                    self.log_message(
+                        f"[AVISO] Historial de '{os.path.basename(vm_dir)}' "
+                        f"ilegible; se reinicia. Detalle: {e}"
+                    )
+            except Exception:
+                pass
+            return empty
+
+    def _history_save(self, vm_dir, data):
+        """Guarda el historial con escritura atómica.
+
+        Usa tempfile + os.replace. Si falla, no rompe nada: solo
+        loguea y sigue. El historial no es información crítica.
+        """
+        path = self._history_path(vm_dir)
+        if not path:
+            return False
+        try:
+            import json as _json, tempfile as _tmp
+            dirn = os.path.dirname(path) or "."
+            fd, tmp = _tmp.mkstemp(
+                prefix=".history_", suffix=".json.tmp", dir=dirn,
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    _json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp, path)
+            except Exception:
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
+                raise
+            return True
+        except Exception as e:
+            try:
+                if hasattr(self, "log_message"):
+                    self.log_message(
+                        f"[AVISO] No se pudo guardar el historial de "
+                        f"'{os.path.basename(vm_dir)}': {e}"
+                    )
+            except Exception:
+                pass
+            return False
+
+    def _history_rotate(self, sessions):
+        """Recorta `sessions` a _HISTORY_MAX_SESSIONS.
+
+        Nunca elimina la última si está abierta (end == None): esa
+        sesión representa el estado actual de la VM. Si la lista está
+        llena y la última está abierta, se eliminan las más antiguas
+        dejando espacio para la abierta.
+        """
+        if not isinstance(sessions, list):
+            return []
+        maxn = self._HISTORY_MAX_SESSIONS
+        if len(sessions) <= maxn:
+            return sessions
+        # Reservar 1 hueco si la última está abierta.
+        last_open = bool(sessions and sessions[-1].get("end") is None)
+        keep_n = maxn - (1 if last_open else 0)
+        if keep_n < 1:
+            keep_n = 1
+        return sessions[-keep_n:]
+
+    def _history_start(self, vm_dir, reason="user"):
+        """Registra el arranque de una VM.
+
+        Añade una nueva sesión con `end=null`. Si ya había una sesión
+        abierta (arranque sin cierre previo registrado — caso típico
+        tras un cierre de la app con la VM aún corriendo), la cierra
+        como `stop_reason="unknown"` antes de añadir la nueva.
+        """
+        if not vm_dir or not os.path.isdir(vm_dir):
+            return
+        from datetime import datetime as _dt
+        data = self._history_load(vm_dir)
+        sessions = data.get("sessions") or []
+
+        # Cerrar sesión abierta previa, si la hay.
+        if sessions and sessions[-1].get("end") is None:
+            try:
+                prev_start = sessions[-1].get("start") or ""
+                t0 = _dt.fromisoformat(prev_start) if prev_start else None
+            except Exception:
+                t0 = None
+            now = _dt.now()
+            sessions[-1]["end"] = now.isoformat(timespec="seconds")
+            sessions[-1]["stop_reason"] = "unknown"
+            if t0 is not None:
+                try:
+                    sessions[-1]["duration_sec"] = int(
+                        (now - t0).total_seconds()
+                    )
+                except Exception:
+                    sessions[-1]["duration_sec"] = None
+
+        # Añadir la nueva sesión abierta.
+        sessions.append({
+            "start": _dt.now().isoformat(timespec="seconds"),
+            "end": None,
+            "duration_sec": None,
+            "stop_reason": None,
+            "start_reason": reason or "user",
+        })
+        sessions = self._history_rotate(sessions)
+        data["sessions"] = sessions
+        data["version"] = self._HISTORY_VERSION
+        self._history_save(vm_dir, data)
+
+    def _history_end(self, vm_dir, stop_reason="unknown"):
+        """Cierra la última sesión abierta del historial de la VM.
+
+        Si no hay ninguna abierta, no hace nada (es idempotente:
+        evita duplicar cierres si el watchdog pasa varias veces por
+        el mismo estado transitorio).
+        """
+        if not vm_dir or not os.path.isdir(vm_dir):
+            return
+        from datetime import datetime as _dt
+        data = self._history_load(vm_dir)
+        sessions = data.get("sessions") or []
+        if not sessions:
+            return
+        last = sessions[-1]
+        if last.get("end") is not None:
+            return  # ya cerrada
+        now = _dt.now()
+        try:
+            t0 = _dt.fromisoformat(last.get("start") or "")
+        except Exception:
+            t0 = None
+        last["end"] = now.isoformat(timespec="seconds")
+        last["stop_reason"] = stop_reason or "unknown"
+        if t0 is not None:
+            try:
+                last["duration_sec"] = int((now - t0).total_seconds())
+            except Exception:
+                last["duration_sec"] = None
+        data["sessions"] = sessions
+        self._history_save(vm_dir, data)
+
+    def _history_on_transition(self, vm_name, prev_state, new_state):
+        """Se llama desde el watchdog al detectar un cambio de estado.
+
+        Solo actúa cuando la VM pasa de "running"/"paused" a "stopped".
+        El `stop_reason` se deduce así:
+
+          1. Si el usuario pulsó Apagar (ACPI): self._vm_stop_intent
+             tiene "acpi" → stop_reason="acpi".
+          2. Si forzó apagado/reinicio: "forced" → stop_reason="forced".
+          3. Si el watchdog detectó pid huérfano: "crash".
+          4. En cualquier otro caso: "unknown".
+
+        El flag de intención se limpia tras usarlo (una sola vez).
+        """
+        if not vm_name:
+            return
+        if prev_state not in ("running", "paused"):
+            return
+        if new_state != "stopped":
+            return
+        vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
+        if not os.path.isdir(vm_dir):
+            return
+
+        # Prioridad 1: intención explícita del usuario.
+        intents = getattr(self, "_vm_stop_intent", None) or {}
+        reason = intents.pop(vm_name, None)
+        if reason not in ("acpi", "forced", "crash"):
+            # Prioridad 2: el watchdog ya distinguió "muerte inesperada".
+            try:
+                if self._watchdog_detect_death(vm_name):
+                    reason = "crash"
+            except Exception:
+                pass
+        if not reason:
+            # vm_history_v1 — fix1: si no hay intención explícita
+            # del usuario, no lo dejamos como "unknown": la VM se
+            # detuvo sin que la app lo pidiera, y eso es más útil
+            # marcarlo como "crash". Cubre:
+            #   - kill -9 externo al proceso de QEMU.
+            #   - cierre del host con la VM corriendo.
+            #   - apagado iniciado desde dentro del guest.
+            # El pid huérfano ya no es necesario para detectar el
+            # caso: si no hay intención, es anómalo por definición.
+            reason = "crash"
+        try:
+            self._vm_stop_intent = intents
+        except Exception:
+            pass
+        self._history_end(vm_dir, stop_reason=reason)
+
+    def _history_summary(self, vm_dir):
+        """Devuelve los datos que muestra la sección de Resumen.
+
+        Claves:
+          - total:          nº de sesiones registradas
+          - total_uptime:   segundos totales
+          - last_start:     ISO de la última sesión (o None)
+          - last_end:       ISO del último cierre (o None)
+          - last_duration:  duración de la última sesión cerrada (s) | None
+          - current_open:   True si hay una sesión abierta ahora
+          - current_start:  ISO de la sesión abierta (o None)
+          - current_uptime: segundos desde el inicio de la sesión abierta
+        """
+        out = {
+            "total": 0, "total_uptime": 0,
+            "last_start": None, "last_end": None, "last_duration": None,
+            "current_open": False, "current_start": None,
+            "current_uptime": 0,
+        }
+        if not vm_dir:
+            return out
+        data = self._history_load(vm_dir)
+        sessions = data.get("sessions") or []
+        out["total"] = len(sessions)
+        for s in sessions:
+            try:
+                out["total_uptime"] += int(s.get("duration_sec") or 0)
+            except Exception:
+                pass
+        if sessions:
+            last = sessions[-1]
+            out["last_start"] = last.get("start")
+            out["last_end"] = last.get("end")
+            out["last_duration"] = last.get("duration_sec")
+            if last.get("end") is None:
+                out["current_open"] = True
+                out["current_start"] = last.get("start")
+                from datetime import datetime as _dt
+                try:
+                    t0 = _dt.fromisoformat(last.get("start") or "")
+                    out["current_uptime"] = int(
+                        (_dt.now() - t0).total_seconds()
+                    )
+                except Exception:
+                    out["current_uptime"] = 0
+        return out
+
+    # ==================================================================
+    # Menú contextual + doble clic en la lista de VMs (vm_context_menu_v1)
+    # ==================================================================
+    # Clic derecho sobre una VM → menú con las acciones más usadas.
+    # Doble clic sobre una VM → salta a la pestaña Resumen.
+    #
+    # El menú se construye a partir del estado REAL de la VM en el
+    # momento del clic derecho (running/paused/stopped, es clon
+    # enlazado o no, etc.), así siempre muestra la acción correcta.
+
+    def _vm_context_menu_state(self, vm_dir):
+        """Devuelve un dict con el estado de la VM para el menú.
+
+        Claves:
+          - state:          "running" | "paused" | "stopped"
+          - is_linked:      True si es clon enlazado
+          - linked_enabled: True si se puede desenlazar (clon + apagada)
+        """
+        out = {"state": "stopped", "is_linked": False, "linked_enabled": False}
+        if not vm_dir:
+            return out
+        try:
+            name = os.path.basename(vm_dir)
+            out["state"] = self._runtime_state(name)
+        except Exception:
+            pass
+        try:
+            data = self._load_vm_config_cached(vm_dir)
+            extra = (data.get("extra") or {})
+            out["is_linked"] = bool(extra.get("linked_clone"))
+            out["linked_enabled"] = out["is_linked"] and out["state"] == "stopped"
+        except Exception:
+            pass
+        return out
+
+    def _on_vm_item_double_clicked(self, item):
+        """Doble clic: abre la pestaña Resumen de la VM.
+
+        Un solo clic ya selecciona y abre la VM (on_vm_list_changed →
+        open_vm). El doble clic solo añade "vuelve a la pestaña Resumen",
+        útil cuando el usuario estaba en Config VM / Snapshots / Medios.
+        """
+        if item is None:
+            return
+        try:
+            if hasattr(self, "main_tabs"):
+                self.main_tabs.setCurrentIndex(0)
+        except Exception:
+            pass
+
+    def _show_vm_context_menu(self, pos):
+        """Slot de customContextMenuRequested en self.vm_list.
+
+        `pos` es un QPoint en coordenadas del widget. Se convierte a
+        globales para el popup.
+        """
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        from PyQt6.QtCore import QPoint
+
+        # Averiguar sobre qué item se ha hecho clic derecho.
+        try:
+            item = self.vm_list.itemAt(pos)
+        except Exception:
+            item = None
+        if item is None:
+            # Clic en zona vacía: no mostramos menú.
+            return
+
+        # Seleccionar el item para que el resto de la app coincida con
+        # lo que el usuario está viendo en el menú.
+        try:
+            self.vm_list.setCurrentItem(item)
+        except Exception:
+            pass
+
+        name = self._vm_name_from_item(item)
+        if not name:
+            return
+        vm_dir = os.path.join(vm_config.BASE_VM_DIR, name)
+        if not os.path.isdir(vm_dir):
+            return
+
+        info = self._vm_context_menu_state(vm_dir)
+        state = info["state"]
+        running = state in ("running", "paused")
+
+        menu = QMenu(self.vm_list)
+
+        # --- Cabecera (nombre de la VM, deshabilitada como acción) ---
+        head = menu.addAction(name)
+        head.setEnabled(False)
+        menu.addSeparator()
+
+        # --- Iniciar / Apagar ---
+        act_start = menu.addAction(self.tr("▶ Iniciar"))
+        act_start.setEnabled(state == "stopped")
+        act_start.triggered.connect(self.control_start_vm)
+
+        act_pause = menu.addAction(
+            self.tr("▶ Reanudar") if state == "paused" else self.tr("⏸ Pausar")
+        )
+        act_pause.setEnabled(running)
+        act_pause.triggered.connect(
+            self.control_resume_vm if state == "paused" else self.control_pause_vm
+        )
+
+        act_stop = menu.addAction(self.tr("⏹ Apagar"))
+        act_stop.setEnabled(running)
+        act_stop.triggered.connect(self.control_poweroff_vm)
+
+        menu.addSeparator()
+
+        # --- Medios / Carpeta / Clonar / Desenlazar ---
+        act_media = menu.addAction(self.tr("💿 Medios…"))
+        act_media.triggered.connect(
+            lambda _checked=False, p=pos:
+                self._show_media_menu_at_cursor(
+                    pos_global=self.vm_list.mapToGlobal(p)
+                )
+        )
+
+        act_folder = menu.addAction(self.tr("📂 Abrir carpeta"))
+        act_folder.triggered.connect(self.open_vm_folder)
+
+        act_clone = menu.addAction(self.tr("🧬 Clonar"))
+        act_clone.triggered.connect(self.clone_current_vm)
+
+        if info["is_linked"]:
+            act_unlink = menu.addAction(self.tr("🧬 Desenlazar"))
+            act_unlink.setEnabled(info["linked_enabled"])
+            act_unlink.triggered.connect(self.unlink_linked_clone)
+
+        menu.addSeparator()
+
+        # --- Metadatos ---
+        act_notes = menu.addAction(self.tr("📝 Notas"))
+        act_notes.triggered.connect(self.edit_vm_notes)
+
+        act_label = menu.addAction(self.tr("🏷 Etiqueta"))
+        act_label.triggered.connect(self.edit_vm_label)
+
+        act_cmp = menu.addAction(self.tr("⚖ Comparar con defaults"))
+        act_cmp.triggered.connect(self.compare_config_with_defaults)
+
+        menu.addSeparator()
+
+        # --- Eliminar (destructivo, al final) ---
+        act_del = menu.addAction(self.tr("🗑️ Eliminar"))
+        act_del.triggered.connect(self.delete_current_vm)
+
+        # Mostrar el menú en la posición global del cursor.
+        try:
+            menu.exec(self.vm_list.mapToGlobal(pos))
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Ver comando QEMU (run_temp.sh)
     # ------------------------------------------------------------------
@@ -817,6 +3253,23 @@ class VmLifecycleMixin:
         if hasattr(self, "_invalidate_vm_config_cache"):
             self._invalidate_vm_config_cache(vm_dir)
 
+        # vm_config_save_cancel_v1_grupo_b_doc:
+        # Este campo forma parte del "Grupo B" y se auto-guarda a
+        # proposito: NO pasa por el modelo Guardar/Descartar del
+        # "Grupo A" (vm_config_save_cancel_v1_*). Motivos:
+        #   1. No tiene widget persistente en la pestana Configuracion
+        #      VM (este ajuste vive en su propio dialogo o su propio
+        #      panel).
+        #   2. El usuario espera que un cambio aqui se aplique ya, sin
+        #      un paso extra de "Guardar configuracion".
+        #   3. Coherente con guest_agent_enabled y clipboard_mode, que
+        #      estan en el mismo caso.
+        # Si en el futuro se quisiera integrar en el modelo dirty,
+        # habria que:
+        #   - Darle un widget persistente en la pestana Configuracion VM,
+        #   - Anadirlo a _collect_config_from_ui() y _load_config_comparable(),
+        #   - Engancharlo a _wire_config_dirty_signals(),
+        #   - Anadirlo a la lista de claves comparadas en _has_pending_changes().
     def edit_vm_notes(self):
         """Abre el dialogo para editar las notas de la VM seleccionada."""
         if not self._vm_is_selected():
@@ -987,24 +3440,30 @@ class VmLifecycleMixin:
     _AUTOSTART_BETWEEN_DELAY_MS = 4000   # entre una VM y la siguiente
 
     def _on_autostart_changed(self, checked):
-        """Slot del checkbox: guarda extra["autostart_on_launch"].
+        """Slot del checkbox: marca cambios pendientes.
+
+        vm_config_save_cancel_v1_dirty: ya NO guarda directamente.
+        El autoguardado de este flag se retira: ahora se guarda
+        solo al pulsar "💾 Guardar configuración".
 
         Si no hay VM seleccionada, no hace nada. Solo se aplica al
         vm_config.ini de la VM actual.
         """
         if not self.current_vm_dir:
             return
+        # vm_config_save_cancel_v1_dirty_2b1: ya NO guarda directamente.
+        # El checkbox forma parte del Grupo A; se persiste al pulsar
+        # "💾 Guardar configuración".
         try:
-            if hasattr(self, "_save_hardware_lists"):
-                self._save_hardware_lists()
+            self._on_config_dirty()
             self.log_message(
                 "==> Auto-inicio "
-                + ("ACTIVADO para esta VM." if checked
-                   else "desactivado para esta VM.")
+                + ("marcado para ACTIVAR al guardar." if checked
+                   else "marcado para desactivar al guardar.")
             )
         except Exception as e:
             try:
-                self.log_message(f"[AVISO] No se pudo guardar el auto-inicio: {e}")
+                self.log_message(f"[AVISO] Auto-inicio: {e}")
             except Exception:
                 pass
 
@@ -1560,6 +4019,134 @@ class VmLifecycleMixin:
             f"{self._format_bytes_iexport(size_out)} en el destino."
         )
         return dest_path
+
+
+    def _on_export_ova_success(self, dest_path, vm_name, t_start,
+                                destino, to_vmdk, include_iso,
+                                is_macos=False):
+        """ovf_export_summary_v1: dialogo final con resumen de la
+        exportacion OVF/OVA (duracion, destino, formato, tamano).
+
+        ovf_export_summary_v1_safe: el cuerpo va envuelto en try/except
+        para que cualquier fallo al construir el resumen no deje al
+        usuario sin feedback: se loguea el traceback y se muestra un
+        dialogo minimo de exito.
+        """
+        import traceback as _tb
+        try:
+            self._show_export_ova_summary(
+                dest_path, vm_name, t_start,
+                destino, to_vmdk, include_iso, is_macos,
+            )
+        except Exception as _e:
+            _trace = _tb.format_exc()
+            try:
+                self.log_message(
+                    f"[ERROR] _on_export_ova_success: {_e}"
+                )
+                for _ln in _trace.splitlines():
+                    self.log_message("    " + _ln)
+            except Exception:
+                pass
+            try:
+                _msg = (
+                    f"'{vm_name}' exportada correctamente.\n\n"
+                    f"Archivo: {dest_path}\n\n"
+                    f"(No se pudo construir el resumen detallado: {_e})"
+                )
+                QMessageBox.information(
+                    self, self.tr("Exportar OVF/OVA"), _msg
+                )
+            except Exception:
+                pass
+
+    def _show_export_ova_summary(self, dest_path, vm_name, t_start,
+                                  destino, to_vmdk, include_iso,
+                                  is_macos=False):
+        """ovf_export_summary_v1: construye y muestra el resumen."""
+        import time as _tm
+        try:
+            duration = max(0.0, _tm.monotonic() - t_start)
+        except Exception:
+            duration = 0.0
+
+        if duration < 60:
+            dur_txt = f"{duration:.0f} s"
+        else:
+            _m = int(duration // 60)
+            _s = int(duration - _m * 60)
+            dur_txt = f"{_m} min {_s} s"
+
+        size_txt = "-"
+        try:
+            if os.path.isfile(dest_path):
+                size_txt = self._format_bytes_iexport(
+                    os.path.getsize(dest_path)
+                )
+            else:
+                _d = os.path.dirname(dest_path)
+                _total = 0
+                for _f in os.listdir(_d):
+                    try:
+                        _total += os.path.getsize(os.path.join(_d, _f))
+                    except OSError:
+                        pass
+                if _total > 0:
+                    size_txt = self._format_bytes_iexport(_total)
+        except Exception:
+            pass
+
+        _dest_map = {
+            "vmware": "VMware Workstation / ESXi",
+            "virtualbox": "VirtualBox",
+            "virtmachine": "Virtual.Machine (QEMU/KVM)",
+        }
+        dest_txt = _dest_map.get(destino, str(destino))
+
+        if to_vmdk:
+            fmt_txt = "VMDK stream-optimized"
+        else:
+            fmt_txt = "QCOW2 aplanado + comprimido (zlib)"
+
+        iso_txt = "incluidas" if include_iso else "no incluidas"
+
+        _notas = []
+        if destino == "vmware":
+            if is_macos:
+                _notas.append(
+                    "Notas para VMware: la VM resultante NO arrancara "
+                    "macOS. La cadena OpenCore+OSX-KVM no es compatible "
+                    "con VMware."
+                )
+            else:
+                _notas.append(
+                    "Notas para VMware: si el disco original era GPT+EFI, "
+                    "activa UEFI manualmente en la VM tras importarla. "
+                    "El flag de firmware no se transmite en el OVF."
+                )
+        elif destino == "virtualbox":
+            _notas.append(
+                "Compatible con VirtualBox y con Virtual.Machine."
+            )
+        else:
+            _notas.append(
+                "Reimportable en esta app: se conservara grupo, "
+                "color, notas y configuracion completa."
+            )
+
+        _msg = (
+            f"'{vm_name}' exportada correctamente.\n\n"
+            f"  Archivo:   {dest_path}\n"
+            f"  Tamano:    {size_txt}\n"
+            f"  Duracion:  {dur_txt}\n\n"
+            f"  Destino:   {dest_txt}\n"
+            f"  Disco:     {fmt_txt}\n"
+            f"  ISOs:      {iso_txt}\n"
+        )
+        for _n in _notas:
+            _msg += f"\n{_n}"
+
+        QMessageBox.information(self, self.tr("Exportar OVF/OVA"), _msg)
 
 
     def _on_export_success(self, dest_path, vm_name):
@@ -2821,6 +5408,9 @@ class VmLifecycleMixin:
         try:
             shutil.rmtree(vm_dir)
             self.current_vm_dir = None
+            # config_tab_gating_v1: salir del modo creación y
+            # reevaluar la habilitación de la pestaña.
+            self._new_vm_mode = False
             self.refresh_vm_list()
             self.new_vm()
             self.log_message(f"==> VM eliminada: '{name}'. Los medios externos fueron conservados.")
@@ -2840,8 +5430,27 @@ class VmLifecycleMixin:
         if stack is None:
             stack = getattr(self, "version_selector_stack", None)
         if stack is not None:
+            # version_stack_index_v1: mapear por data ("linux",
+            # "windows", "macos", "android") en vez de por indice
+            # del combo. Al reordenar combo_main_os (Linux primero
+            # en macos_eula_order_fix_v1), el indice del combo
+            # dejo de coincidir con el indice del stack.
+            _os_data = None
             try:
-                stack.setCurrentIndex(index)
+                _os_data = self.combo_main_os.itemData(index)
+            except Exception:
+                _os_data = None
+            _stack_idx = None
+            if _os_data is not None:
+                _map = getattr(self, "_version_stack_index", None)
+                if isinstance(_map, dict):
+                    _stack_idx = _map.get(_os_data)
+            if _stack_idx is None:
+                # Fallback (por si el mapeo no existe todavia):
+                # usar el indice del combo tal cual, como antes.
+                _stack_idx = index
+            try:
+                stack.setCurrentIndex(int(_stack_idx))
             except Exception:
                 pass
         # Aplicar defaults del perfil del SO solo si los widgets necesarios
@@ -3308,11 +5917,50 @@ class VmLifecycleMixin:
                 item.setData(_VM_USER_ROLE, name)
             except Exception:
                 pass
+            # vm_grid_view_v2_card: datos extra para el delegate de tarjetas.
+            try:
+                item.setData(257, state)  # _VM_STATE_ROLE
+            except Exception:
+                pass
+            try:
+                _gcolor = self._load_vm_color(os.path.join(vm_config.BASE_VM_DIR, name))
+                if _gcolor:
+                    item.setData(258, _gcolor)  # _VM_COLOR_ROLE
+            except Exception:
+                pass
+            # Tooltip extendido en modo tarjeta (y también en lista, no molesta).
+            try:
+                _grp = self._load_vm_group(os.path.join(vm_config.BASE_VM_DIR, name))
+                _tips = [name]
+                if _grp:
+                    _tips.append("Grupo: " + _grp)
+                try:
+                    _data = self._load_vm_config_cached(
+                        os.path.join(vm_config.BASE_VM_DIR, name))
+                    _ram = _data.get("ram") or ""
+                    _cores = _data.get("cores") or ""
+                    _os = _data.get("os_type") or ""
+                    if _os:
+                        _tips.append("SO: " + str(_os))
+                    if _ram:
+                        _tips.append("RAM: " + str(_ram))
+                    if _cores:
+                        _tips.append("Nucleos: " + str(_cores))
+                except Exception:
+                    pass
+                _tips.append("")
+                _tips.append("Doble clic para abrir. Boton derecho para mas opciones.")
+                item.setToolTip("\n".join(_tips))
+            except Exception:
+                pass
             # Padding del ítem. Antes lo hacía el QSS (::item { padding }),
             # pero eso bloqueaba el BackgroundRole del ítem.
+            # vm_grid_view_v1: el sizeHint depende del modo de vista
+            # (0×36 en lista, 170×190 en tarjetas).
             try:
-                from PyQt6.QtCore import QSize as _QSize
-                item.setSizeHint(_QSize(0, 36))
+                _hint = self._vm_view_size_hint()
+                if _hint is not None:
+                    item.setSizeHint(_hint)
             except Exception:
                 pass
             try:
@@ -3351,6 +5999,12 @@ class VmLifecycleMixin:
                 self._apply_vm_group_filter(self.combo_vm_group.currentData())
         except Exception:
             pass
+        # welcome_screen_v1: mostrar la bienvenida si no hay VMs.
+        if hasattr(self, "_update_vm_list_stack"):
+            try:
+                self._update_vm_list_stack()
+            except Exception:
+                pass
         self.refresh_vm_runtime_status()
 
     def on_vm_list_item_clicked(self, item):
@@ -3376,6 +6030,54 @@ class VmLifecycleMixin:
                 pass
 
     def on_vm_list_changed(self, text):
+        # vm_config_save_cancel_v1_actions: si hay cambios pendientes, preguntar.
+        if (self.current_vm_dir and text
+                and getattr(self, "_has_pending_changes", None)
+                and self._has_pending_changes()):
+            _cur_name = os.path.basename(self.current_vm_dir)
+            _new_name = self._vm_name_from_list_text(text) if hasattr(self, "_vm_name_from_list_text") else ""
+            if _new_name and _new_name != _cur_name:
+                box = QMessageBox(self)
+                box.setWindowTitle(self.tr("Cambios sin guardar"))
+                box.setIcon(QMessageBox.Icon.Question)
+                box.setTextFormat(Qt.TextFormat.RichText)
+                box.setText(
+                    self.tr("La VM <b>{0}</b> tiene cambios sin guardar.").format(_cur_name)
+                )
+                box.setInformativeText(
+                    self.tr("¿Qué quieres hacer antes de cambiar a '{0}'?").format(_new_name)
+                )
+                btn_save = box.addButton(
+                    self.tr("💾 Guardar y cambiar"),
+                    QMessageBox.ButtonRole.AcceptRole,
+                )
+                btn_discard = box.addButton(
+                    self.tr("↺ Descartar y cambiar"),
+                    QMessageBox.ButtonRole.DestructiveRole,
+                )
+                btn_cancel = box.addButton(
+                    self.tr("Cancelar"),
+                    QMessageBox.ButtonRole.RejectRole,
+                )
+                box.setDefaultButton(btn_save)
+                box.exec()
+                clicked = box.clickedButton()
+                if clicked is btn_cancel:
+                    try:
+                        for _i in range(self.vm_list.count()):
+                            _it = self.vm_list.item(_i)
+                            if self._vm_name_from_item(_it) == _cur_name:
+                                self.vm_list.blockSignals(True)
+                                self.vm_list.setCurrentRow(_i)
+                                self.vm_list.blockSignals(False)
+                                break
+                    except Exception:
+                        pass
+                    return
+                if clicked is btn_save:
+                    if not self._save_config_from_ui():
+                        return
+
         if not text:
             self.current_vm_dir = None
             self.vm_control_status.setText(self.tr("● Sin VM seleccionada"))
@@ -5590,6 +8292,27 @@ class VmLifecycleMixin:
                         and self._watchdog_detect_death(name)):
                     self._watchdog_report_death(name)
 
+                # vm_history_v1 — E2: registrar el fin de sesión
+                # en el historial cuando el watchdog detecta la
+                # transición running/paused → stopped. El método
+                # _history_on_transition decide el stop_reason:
+                #   • acpi    → el usuario pulsó Apagar.
+                #   • forced  → el usuario forzó apagado/reinicio.
+                #   • crash   → pid huérfano detectado por el watchdog.
+                #   • unknown → cualquier otro caso.
+                try:
+                    if hasattr(self, "_history_on_transition"):
+                        self._history_on_transition(name, prev, state)
+                except Exception as _h_err:
+                    try:
+                        self.log_message(
+                            f"[AVISO] vm_history_v1: transición "
+                            f"{prev}→{state} de '{name}' no registrada: "
+                            f"{_h_err}"
+                        )
+                    except Exception:
+                        pass
+
                 self._vm_last_state[name] = state
 
             # Purgar entradas de VMs que ya no existen.
@@ -6030,6 +8753,14 @@ class VmLifecycleMixin:
             self._refresh_suggestions()
         if hasattr(self, "_refresh_console_status_banner"):
             self._refresh_console_status_banner()
+        # vm_history_v1 — E3a: refrescar el panel de historial
+        # en cada tick (con caché por mtime, así no toca disco si
+        # nada cambió).
+        if hasattr(self, "_refresh_history_summary"):
+            try:
+                self._refresh_history_summary()
+            except Exception:
+                pass
 
     def control_start_vm(self):
         if not self._vm_is_selected():
@@ -6241,6 +8972,16 @@ class VmLifecycleMixin:
 
     def control_poweroff_vm(self):
         if not self._vm_is_selected(): return
+        # vm_history_v1 — E2: marcar la intención (ACPI) para que el
+        # watchdog clasifique el fin de sesión como "acpi" en vez de
+        # "unknown" cuando detecte la transición running→stopped.
+        try:
+            if not hasattr(self, "_vm_stop_intent"):
+                self._vm_stop_intent = {}
+            _name = os.path.basename(self.current_vm_dir)
+            self._vm_stop_intent[_name] = "acpi"
+        except Exception:
+            pass
         try:
             self._qmp_hmp(self.current_vm_dir, "system_powerdown")
         except Exception as e:
@@ -6307,6 +9048,14 @@ class VmLifecycleMixin:
                     "¿Deseas continuar?"),
         ):
             return
+        # vm_history_v1 — E2: marcar intención "forced".
+        try:
+            if not hasattr(self, "_vm_stop_intent"):
+                self._vm_stop_intent = {}
+            _name = os.path.basename(self.current_vm_dir)
+            self._vm_stop_intent[_name] = "forced"
+        except Exception:
+            pass
         try:
             self._kill_vm_process(self.current_vm_dir)
         except Exception as e:
@@ -6323,6 +9072,16 @@ class VmLifecycleMixin:
                     "¿Deseas continuar?"),
         ):
             return
+        # vm_history_v1 — E2: marcar intención "forced" + flag de
+        # reinicio para que start_installation sepa que viene de aquí.
+        try:
+            if not hasattr(self, "_vm_stop_intent"):
+                self._vm_stop_intent = {}
+            _name = os.path.basename(self.current_vm_dir)
+            self._vm_stop_intent[_name] = "forced"
+            self._history_pending_reboot = True
+        except Exception:
+            pass
         try:
             self._kill_vm_process(self.current_vm_dir)
         except Exception as e:
@@ -6335,6 +9094,13 @@ class VmLifecycleMixin:
 
     def new_vm(self):
         self.current_vm_dir = None
+        # config_tab_gating_v1: activar modo creación. La pestaña
+        # "Configuración VM" queda habilitada aunque no haya VM.
+        self._new_vm_mode = True
+        # config_tab_gating_v2: en modo creación, el aviso breve de
+        # macOS SÍ debe poder dispararse (es el contexto correcto).
+        self._opening_vm = False
+        self._macos_notice_shown_this_session = False
         self.input_vm_name.setEnabled(True)
         self.input_vm_name.clear()
         self.combo_firmware.setCurrentIndex(self.combo_firmware.findData("bios"))
@@ -6379,6 +9145,24 @@ class VmLifecycleMixin:
             self.main_tabs.setCurrentIndex(1)
         if hasattr(self, "manager_vm_title"):
             self._update_manager_details()
+        # vm_history_v1 — E3a: limpiar el panel de historial en una VM nueva.
+        if hasattr(self, "_refresh_history_summary"):
+            try:
+                self._refresh_history_summary()
+            except Exception:
+                pass
+        # config_tab_gating_v1: habilitar la pestaña "Configuración VM".
+        try:
+            self._update_config_tab_gating()
+        except Exception:
+            pass
+        # vm_config_save_cancel_v1_dirty: en modo creación no hay
+        # .ini con el que comparar. Los botones quedan deshabilitados
+        # (no hay "cambios pendientes" respecto a nada).
+        try:
+            self._update_config_dirty_state()
+        except Exception:
+            pass
 
     def apply_windows11_defaults(self, *args):
         if self.combo_main_os.currentData() != "windows":
@@ -6401,354 +9185,388 @@ class VmLifecycleMixin:
         self.update_firmware_options_visibility()
 
     def open_vm(self, vm_name: str):
-        vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
+        # config_tab_gating_v2: marcar apertura de VM. Sirve para
+        # que el aviso breve de macOS no se dispare al abrir una
+        # VM existente (solo al crear una nueva).
+        self._opening_vm = True
+        self._macos_notice_shown_this_session = True
         try:
-            data = self._load_vm_config_cached(vm_dir)
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"No se pudo leer la configuración de '{vm_name}': {e}")
-            return
-
-        # macos_storage_cleanup_v1: en macOS, los archivos del bloque
-        # fijo de OSX-KVM (BaseSystem.img, mac_hdd_ng.qcow2, OpenCore.qcow2)
-        # NO deben estar registrados como discos SATA/NVMe del usuario.
-        # Si una version antigua los dejo ahi, QEMU intentaria abrirlos
-        # por segunda vez (junto al bloque fijo del script) y fallaria
-        # con "Failed to get write lock". Se purgan aqui, antes de que
-        # workers.py lea la configuracion.
-        try:
-            _os_type = (data.get("os_type") or "").lower()
-            if _os_type == "macos":
-                _extra = data.get("extra") or {}
-                _devices = _extra.get("storage_devices") or []
-                if isinstance(_devices, list) and _devices:
-                    _reserved_names = {
-                        "basesystem.img",
-                        "mac_hdd_ng.qcow2",
-                        "opencore.qcow2",
-                    }
-                    _kept = []
-                    _removed = []
-                    for _d in _devices:
-                        if not isinstance(_d, dict):
-                            _kept.append(_d)
-                            continue
-                        _kind = str(_d.get("device") or "")
-                        _p = str(_d.get("path") or "")
-                        _base = os.path.basename(_p).lower() if _p else ""
-                        if _kind in ("sata", "nvme", "floppy") and _base in _reserved_names:
-                            _removed.append(_d)
-                        else:
-                            _kept.append(_d)
-                    if _removed:
-                        _cfg_path = os.path.join(vm_dir, "vm_config.ini")
-                        if os.path.isfile(_cfg_path):
-                            import configparser as _cfgmod
-                            _c = _cfgmod.ConfigParser(interpolation=None)
-                            _c.read(_cfg_path, encoding="utf-8")
-                            if not _c.has_section("extra"):
-                                _c.add_section("extra")
-                            try:
-                                _extra_data = json.loads(_c["extra"].get("data", "{}"))
-                            except Exception:
-                                _extra_data = {}
-                            _extra_data["storage_devices"] = _kept
-                            _c.set("extra", "data", json.dumps(_extra_data, ensure_ascii=False))
-                            with open(_cfg_path, "w", encoding="utf-8") as _fh:
-                                _c.write(_fh)
-                            if hasattr(self, "_invalidate_vm_config_cache"):
-                                self._invalidate_vm_config_cache(vm_dir)
-                            _names = [
-                                os.path.basename(str(_d.get("path") or ""))
-                                for _d in _removed
-                            ]
-                            self.log_message(
-                                "==> macOS: purgadas "
-                                + str(len(_removed))
-                                + " entrada(s) reservada(s) de storage_devices: "
-                                + ", ".join(_names)
-                            )
-        except Exception as _clean_err:
+            vm_dir = os.path.join(vm_config.BASE_VM_DIR, vm_name)
             try:
-                self.log_message(
-                    "[AVISO] macOS: no se pudo purgar storage_devices: "
-                    + str(_clean_err)
-                )
-            except Exception:
-                pass
+                data = self._load_vm_config_cached(vm_dir)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"No se pudo leer la configuración de '{vm_name}': {e}")
+                return
 
-        # linux_installer_cleanup_v1: si la VM es Linux y su distro no
-        # tiene descarga automatica, cualquier unidad CD/DVD con
-        # source="installer" pendiente se convierte en vacia. Esto
-        # limpia VMs que se configuraron antes del fix (o que vinieron
-        # de un import) y evita que QEMU reciba "Auto-deteccion no
-        # soportada para: <distro>" al arrancar.
-        try:
-            _os_type_l = (data.get("os_type") or "").lower()
-            if _os_type_l == "linux":
-                _extra_l = data.get("extra") or {}
-                _distro_l = (_extra_l.get("distro") or "").strip()
-                _needs_cleanup = False
-                if _distro_l:
-                    try:
-                        import iso_versions as _iv_l
-                        _needs_cleanup = not _iv_l.supports_auto_download(_distro_l)
-                    except Exception:
-                        _needs_cleanup = False
-                else:
-                    _needs_cleanup = True  # sin distro conocida: limpiar por si acaso
-                if _needs_cleanup:
-                    _devs_l = _extra_l.get("storage_devices") or []
-                    _kept_l = []
-                    _removed_l = []
-                    for _d_l in _devs_l:
-                        if not isinstance(_d_l, dict):
+            # macos_storage_cleanup_v1: en macOS, los archivos del bloque
+            # fijo de OSX-KVM (BaseSystem.img, mac_hdd_ng.qcow2, OpenCore.qcow2)
+            # NO deben estar registrados como discos SATA/NVMe del usuario.
+            # Si una version antigua los dejo ahi, QEMU intentaria abrirlos
+            # por segunda vez (junto al bloque fijo del script) y fallaria
+            # con "Failed to get write lock". Se purgan aqui, antes de que
+            # workers.py lea la configuracion.
+            try:
+                _os_type = (data.get("os_type") or "").lower()
+                if _os_type == "macos":
+                    _extra = data.get("extra") or {}
+                    _devices = _extra.get("storage_devices") or []
+                    if isinstance(_devices, list) and _devices:
+                        _reserved_names = {
+                            "basesystem.img",
+                            "mac_hdd_ng.qcow2",
+                            "opencore.qcow2",
+                        }
+                        _kept = []
+                        _removed = []
+                        for _d in _devices:
+                            if not isinstance(_d, dict):
+                                _kept.append(_d)
+                                continue
+                            _kind = str(_d.get("device") or "")
+                            _p = str(_d.get("path") or "")
+                            _base = os.path.basename(_p).lower() if _p else ""
+                            if _kind in ("sata", "nvme", "floppy") and _base in _reserved_names:
+                                _removed.append(_d)
+                            else:
+                                _kept.append(_d)
+                        if _removed:
+                            _cfg_path = os.path.join(vm_dir, "vm_config.ini")
+                            if os.path.isfile(_cfg_path):
+                                import configparser as _cfgmod
+                                _c = _cfgmod.ConfigParser(interpolation=None)
+                                _c.read(_cfg_path, encoding="utf-8")
+                                if not _c.has_section("extra"):
+                                    _c.add_section("extra")
+                                try:
+                                    _extra_data = json.loads(_c["extra"].get("data", "{}"))
+                                except Exception:
+                                    _extra_data = {}
+                                _extra_data["storage_devices"] = _kept
+                                _c.set("extra", "data", json.dumps(_extra_data, ensure_ascii=False))
+                                with open(_cfg_path, "w", encoding="utf-8") as _fh:
+                                    _c.write(_fh)
+                                if hasattr(self, "_invalidate_vm_config_cache"):
+                                    self._invalidate_vm_config_cache(vm_dir)
+                                _names = [
+                                    os.path.basename(str(_d.get("path") or ""))
+                                    for _d in _removed
+                                ]
+                                self.log_message(
+                                    "==> macOS: purgadas "
+                                    + str(len(_removed))
+                                    + " entrada(s) reservada(s) de storage_devices: "
+                                    + ", ".join(_names)
+                                )
+            except Exception as _clean_err:
+                try:
+                    self.log_message(
+                        "[AVISO] macOS: no se pudo purgar storage_devices: "
+                        + str(_clean_err)
+                    )
+                except Exception:
+                    pass
+
+            # linux_installer_cleanup_v1: si la VM es Linux y su distro no
+            # tiene descarga automatica, cualquier unidad CD/DVD con
+            # source="installer" pendiente se convierte en vacia. Esto
+            # limpia VMs que se configuraron antes del fix (o que vinieron
+            # de un import) y evita que QEMU reciba "Auto-deteccion no
+            # soportada para: <distro>" al arrancar.
+            try:
+                _os_type_l = (data.get("os_type") or "").lower()
+                if _os_type_l == "linux":
+                    _extra_l = data.get("extra") or {}
+                    _distro_l = (_extra_l.get("distro") or "").strip()
+                    _needs_cleanup = False
+                    if _distro_l:
+                        try:
+                            import iso_versions as _iv_l
+                            _needs_cleanup = not _iv_l.supports_auto_download(_distro_l)
+                        except Exception:
+                            _needs_cleanup = False
+                    else:
+                        _needs_cleanup = True  # sin distro conocida: limpiar por si acaso
+                    if _needs_cleanup:
+                        _devs_l = _extra_l.get("storage_devices") or []
+                        _kept_l = []
+                        _removed_l = []
+                        for _d_l in _devs_l:
+                            if not isinstance(_d_l, dict):
+                                _kept_l.append(_d_l)
+                                continue
+                            if (_d_l.get("device") == "cdrom"
+                                    and _d_l.get("source") == "installer"
+                                    and not (_d_l.get("path") or "")):
+                                _d_l.pop("source", None)
+                                _removed_l.append(_d_l.get("name") or "CD/DVD")
                             _kept_l.append(_d_l)
-                            continue
-                        if (_d_l.get("device") == "cdrom"
-                                and _d_l.get("source") == "installer"
-                                and not (_d_l.get("path") or "")):
-                            _d_l.pop("source", None)
-                            _removed_l.append(_d_l.get("name") or "CD/DVD")
-                        _kept_l.append(_d_l)
-                    if _removed_l:
-                        _cfg_path_l = os.path.join(vm_dir, "vm_config.ini")
-                        if os.path.isfile(_cfg_path_l):
-                            import configparser as _cfg_l
-                            _c_l = _cfg_l.ConfigParser(interpolation=None)
-                            _c_l.read(_cfg_path_l, encoding="utf-8")
-                            if not _c_l.has_section("extra"):
-                                _c_l.add_section("extra")
-                            try:
-                                _ex_l = json.loads(_c_l["extra"].get("data", "{}"))
-                            except Exception:
-                                _ex_l = {}
-                            _ex_l["storage_devices"] = _kept_l
-                            _c_l.set("extra", "data", json.dumps(_ex_l, ensure_ascii=False))
-                            with open(_cfg_path_l, "w", encoding="utf-8") as _fh_l:
-                                _c_l.write(_fh_l)
-                            if hasattr(self, "_invalidate_vm_config_cache"):
-                                self._invalidate_vm_config_cache(vm_dir)
-                            self.log_message(
-                                "==> Linux: convertidas a vacias "
-                                + str(len(_removed_l))
-                                + " unidad(es) CD/DVD con descarga "
-                                "automatica no soportada: "
-                                + ", ".join(_removed_l)
-                            )
-        except Exception as _clean_l_err:
+                        if _removed_l:
+                            _cfg_path_l = os.path.join(vm_dir, "vm_config.ini")
+                            if os.path.isfile(_cfg_path_l):
+                                import configparser as _cfg_l
+                                _c_l = _cfg_l.ConfigParser(interpolation=None)
+                                _c_l.read(_cfg_path_l, encoding="utf-8")
+                                if not _c_l.has_section("extra"):
+                                    _c_l.add_section("extra")
+                                try:
+                                    _ex_l = json.loads(_c_l["extra"].get("data", "{}"))
+                                except Exception:
+                                    _ex_l = {}
+                                _ex_l["storage_devices"] = _kept_l
+                                _c_l.set("extra", "data", json.dumps(_ex_l, ensure_ascii=False))
+                                with open(_cfg_path_l, "w", encoding="utf-8") as _fh_l:
+                                    _c_l.write(_fh_l)
+                                if hasattr(self, "_invalidate_vm_config_cache"):
+                                    self._invalidate_vm_config_cache(vm_dir)
+                                self.log_message(
+                                    "==> Linux: convertidas a vacias "
+                                    + str(len(_removed_l))
+                                    + " unidad(es) CD/DVD con descarga "
+                                    "automatica no soportada: "
+                                    + ", ".join(_removed_l)
+                                )
+            except Exception as _clean_l_err:
+                try:
+                    self.log_message(
+                        "[AVISO] Linux: no se pudo limpiar el source=\"installer\": "
+                        + str(_clean_l_err)
+                    )
+                except Exception:
+                    pass
+
+            self.current_vm_dir = vm_dir
+            # config_tab_gating_v1: al abrir una VM salimos del modo
+            # creación y habilitamos la pestaña "Configuración VM".
+            self._new_vm_mode = False
+            # El usuario abrió la VM: se considera atendida la alerta de
+            # muerte inesperada del watchdog.
+            if hasattr(self, "_vm_death_flag"):
+                self._vm_death_flag.discard(vm_name)
+            # linked_clone_behavior_fix_v1: avisar si el original de este
+            # clon enlazado está corriendo (evitado durante auto-arranque).
+            if not getattr(self, "_auto_starting", False):
+                try:
+                    self._check_linked_clone_original_running(vm_dir, data)
+                except Exception:
+                    pass
+                # linked_clone_broken_detection_v1: si el backing del clon ya no
+                # existe (típico al mover solo la carpeta del clon), avisar antes
+                # de que QEMU falle con un error críptico.
+                try:
+                    self._check_linked_clone_backing_intact(vm_dir, data)
+                except Exception:
+                    pass
+            self.input_vm_name.setText(data["name"] or vm_name)
+            # vm_config_save_cancel_v1_dirty: permitir editar el
+            # nombre. Al pulsar "Guardar" se actualiza general/name
+            # del .ini. La CARPETA no se renombra.
+            self.input_vm_name.setEnabled(True)
+            if hasattr(self, "main_tabs"):
+                self.main_tabs.setCurrentIndex(0)
+
+            idx = self.combo_main_os.findData(data["os_type"])
+            if idx >= 0:
+                self.combo_main_os.setCurrentIndex(idx)
+
             try:
-                self.log_message(
-                    "[AVISO] Linux: no se pudo limpiar el source=\"installer\": "
-                    + str(_clean_l_err)
-                )
+                ram_text = str(data.get("ram", "4G")).upper().replace("GB", "G").replace(" ", "")
+                ram_val = int(re.match(r"(\d+)", ram_text).group(1)) if re.match(r"(\d+)", ram_text) else 4
+                ram_val = max(self.slider_ram.minimum(), min(self.slider_ram.maximum(), (ram_val // 2) * 2))
+                self.slider_ram.setValue(ram_val)
             except Exception:
                 pass
 
-        self.current_vm_dir = vm_dir
-        # El usuario abrió la VM: se considera atendida la alerta de
-        # muerte inesperada del watchdog.
-        if hasattr(self, "_vm_death_flag"):
-            self._vm_death_flag.discard(vm_name)
-        # linked_clone_behavior_fix_v1: avisar si el original de este
-        # clon enlazado está corriendo (evitado durante auto-arranque).
-        if not getattr(self, "_auto_starting", False):
             try:
-                self._check_linked_clone_original_running(vm_dir, data)
-            except Exception:
+                core_val = int(data.get("cores", 2))
+                core_val = max(self.slider_cores.minimum(), min(self.slider_cores.maximum(), (core_val // 2) * 2))
+                self.slider_cores.setValue(core_val)
+            except (TypeError, ValueError):
                 pass
-            # linked_clone_broken_detection_v1: si el backing del clon ya no
-            # existe (típico al mover solo la carpeta del clon), avisar antes
-            # de que QEMU falle con un error críptico.
-            try:
-                self._check_linked_clone_backing_intact(vm_dir, data)
-            except Exception:
+
+            firmware_idx = self.combo_firmware.findData(data.get("firmware", "bios"))
+            if firmware_idx >= 0:
+                self.combo_firmware.setCurrentIndex(firmware_idx)
+            chipset_idx = self.combo_chipset.findData(data.get("chipset", "pc"))
+            if chipset_idx >= 0:
+                self.combo_chipset.setCurrentIndex(chipset_idx)
+            if hasattr(self, "combo_cpu_model"):
+                cpu_model = (data.get("extra") or {}).get("cpu_model", "auto")
+                cpu_idx = self.combo_cpu_model.findData(cpu_model)
+                if cpu_idx < 0:
+                    cpu_idx = self.combo_cpu_model.findData("auto")
+                if cpu_idx >= 0:
+                    self.combo_cpu_model.setCurrentIndex(cpu_idx)
+            self.check_secure_boot.setChecked(bool(data.get("secure_boot", False)))
+            self.check_tpm.setChecked(bool(data.get("tpm", False)))
+            # Sincronizar el checkbox de auto-inicio con lo guardado en
+            # extra["autostart_on_launch"] (blockSignals: no queremos que
+            # el simple hecho de abrir la VM reescriba el .ini).
+            if hasattr(self, "check_autostart_on_launch"):
+                _as = bool((data.get("extra") or {}).get("autostart_on_launch", False))
+                self.check_autostart_on_launch.blockSignals(True)
+                self.check_autostart_on_launch.setChecked(_as)
+                self.check_autostart_on_launch.blockSignals(False)
+            self.update_firmware_options_visibility()
+            self.refresh_boot_order_choices()
+            mode_idx = self.combo_network_mode.findData(data.get("network_mode", "nat"))
+            if mode_idx >= 0:
+                self.combo_network_mode.setCurrentIndex(mode_idx)
+            net_idx = self.combo_network.findData(data.get("network_model", "virtio-net-pci"))
+            if net_idx >= 0:
+                self.combo_network.setCurrentIndex(net_idx)
+            count_idx = self.combo_network_count.findData(int(data.get("network_count", 1)))
+            if count_idx >= 0:
+                self.combo_network_count.setCurrentIndex(count_idx)
+            self.update_network_options(data.get("network_interface", ""))
+            audio_idx = self.combo_audio.findData(data.get("audio_device", "intel-hda"))
+            if audio_idx >= 0:
+                self.combo_audio.setCurrentIndex(audio_idx)
+            if hasattr(self, "combo_pointer"):
+                _ptr = (data.get("extra") or {}).get("pointer_device") or "auto"
+                _ptr_idx = self.combo_pointer.findData(_ptr)
+                if _ptr_idx < 0:
+                    _ptr_idx = 0
+                self.combo_pointer.blockSignals(True)
+                self.combo_pointer.setCurrentIndex(_ptr_idx)
+                self.combo_pointer.blockSignals(False)
+            if hasattr(self, "check_serial_to_file"):
+                _ser = bool((data.get("extra") or {}).get("serial_to_file", False))
+                self.check_serial_to_file.blockSignals(True)
+                self.check_serial_to_file.setChecked(_ser)
+                self.check_serial_to_file.blockSignals(False)
+            graphics_idx = self.combo_graphics.findData(data.get("graphics_mode", "auto"))
+            if graphics_idx >= 0:
+                self.combo_graphics.setCurrentIndex(graphics_idx)
+            graphics_vram_idx = self.combo_graphics_vram.findData(data.get("graphics_vram", "256M"))
+            if graphics_vram_idx >= 0:
+                self.combo_graphics_vram.setCurrentIndex(graphics_vram_idx)
+            # La elección de consola se aplica más abajo con
+            # _apply_console_choice_from_vm(data). Ese método llama a
+            # _on_vnc_embedded_changed() al final, así que no duplicamos aquí.
+            self.update_graphics_options()
+            _nets = data.get("network_devices") or []
+            self.refresh_network_devices_ui(_nets)
+            if hasattr(self, "check_no_network"):
+                self.check_no_network.setChecked(len(_nets) == 0)
+            self._passthrough_saved=list(data.get("passthrough_devices") or [])
+            self.refresh_passthrough_tree()
+
+            self.disk_size_setting = data.get("disk_size") or "128G"
+            self.disk_type_setting = data.get("disk_type") or "dynamic"
+            self.disk_format_setting = data.get("disk_format") or "qcow2"
+            self.disk_ext_setting = data.get("disk_ext") or ("img" if self.disk_format_setting == "raw" else self.disk_format_setting)
+
+            # Volcar la elección de consola guardada en la VM a los combos.
+            # Sin esto, los combos conservaban el valor del VM anterior.
+            self._apply_console_choice_from_vm(data)
+
+            extra = data["extra"] or {}
+            if data["os_type"] == "macos":
+                for i, (_, val) in enumerate(self.os_options):
+                    if val == extra.get("os_choice"):
+                        self.combo_macos_ver.setCurrentIndex(i)
+                        break
+                # La fuente de instalación se lee desde la unidad CD/DVD
+                # "Principal" en Almacenamiento. No hay widgets en la parte
+                # superior que actualizar (se eliminaron por duplicación).
+            elif data["os_type"] == "windows":
+                win_idx = self.combo_win_ver.findText(extra.get("win_ver", "Windows 11"))
+                if win_idx >= 0:
+                    self.combo_win_ver.setCurrentIndex(win_idx)
+                self.check_win_auto.setChecked(bool(extra.get("auto_detect", False)))
+                if not extra.get("auto_detect"):
+                    # portable_paths_v1: resolver ruta guardada (relativa) a
+                    # absoluta para mostrarla en el input y que os.path.isfile
+                    # funcione al arrancar.
+                    _stored_iso = extra.get("iso_path", "") or ""
+                    _abs_iso = vm_paths.to_absolute(vm_dir, _stored_iso) if _stored_iso else ""
+                    self.input_win_iso.setText(_abs_iso)
+            elif data["os_type"] == "android":
+                # La fuente de instalación se lee desde la unidad CD/DVD
+                # "Principal" en Almacenamiento. No hay widget en la parte
+                # superior que actualizar (se eliminó por duplicación).
                 pass
-        self.input_vm_name.setText(data["name"] or vm_name)
-        self.input_vm_name.setEnabled(False)
-        if hasattr(self, "main_tabs"):
-            self.main_tabs.setCurrentIndex(0)
+            else:
+                lin_idx = self.combo_lin_distro.findText(extra.get("distro", ""))
+                if lin_idx >= 0:
+                    self.combo_lin_distro.setCurrentIndex(lin_idx)
+                # Restaurar la elección de ISO guardada ('Más reciente', una versión
+                # concreta, o 'Ninguna' si el usuario aportó su propia imagen). La
+                # unidad manda sobre lo guardado en 'extra' cuando difieren.
+                _lin_devices = self._storage_devices_all(vm_dir)
+                _lin_choice, _ = principal_cdrom.derive_choice(extra, _lin_devices, "linux")
+                self._refresh_lin_versions(select=_lin_choice)
 
-        idx = self.combo_main_os.findData(data["os_type"])
-        if idx >= 0:
-            self.combo_main_os.setCurrentIndex(idx)
-
-        try:
-            ram_text = str(data.get("ram", "4G")).upper().replace("GB", "G").replace(" ", "")
-            ram_val = int(re.match(r"(\d+)", ram_text).group(1)) if re.match(r"(\d+)", ram_text) else 4
-            ram_val = max(self.slider_ram.minimum(), min(self.slider_ram.maximum(), (ram_val // 2) * 2))
-            self.slider_ram.setValue(ram_val)
-        except Exception:
-            pass
-
-        try:
-            core_val = int(data.get("cores", 2))
-            core_val = max(self.slider_cores.minimum(), min(self.slider_cores.maximum(), (core_val // 2) * 2))
-            self.slider_cores.setValue(core_val)
-        except (TypeError, ValueError):
-            pass
-
-        firmware_idx = self.combo_firmware.findData(data.get("firmware", "bios"))
-        if firmware_idx >= 0:
-            self.combo_firmware.setCurrentIndex(firmware_idx)
-        chipset_idx = self.combo_chipset.findData(data.get("chipset", "pc"))
-        if chipset_idx >= 0:
-            self.combo_chipset.setCurrentIndex(chipset_idx)
-        if hasattr(self, "combo_cpu_model"):
-            cpu_model = (data.get("extra") or {}).get("cpu_model", "auto")
-            cpu_idx = self.combo_cpu_model.findData(cpu_model)
-            if cpu_idx < 0:
-                cpu_idx = self.combo_cpu_model.findData("auto")
-            if cpu_idx >= 0:
-                self.combo_cpu_model.setCurrentIndex(cpu_idx)
-        self.check_secure_boot.setChecked(bool(data.get("secure_boot", False)))
-        self.check_tpm.setChecked(bool(data.get("tpm", False)))
-        # Sincronizar el checkbox de auto-inicio con lo guardado en
-        # extra["autostart_on_launch"] (blockSignals: no queremos que
-        # el simple hecho de abrir la VM reescriba el .ini).
-        if hasattr(self, "check_autostart_on_launch"):
-            _as = bool((data.get("extra") or {}).get("autostart_on_launch", False))
-            self.check_autostart_on_launch.blockSignals(True)
-            self.check_autostart_on_launch.setChecked(_as)
-            self.check_autostart_on_launch.blockSignals(False)
-        self.update_firmware_options_visibility()
-        self.refresh_boot_order_choices()
-        mode_idx = self.combo_network_mode.findData(data.get("network_mode", "nat"))
-        if mode_idx >= 0:
-            self.combo_network_mode.setCurrentIndex(mode_idx)
-        net_idx = self.combo_network.findData(data.get("network_model", "virtio-net-pci"))
-        if net_idx >= 0:
-            self.combo_network.setCurrentIndex(net_idx)
-        count_idx = self.combo_network_count.findData(int(data.get("network_count", 1)))
-        if count_idx >= 0:
-            self.combo_network_count.setCurrentIndex(count_idx)
-        self.update_network_options(data.get("network_interface", ""))
-        audio_idx = self.combo_audio.findData(data.get("audio_device", "intel-hda"))
-        if audio_idx >= 0:
-            self.combo_audio.setCurrentIndex(audio_idx)
-        if hasattr(self, "combo_pointer"):
-            _ptr = (data.get("extra") or {}).get("pointer_device") or "auto"
-            _ptr_idx = self.combo_pointer.findData(_ptr)
-            if _ptr_idx < 0:
-                _ptr_idx = 0
-            self.combo_pointer.blockSignals(True)
-            self.combo_pointer.setCurrentIndex(_ptr_idx)
-            self.combo_pointer.blockSignals(False)
-        if hasattr(self, "check_serial_to_file"):
-            _ser = bool((data.get("extra") or {}).get("serial_to_file", False))
-            self.check_serial_to_file.blockSignals(True)
-            self.check_serial_to_file.setChecked(_ser)
-            self.check_serial_to_file.blockSignals(False)
-        graphics_idx = self.combo_graphics.findData(data.get("graphics_mode", "auto"))
-        if graphics_idx >= 0:
-            self.combo_graphics.setCurrentIndex(graphics_idx)
-        graphics_vram_idx = self.combo_graphics_vram.findData(data.get("graphics_vram", "256M"))
-        if graphics_vram_idx >= 0:
-            self.combo_graphics_vram.setCurrentIndex(graphics_vram_idx)
-        # La elección de consola se aplica más abajo con
-        # _apply_console_choice_from_vm(data). Ese método llama a
-        # _on_vnc_embedded_changed() al final, así que no duplicamos aquí.
-        self.update_graphics_options()
-        _nets = data.get("network_devices") or []
-        self.refresh_network_devices_ui(_nets)
-        if hasattr(self, "check_no_network"):
-            self.check_no_network.setChecked(len(_nets) == 0)
-        self._passthrough_saved=list(data.get("passthrough_devices") or [])
-        self.refresh_passthrough_tree()
-
-        self.disk_size_setting = data.get("disk_size") or "128G"
-        self.disk_type_setting = data.get("disk_type") or "dynamic"
-        self.disk_format_setting = data.get("disk_format") or "qcow2"
-        self.disk_ext_setting = data.get("disk_ext") or ("img" if self.disk_format_setting == "raw" else self.disk_format_setting)
-
-        # Volcar la elección de consola guardada en la VM a los combos.
-        # Sin esto, los combos conservaban el valor del VM anterior.
-        self._apply_console_choice_from_vm(data)
-
-        extra = data["extra"] or {}
-        if data["os_type"] == "macos":
-            for i, (_, val) in enumerate(self.os_options):
-                if val == extra.get("os_choice"):
-                    self.combo_macos_ver.setCurrentIndex(i)
-                    break
-            # La fuente de instalación se lee desde la unidad CD/DVD
-            # "Principal" en Almacenamiento. No hay widgets en la parte
-            # superior que actualizar (se eliminaron por duplicación).
-        elif data["os_type"] == "windows":
-            win_idx = self.combo_win_ver.findText(extra.get("win_ver", "Windows 11"))
-            if win_idx >= 0:
-                self.combo_win_ver.setCurrentIndex(win_idx)
-            self.check_win_auto.setChecked(bool(extra.get("auto_detect", False)))
-            if not extra.get("auto_detect"):
-                # portable_paths_v1: resolver ruta guardada (relativa) a
-                # absoluta para mostrarla en el input y que os.path.isfile
-                # funcione al arrancar.
-                _stored_iso = extra.get("iso_path", "") or ""
-                _abs_iso = vm_paths.to_absolute(vm_dir, _stored_iso) if _stored_iso else ""
-                self.input_win_iso.setText(_abs_iso)
-        elif data["os_type"] == "android":
-            # La fuente de instalación se lee desde la unidad CD/DVD
-            # "Principal" en Almacenamiento. No hay widget en la parte
-            # superior que actualizar (se eliminó por duplicación).
-            pass
-        else:
-            lin_idx = self.combo_lin_distro.findText(extra.get("distro", ""))
-            if lin_idx >= 0:
-                self.combo_lin_distro.setCurrentIndex(lin_idx)
-            # Restaurar la elección de ISO guardada ('Más reciente', una versión
-            # concreta, o 'Ninguna' si el usuario aportó su propia imagen). La
-            # unidad manda sobre lo guardado en 'extra' cuando difieren.
-            _lin_devices = self._storage_devices_all(vm_dir)
-            _lin_choice, _ = principal_cdrom.derive_choice(extra, _lin_devices, "linux")
-            self._refresh_lin_versions(select=_lin_choice)
-
-        # Restaurar el flag de modo compatibilidad de snapshots antes
-        # de tocar la UI, para que _refresh_snapshot_compat_ui_on_os_change
-        # lea el estado correcto.
-        if hasattr(self, "check_snapshot_compat"):
+            # Restaurar el flag de modo compatibilidad de snapshots antes
+            # de tocar la UI, para que _refresh_snapshot_compat_ui_on_os_change
+            # lea el estado correcto.
+            if hasattr(self, "check_snapshot_compat"):
+                try:
+                    _sc = bool((data.get("extra") or {}).get("snapshot_compat", False))
+                    self.check_snapshot_compat.blockSignals(True)
+                    self.check_snapshot_compat.setChecked(_sc)
+                    self.check_snapshot_compat.blockSignals(False)
+                except Exception:
+                    pass
             try:
-                _sc = bool((data.get("extra") or {}).get("snapshot_compat", False))
-                self.check_snapshot_compat.blockSignals(True)
-                self.check_snapshot_compat.setChecked(_sc)
-                self.check_snapshot_compat.blockSignals(False)
-            except Exception:
-                pass
-        try:
-            self._refresh_snapshot_compat_ui_on_os_change()
-        except Exception:
-            pass
-
-        # Cargar la programacion de snapshots automaticos en la UI.
-        try:
-            self._load_snapshot_schedule_to_ui(data)
-        except Exception:
-            pass
-        # Cargar la programacion de backups automaticos en la UI.
-        try:
-            self._load_backup_schedule_to_ui(data)
-        except Exception:
-            pass
-
-        self._set_vm_status("saved")
-        self.refresh_shared_folders_ui()
-        self._update_vm_summary()
-        # Refrescar la miniatura del último snapshot al abrir una VM.
-        if hasattr(self, "_refresh_last_snapshot_thumbnail"):
-            self._refresh_last_snapshot_thumbnail()
-        self.log_message(f"==> Configuración de '{vm_name}' cargada desde {vm_dir}")
-        # Refrescar los botones inmediatamente sin esperar al timer.
-        if hasattr(self, "_update_start_stop_buttons"):
-            try:
-                self._update_start_stop_buttons(self._runtime_state(vm_name))
-            except Exception:
-                pass
-        # Aplicar el foco correcto (Resumen, Consola Gráfica o
-        # visor externo según el estado y el modo de la VM).
-        if hasattr(self, "_focus_console_for_vm"):
-            try:
-                self._focus_console_for_vm(vm_name, data)
+                self._refresh_snapshot_compat_ui_on_os_change()
             except Exception:
                 pass
 
+            # Cargar la programacion de snapshots automaticos en la UI.
+            try:
+                self._load_snapshot_schedule_to_ui(data)
+            except Exception:
+                pass
+            # Cargar la programacion de backups automaticos en la UI.
+            try:
+                self._load_backup_schedule_to_ui(data)
+            except Exception:
+                pass
+
+            self._set_vm_status("saved")
+            self.refresh_shared_folders_ui()
+            self._update_vm_summary()
+            # Refrescar la miniatura del último snapshot al abrir una VM.
+            if hasattr(self, "_refresh_last_snapshot_thumbnail"):
+                self._refresh_last_snapshot_thumbnail()
+            self.log_message(f"==> Configuración de '{vm_name}' cargada desde {vm_dir}")
+            # Refrescar los botones inmediatamente sin esperar al timer.
+            if hasattr(self, "_update_start_stop_buttons"):
+                try:
+                    self._update_start_stop_buttons(self._runtime_state(vm_name))
+                except Exception:
+                    pass
+            # Aplicar el foco correcto (Resumen, Consola Gráfica o
+            # visor externo según el estado y el modo de la VM).
+            if hasattr(self, "_focus_console_for_vm"):
+                try:
+                    self._focus_console_for_vm(vm_name, data)
+                except Exception:
+                    pass
+            # vm_history_v1 — E3a: refrescar el panel de historial al
+            # abrir una VM (para que no se vea el de la VM anterior).
+            if hasattr(self, "_refresh_history_summary"):
+                try:
+                    self._refresh_history_summary()
+                except Exception:
+                    pass
+
+        finally:
+            # config_tab_gating_v2: limpiar el flag y aplicar el
+            # gating SIEMPRE, aunque el cuerpo de open_vm falle.
+            self._opening_vm = False
+            try:
+                self._update_config_tab_gating()
+            except Exception:
+                pass
+            # vm_config_save_cancel_v1_dirty: al abrir una VM el
+            # estado base es el del .ini, así que no hay cambios
+            # pendientes. Actualizar botones.
+            try:
+                self._update_config_dirty_state()
+            except Exception:
+                pass
     def maybe_autofill_vm_name(self, *args):
         if self.input_vm_name.text().strip():
             return
@@ -7346,15 +10164,20 @@ class VmLifecycleMixin:
             "vuelve a intentarlo cuando tengas espacio suficiente."
         )
 
-    def _check_space_or_warn(self, dest_path, needed_bytes, op_label):
+    def _check_space_or_warn(self, dest_path, needed_bytes, op_label,
+                             extra_context=None):
         """Comprueba espacio libre antes de operaciones largas.
 
-        Marcador vm_space_guard_v1. Devuelve True si el usuario acepta
+        Marcador vm_space_guard_v1. Marcador ovf_space_optimize_v1:
+        acepta `extra_context` (lista de str) para enriquecer el mensaje
+        con desglose y sugerencias. Devuelve True si el usuario acepta
         continuar (o si hay espacio de sobra). False si no hay espacio
         suficiente o el usuario cancela tras el aviso de "va justo".
         """
         try:
-            ok, free, msg = ovf_io.check_ovf_space(dest_path, needed_bytes)
+            ok, free, msg = ovf_io.check_ovf_space(
+                dest_path, needed_bytes, extra_context=extra_context
+            )
         except Exception:
             return True
         if ok is False:
@@ -7375,14 +10198,31 @@ class VmLifecycleMixin:
     def _ovf_size_estimate_for_export(self, vm_dir, is_macos, to_vmdk):
         """Estima los bytes necesarios para exportar una VM.
 
-        Marcador ovf_auto_compress_v1. Suma el tamaño REAL de los discos
-        a exportar y aplica un factor según la modalidad elegida:
+        Marcador ovf_auto_compress_v1. Marcador ovf_space_optimize_v1:
+        devuelve (needed, breakdown) en lugar de solo `needed`.
 
-          • VMDK  → 2.5× (conversión a stream-optimized, archivo temporal
-                    grande que se añade al paquete).
-          • QCOW2 → 1.8× (se aplana y comprime a un temporal; el pico de
-                    espacio es original + convertido + margen).
-          • Otros → 1.2× (copia directa).
+        Calcula el tamaño real de los discos a exportar y aplica un
+        factor según la modalidad elegida:
+
+          • VMDK  → 2.1× (temporal VMDK stream-opt + OVA final, que
+                    coexisten durante el empaquetado).
+          • QCOW2 → 1.3× (temporal comprimido ~0.5× + OVA final ~0.5×,
+                    con margen de seguridad).
+
+        Los factores anteriores (2.5 y 1.8) pedían espacio de disco que
+        no se corresponde con el pico real: el disco original ya está en
+        disco, así que solo importa el espacio que va a ocuparse en el
+        DESTINO durante la operación.
+
+        Devuelve:
+          (needed_bytes, breakdown)
+          breakdown = {
+            "original": X,   # tamaño del disco original (informativo)
+            "temporal": Y,   # temporal durante la conversión
+            "final":    Z,   # OVA / OVF final en el destino
+            "peak":     P,   # pico simultáneo en el destino
+          }
+        Si total <= 0, devuelve (0, {}).
         """
         total = 0
         try:
@@ -7410,11 +10250,26 @@ class VmLifecycleMixin:
             except OSError:
                 pass
         if total <= 0:
-            return 0
+            return 0, {}
         if to_vmdk:
-            return int(total * 2.5)
-        # QCOW2 con compresión automática: original + temporal comprimido.
-        return int(total * 1.8)
+            # VMDK stream-optimized: 1× temporal + 1× OVA final.
+            temporal = total
+            final = total
+            peak = temporal + final
+            needed = int(total * 2.1)  # 5% colchón sobre el pico real (2.0)
+        else:
+            # QCOW2 con compresión zlib: ~0.5× temporal + ~0.5× OVA final.
+            temporal = int(total * 0.5)
+            final = int(total * 0.5)
+            peak = temporal + final
+            needed = int(total * 1.3)  # colchón amplio sobre el pico (~1.0)
+        breakdown = {
+            "original": total,
+            "temporal": temporal,
+            "final": final,
+            "peak": peak,
+        }
+        return needed, breakdown
 
     def _export_vm_as_ova(self, fmt, vm_name):
         """Punto de entrada del export OVF/OVA.
@@ -7441,6 +10296,11 @@ class VmLifecycleMixin:
         _exp_vals = _exp_dlg.values() or {}
         to_vmdk = bool(_exp_vals.get("to_vmdk"))
         include_iso = bool(_exp_vals.get("include_iso"))
+        # ovf_export_destino_v1: destino explicito elegido por el usuario.
+        # Se propaga a _export_vm_as_ova_impl y a ovf_io.build_ovf_xml.
+        destino = str(_exp_vals.get("destino") or "virtualbox").lower()
+        if destino not in ("vmware", "virtualbox", "virtmachine"):
+            destino = "virtualbox"
 
         # 2) Destino
         if fmt == "ova":
@@ -7476,12 +10336,93 @@ class VmLifecycleMixin:
         vm_dir = self.current_vm_dir
 
         # vm_space_guard_v1: comprobar espacio antes de lanzar el worker.
+        # ovf_space_optimize_v1: pasar desglose y sugerencias al mensaje.
         try:
-            _needed = self._ovf_size_estimate_for_export(
+            _needed, _breakdown = self._ovf_size_estimate_for_export(
                 vm_dir, _is_macos, to_vmdk
             )
+            _ctx = []
+            if _breakdown:
+                _hb = ovf_io.human_bytes_io
+                _ctx.append("Desglose estimado del espacio en el destino:")
+                _ctx.append(
+                    "  • Disco original: "
+                    + _hb(_breakdown["original"])
+                    + " (ya está en disco, no cuenta)"
+                )
+                _ctx.append(
+                    "  • Temporal durante conversión: ~"
+                    + _hb(_breakdown["temporal"])
+                )
+                _ctx.append(
+                    "  • OVA / OVF final: ~"
+                    + _hb(_breakdown["final"])
+                )
+                _ctx.append(
+                    "  Pico simultáneo en el destino: ~"
+                    + _hb(_breakdown["peak"])
+                )
+                if destino == "vmware":
+                    _ctx.append("")
+                    _ctx.append(
+                        "El destino VMware siempre usa VMDK, que "
+                        "necesita ~2× el tamaño del disco "
+                        "original durante la exportación."
+                    )
+                    _ctx.append("")
+                    _ctx.append("Para liberar espacio:")
+                    _ctx.append(
+                        "  • Borra archivos en el disco destino, o"
+                    )
+                    _ctx.append(
+                        "  • Elige otra carpeta en un disco con "
+                        "más espacio."
+                    )
+                    _ctx.append("")
+                    _ctx.append(
+                        "Si NO necesitas específicamente VMware: "
+                        "cancela esta exportación y hazla con "
+                        "destino 'Virtual.Machine', que ocupa "
+                        "~40% menos."
+                    )
+                elif to_vmdk:
+                    _ctx.append("")
+                    _ctx.append(
+                        "El formato VMDK necesita ~2× el tamaño "
+                        "del disco original durante la exportación."
+                    )
+                    _ctx.append("")
+                    _ctx.append("Para liberar espacio:")
+                    _ctx.append(
+                        "  • Borra archivos en el disco destino, o"
+                    )
+                    _ctx.append(
+                        "  • Elige otra carpeta en un disco con "
+                        "más espacio."
+                    )
+                    _ctx.append("")
+                    _ctx.append(
+                        "O cancela y cambia el formato a QCOW2 en el "
+                        "diálogo: mismo destino, ~40% menos espacio."
+                    )
+                else:
+                    _ctx.append("")
+                    _ctx.append(
+                        "Ya estás usando el formato más ligero "
+                        "(QCOW2)."
+                    )
+                    _ctx.append("")
+                    _ctx.append("Para liberar espacio:")
+                    _ctx.append(
+                        "  • Borra archivos en el disco destino, o"
+                    )
+                    _ctx.append(
+                        "  • Elige otra carpeta en un disco con "
+                        "más espacio."
+                    )
             if not self._check_space_or_warn(
-                dest_path, _needed, "Exportar OVF/OVA"
+                dest_path, _needed, "Exportar OVF/OVA",
+                extra_context=_ctx,
             ):
                 return
         except Exception as _sp_err:
@@ -7492,17 +10433,25 @@ class VmLifecycleMixin:
             except Exception:
                 pass
 
+        # ovf_export_summary_v1: medimos la duracion real para
+        # mostrarla en el dialogo final junto con destino y formato.
+        import time as _time_mod
+        _t_start = _time_mod.monotonic()
+
         def _work(log_emit, is_cancelled, progress_emit):
             return self._export_vm_as_ova_impl(
                 vm_dir, vm_name, fmt, dest_path, to_vmdk, include_iso,
-                _is_macos,
+                _is_macos, destino,
                 log_emit, is_cancelled, progress_emit,
             )
 
         self.run_async(
             _work,
             f"Exportando '{vm_name}' como {fmt.upper()}",
-            on_success=lambda result: self._on_export_success(result, vm_name),
+            on_success=lambda result: self._on_export_ova_success(
+                result, vm_name, _t_start, destino, to_vmdk, include_iso,
+                _is_macos,
+            ),
             on_error=lambda e: self._show_selectable_error(
                 f"Exportar {fmt.upper()}",
                 self._enospc_friendly_msg(e, "carpeta destino")
@@ -7516,9 +10465,14 @@ class VmLifecycleMixin:
         )
 
     def _export_vm_as_ova_impl(self, vm_dir, vm_name, fmt, dest_path,
-                                to_vmdk, include_iso, is_macos,
+                                to_vmdk, include_iso, is_macos, destino,
                                 log_emit, is_cancelled, progress_emit):
-        """Cuerpo del export OVF/OVA. Corre en hilo de fondo."""
+        """Cuerpo del export OVF/OVA. Corre en hilo de fondo.
+
+        ovf_export_destino_v1: `destino` viene ya resuelto por el dialogo
+        ("vmware" | "virtualbox" | "virtmachine") y se propaga a
+        ovf_io.build_ovf_xml para ajustar el descriptor.
+        """
         import tempfile as _tmp
         import shutil as _sh
 
@@ -7678,13 +10632,17 @@ class VmLifecycleMixin:
             progress_emit(int(base + pct * _SLICE / 100.0), msg)
 
         def _emit_pack(pct, msg):
-            """Reescala 0..100 del empaquetado al rango 80..100 global."""
+            """ovf_tar_indeterminate_v1: tar no reporta progreso
+            intermedio (no tiene opcion -p y su salida no es
+            parseable con fiabilidad). En lugar de dejar la barra
+            clavada al 80% durante minutos, pasamos a modo
+            indeterminado (animacion continua): el usuario ve que
+            la operacion sigue viva, aunque no sepamos el % exacto.
+            El mensaje del empaquetado si se muestra.
+            """
             if not progress_emit:
                 return
-            if pct < 0:
-                progress_emit(-1, msg)
-                return
-            progress_emit(int(_CONVERT_SHARE + pct * _PACK_SHARE / 100.0), msg)
+            progress_emit(-1, msg)
 
         try:
             # 4) Preparar cada disco
@@ -7734,7 +10692,45 @@ class VmLifecycleMixin:
                 #   • Otros (RAW, VDI…) → copia directa.
                 _is_qcow2 = dst_name.lower().endswith(".qcow2")
 
-                if to_vmdk or _is_qcow2:
+                # ovf_no_temp_v1: si el disco es QCOW2, está ya
+                # aplanado (sin snapshots internos) y no tiene backing
+                # file, no hace falta convertirlo: se puede empaquetar
+                # directamente. Ahorra tiempo (no se ejecuta qemu-img
+                # convert) y espacio temporal (no se duplica el disco
+                # en el work_dir). Trade-off: el OVA final no se
+                # recomprime con zlib, así que si el QCOW2 original no
+                # estaba comprimido, el OVA será algo más grande.
+                # Los discos con snapshots o backing SÍ se convierten
+                # (necesario para aplanarlos dentro del OVA).
+                _skip_convert = False
+                if (not to_vmdk) and _is_qcow2:
+                    try:
+                        _r_info = subprocess.run(
+                            ["qemu-img", "info", "--output=json", src],
+                            capture_output=True, text=True, timeout=15,
+                        )
+                        if _r_info.returncode == 0:
+                            _info = json.loads(_r_info.stdout or "{}")
+                            _snaps = _info.get("snapshots") or []
+                            _has_backing = bool(
+                                _info.get("backing-filename")
+                            )
+                            if (not _snaps) and (not _has_backing):
+                                _skip_convert = True
+                    except Exception:
+                        _skip_convert = False
+
+                if _skip_convert:
+                    log_emit(
+                        f"==> Disco {i+1}/{len(disks_to_export)}: "
+                        f"{d['name']} — ya está aplanado y sin "
+                        f"snapshots; se empaqueta directamente "
+                        f"(sin conversión ni recompresión)."
+                    )
+                    _emit_convert(0, f"Sin conversión: {dst_name}")
+                    _emit_convert(100, f"Listo: {dst_name}")
+                    src_for_tar = src
+                elif to_vmdk or _is_qcow2:
                     if work_dir is None:
                         parent = (os.path.dirname(os.path.abspath(dest_path))
                                   or os.getcwd())
@@ -7763,16 +10759,19 @@ class VmLifecycleMixin:
                         # manualmente 0 al empezar y 100 al terminar para
                         # que la franja del disco se rellene.
                         _emit_convert(0, f"Comprimiendo {dst_name}...")
-                        _r = subprocess.run(
-                            ["qemu-img", "convert", "-c", "-p",
-                             "-O", "qcow2", src, dst],
-                            capture_output=True, text=True,
+                        # ovf_qcow2_compressed_live_progress_v1:
+                        # delegamos en ovf_io.convert_to_qcow2_compressed,
+                        # que lee el progreso en vivo (qemu-img usa \r,
+                        # no \n) y respeta is_cancelled. Antes se usaba
+                        # subprocess.run(capture_output=True), que dejaba
+                        # la barra congelada al 0% durante toda la
+                        # conversion.
+                        ovf_io.convert_to_qcow2_compressed(
+                            src, dst,
+                            log_emit=log_emit,
+                            progress_emit=_emit_convert,
+                            is_cancelled=is_cancelled,
                         )
-                        if _r.returncode != 0:
-                            err = (_r.stderr or _r.stdout or "").strip()
-                            raise RuntimeError(self.tr(
-                                "qemu-img convert -c falló para "
-                                "'{0}': {1}").format(os.path.basename(src), err))
                         if (not os.path.isfile(dst)
                                 or os.path.getsize(dst) == 0):
                             raise RuntimeError(self.tr(
@@ -7884,6 +10883,18 @@ class VmLifecycleMixin:
             _firmware_export = str(data.get("firmware") or "bios").lower()
             if is_macos:
                 _firmware_export = "uefi"
+            # ovf_vmware_compat_v4: pasar el tamano real en bytes
+            # de cada disco para rellenar ovf:size. ovftool lo
+            # exige; sin el, rechaza con "Invalid value <id> for
+            # attribute fileRef".
+            _disk_sizes = {}
+            for _d_ovf in ovf_disks:
+                try:
+                    _disk_sizes[_d_ovf["disk_id"]] = int(
+                        os.path.getsize(_d_ovf["_abs"])
+                    )
+                except Exception:
+                    _disk_sizes[_d_ovf["disk_id"]] = 0
             ovf_text = ovf_io.build_ovf_xml(
                 vm_name=vm_name,
                 os_type=os_type,
@@ -7895,6 +10906,8 @@ class VmLifecycleMixin:
                 cdroms=_cdroms_arg,
                 annotation=_annotation,
                 firmware=_firmware_export,
+                destino=destino,
+                disk_sizes=_disk_sizes,
             )
 
             # 7) Metadata propia
@@ -8140,7 +11153,9 @@ class VmLifecycleMixin:
             disks = ovf_data.get("disks") or []
             log_emit(f"==> Discos a importar: {len(disks)}")
 
-            # ovf_ova_io_v1_macos_import: rama específica macOS.
+            # ovf_space_optimize_v1_msgfix
+# ovf_export_summary_v1_ok
+# ovf_ova_io_v1_macos_import: rama específica macOS.
             # El OVA contiene mac_hdd_ng.qcow2 (siempre) y opcionalmente
             # BaseSystem.img. NO van a storage_devices: el flujo macOS
             # los lee por nombre fijo desde vm_dir.
@@ -8471,3 +11486,9 @@ class VmLifecycleMixin:
 # vm_space_guard_v1
 # vm_enospc_msg_v1
 # _persist_android_iso_unified_v2
+
+# vm_config_save_cancel_v1_dirty_2b1
+
+# vm_config_save_cancel_v1_actions
+
+# vm_config_save_cancel_v1_actions onchange

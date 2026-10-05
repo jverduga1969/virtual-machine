@@ -9,7 +9,7 @@ import json
 import shutil
 import subprocess
 import requests
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import QMessageBox, QApplication
 from task_progress import TaskProgressDialog
 
@@ -360,6 +360,81 @@ class InstallFlowMixin:
         return qemu, problems
 
     def start_installation(self):
+        # vm_config_save_cancel_v1_start_guard: si hay cambios pendientes
+        # en la pestaña Configuración VM, ofrecer guardarlos antes de
+        # arrancar. Sin esto, el usuario ve un aviso de "cambios sin
+        # guardar" al cambiar de VM o cerrar la app, pero al pulsar
+        # Iniciar los cambios se perdían silenciosamente.
+        #
+        # IMPORTANTE: esto va ANTES de leer vm_name, porque el usuario
+        # puede haber cambiado el nombre en el formulario. Si guardamos,
+        # el nombre real se actualiza en el .ini; si no, no tocamos nada.
+        try:
+            if (getattr(self, "current_vm_dir", None)
+                    and getattr(self, "_has_pending_changes", None)
+                    and self._has_pending_changes()):
+                _vm_name = os.path.basename(self.current_vm_dir)
+                _box = QMessageBox(self)
+                _box.setWindowTitle(self.tr("Cambios sin guardar"))
+                _box.setIcon(QMessageBox.Icon.Question)
+                _box.setTextFormat(Qt.TextFormat.RichText)
+                _box.setText(self.tr(
+                    "La VM <b>{0}</b> tiene cambios sin guardar."
+                ).format(_vm_name))
+                _box.setInformativeText(self.tr(
+                    "Si arrancas sin guardar, los cambios de la interfaz\n"
+                    "se perderán al recargar la configuración."
+                ))
+                _btn_save = _box.addButton(
+                    self.tr("💾 Guardar y arrancar"),
+                    QMessageBox.ButtonRole.AcceptRole,
+                )
+                _btn_discard = _box.addButton(
+                    self.tr("↺ Descartar y arrancar"),
+                    QMessageBox.ButtonRole.DestructiveRole,
+                )
+                _btn_cancel = _box.addButton(
+                    self.tr("Cancelar"),
+                    QMessageBox.ButtonRole.RejectRole,
+                )
+                _box.setDefaultButton(_btn_save)
+                _box.exec()
+                _clicked = _box.clickedButton()
+                if _clicked is _btn_cancel:
+                    return
+                if _clicked is _btn_save:
+                    if not self._save_config_from_ui():
+                        return
+                    # Tras guardar, recargar el formulario desde disco
+                    # para que los widgets reflejen el estado persistido
+                    # (RAM, cores, etc. formateados). Sin esto, algunos
+                    # campos podrían quedar en su forma "de UI" y no
+                    # coincidir con lo que va a arrancar.
+                    try:
+                        self.open_vm(os.path.basename(self.current_vm_dir))
+                    except Exception:
+                        pass
+                elif _clicked is _btn_discard:
+                    # Descartar y arrancar: recargar el formulario
+                    # desde disco para que los widgets pierdan los
+                    # cambios pendientes ANTES de que el flujo siga
+                    # leyendo self.slider_ram.value(), etc. Sin esto,
+                    # arrancaríamos con los valores que el usuario
+                    # acababa de modificar.
+                    try:
+                        self.open_vm(os.path.basename(self.current_vm_dir))
+                    except Exception:
+                        pass
+        except Exception as _guard_err:
+            # Cualquier fallo del guard no debe impedir arrancar.
+            try:
+                self.log_message(
+                    f"[AVISO] vm_config_save_cancel_v1_start_guard: "
+                    f"{_guard_err}"
+                )
+            except Exception:
+                pass
+
         vm_name = self.input_vm_name.text().strip()
         if not vm_name:
             QMessageBox.warning(self, self.tr("Advertencia"), self.tr("Debe indicar un nombre para la máquina virtual."))
@@ -482,6 +557,26 @@ class InstallFlowMixin:
                 pass
         os.makedirs(vm_dir, exist_ok=True)
         config_path = os.path.join(vm_dir, "vm_config.ini")
+
+        # macos_eula_notice_v1: aviso legal ANTES de arrancar una VM
+        # macOS por primera vez. Si el usuario cancela, abortamos
+        # sin diálogo de error (mismo patrón que la cancelación
+        # del Recovery). La aceptación se persiste en el .ini.
+        if os_type == "macos":
+            try:
+                _ok_eula = self._show_macos_eula_modal(vm_dir, vm_name)
+                if not _ok_eula:
+                    self.btn_start.setEnabled(True)
+                    return
+            except Exception as _eula_err:
+                try:
+                    self.log_message(
+                        f"[AVISO] No se pudo mostrar el aviso legal "
+                        f"de macOS: {_eula_err}. Se continúa sin "
+                        f"bloquear el arranque."
+                    )
+                except Exception:
+                    pass
 
         # System Recovery de macOS se descarga al comenzar el arranque, no al crear
         # la unidad óptica. Esto mantiene la configuración rápida y evita una descarga
@@ -783,6 +878,32 @@ class InstallFlowMixin:
         extra_params["cpu_model"] = self.combo_cpu_model.currentData() if hasattr(self, "combo_cpu_model") else extra_params.get("cpu_model", "auto")
         self.log_message(f"==> Iniciando máquina virtual '{vm_name}' [{os_type.upper()}], Firmware: {firmware.upper()}, Secure Boot: {'ON' if secure_boot else 'OFF'}, TPM 2.0: {'ON' if tpm else 'OFF'}, Arranque: {boot_device}, Redes: {len(network_devices)}, Audio: {audio_device}, Gráficos: {graphics_mode}/{graphics_vram}, RAM: {ram}, CPUs: {cores}, CPU modelo: {extra_params.get('cpu_model','auto')}, Passthrough: {len(passthrough_devices)}...")
 
+        # vm_history_v1 — E2: registrar el arranque en el historial.
+        # El `reason` se deduce de los flags de contexto:
+        #   autostart     → arranque automático al abrir la app.
+        #   force_reboot  → el usuario forzó un reinicio.
+        #   user          → arranque normal.
+        try:
+            _h_reason = "user"
+            if getattr(self, "_auto_starting", False):
+                _h_reason = "autostart"
+            elif getattr(self, "_history_pending_reboot", False):
+                _h_reason = "force_reboot"
+                try:
+                    self._history_pending_reboot = False
+                except Exception:
+                    pass
+            if hasattr(self, "_history_start"):
+                self._history_start(vm_dir, reason=_h_reason)
+        except Exception as _h_err:
+            try:
+                self.log_message(
+                    f"[AVISO] vm_history_v1: no se pudo registrar "
+                    f"el arranque: {_h_err}"
+                )
+            except Exception:
+                pass
+
         self.worker = InstallWorker(os_type, ram, cores, disk, disk_type, format_data[0], format_data[1],
                                      firmware, secure_boot, tpm, boot_device, network_model, audio_device, network_mode, network_interface, network_count, graphics_mode, graphics_vram, extra_params, vm_dir, disk_path, skip_disk_create, boot_order, network_devices, passthrough_devices)
         self.worker.log_signal.connect(self.log_message)
@@ -859,3 +980,7 @@ class InstallFlowMixin:
             dialog.deleteLater()
             self._installer_progress_dialog = None
         self.btn_start.setEnabled(True)
+
+# vm_config_save_cancel_v1_start_guard
+
+# vm_config_save_cancel_v1_start_guard_fix1

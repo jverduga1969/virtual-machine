@@ -1,3 +1,18 @@
+## Aviso legal: macOS
+
+macOS es una marca registrada y software propietario de Apple Inc.
+
+Esta aplicación permite instalar macOS sobre QEMU/KVM con fines
+**exclusivamente de estudio, investigación o uso personal**, tal como
+se describe en la licencia de software de Apple para sistemas
+operativos. **No se permite el uso comercial**, la redistribución de
+la máquina virtual resultante, ni la instalación en hardware que no
+sea Apple.
+
+Más información: <https://www.apple.com/legal/sla/>
+
+---
+
 **Virtual.Machine** es un asistente gráfico para crear y administrar máquinas virtuales con QEMU/KVM.
 
 ### Primeros pasos

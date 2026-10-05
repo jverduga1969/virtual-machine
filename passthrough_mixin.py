@@ -1054,19 +1054,34 @@ class PassthroughMixin:
                 f"No se pudo {'conectar' if connect else 'desconectar'} el USB.\n\n{e}",
             )
 
-    def _show_media_menu_at_cursor(self, button=None):
+    def _show_media_menu_at_cursor(self, button=None, pos_global=None):
         """Despliega el menú de Medios (CD/DVD + USB).
 
-        Se llama desde tres sitios:
+        Se llama desde cuatro sitios:
           • El atajo Ctrl+M (sin argumento: elige el primer botón
             disponible y habilitado).
           • El botón "💿 Medios" de la pestaña Resumen.
           • El botón "💿 Medios" de la barra superior de la Consola
             Gráfica.
+          • El menú contextual de la lista de VMs (con pos_global
+            apuntando al cursor; no requiere botón).
 
         Si el botón no está habilitado (VM apagada o sin VM), no hace
         nada.
         """
+        menu = getattr(self, "menu_vm_usb", None)
+        if menu is None:
+            return
+        # vm_context_menu_v1: si nos pasan una posición global
+        # (clic derecho en la lista), la usamos directamente. Si no,
+        # el comportamiento es el de siempre: calcularla desde el
+        # botón.
+        if pos_global is not None:
+            try:
+                menu.popup(pos_global)
+            except Exception:
+                pass
+            return
         btn = button
         if btn is None:
             for attr in ("btn_vm_usb", "btn_vm_usb_console"):
@@ -1075,9 +1090,6 @@ class PassthroughMixin:
                     btn = cand
                     break
         if btn is None or not btn.isEnabled():
-            return
-        menu = getattr(self, "menu_vm_usb", None)
-        if menu is None:
             return
         try:
             from PyQt6.QtCore import QPoint
@@ -1491,7 +1503,7 @@ class PassthroughMixin:
 
         self._passthrough_saved=selected
         if self.current_vm_dir:
-            self._save_hardware_lists()
+            self._on_config_dirty()
         QMessageBox.information(self,"Passthrough",f"Se guardaron {len(selected)} dispositivos.")
 
     def passthrough_usb_hotplug(self):
@@ -1582,3 +1594,5 @@ class PassthroughMixin:
 # i18n_tanda3_passthrough_v2a
 
 # i18n_tanda3_passthrough_v2b
+
+# vm_config_save_cancel_v1_dirty_2b1

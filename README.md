@@ -13,6 +13,19 @@ invitados Linux, Windows, macOS y Android.
 
 ---
 
+## Aviso legal: macOS
+
+macOS es una marca registrada y software propietario de Apple Inc.
+Esta aplicación permite instalar macOS sobre QEMU/KVM con fines
+**exclusivamente de estudio, investigación o uso personal**. NO se
+permite el uso comercial, la redistribución de la máquina virtual
+resultante, ni la instalación en hardware que no sea Apple.
+
+Ver [CREDITS.md](CREDITS.md) para los créditos de terceros y las
+condiciones de uso del material incluido.
+
+---
+
 ## Capturas
 
 ### Instalacion de Android en curso

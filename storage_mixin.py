@@ -1039,7 +1039,10 @@ class StorageMixin:
         if not getattr(self, "current_vm_dir", None) or not hasattr(self, "storage_list"):
             return
         order = [self.storage_list.item(k).data(Qt.ItemDataRole.UserRole) for k in range(self.storage_list.count())]
-        self._save_boot_order(order)
+        # vm_config_save_cancel_v1_dirty_2b1: no persistir aquí; el
+        # orden de arranque forma parte del Grupo A (se guarda al
+        # pulsar "💾 Guardar configuración").
+        self._on_config_dirty()
 
 
     def move_storage_boot(self, delta):
@@ -1085,10 +1088,10 @@ class StorageMixin:
             if box.clickedButton()==cancel: return
             devices=[d for d in devices if d.get("id")!=dev.get("id")]; self._write_storage_devices(devices)
             if box.clickedButton()==delb: os.remove(path)
-        # elimina el token correspondiente del orden guardado y vuelve a sincronizar ambos paneles
-        old=[t for t in self._current_boot_order_tokens() if t != (f"cdrom:{dev.get('id')}" if typ=="cdrom" else f"disk:{dev.get('id')}" )]
-        self._save_boot_order(old)
+        # vm_config_save_cancel_v1_dirty_2b1: no persistir el orden
+        # aquí; el dirty tracking lo hará al pulsar Guardar.
         self.refresh_storage_ui(); self.refresh_boot_order_choices(); self._update_manager_details()
+        self._on_config_dirty()
         try:
             self._scan_media_vms_after_storage_change()
         except Exception:
@@ -1656,3 +1659,5 @@ class StorageMixin:
                 self, self.tr("Expandir disco"),
                 self.tr("No se pudo expandir el disco.\n\n{0}").format(e)
             )
+
+# vm_config_save_cancel_v1_dirty_2b1

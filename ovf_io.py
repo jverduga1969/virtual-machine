@@ -31,6 +31,11 @@ NS_VSSD = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_VirtualSystemSe
 NS_VBOX = "http://www.virtualbox.org/ovf/machine"
 NS_VMW  = "http://www.vmware.com/schema/ovf"
 
+# ovf_vmware_compat_v7: ElementTree NO puede declarar el mismo URI
+# dos veces (como default y como prefijo "ovf:"). Si registramos
+# NS_OVF como default, pierde el prefijo en los ATRIBUTOS y ovftool
+# no encuentra ovf:id / ovf:fileRef. Volvemos al prefijo "ovf:"
+# explicito en todo el documento.
 for _p, _ns in (("ovf", NS_OVF), ("rasd", NS_RASD), ("vssd", NS_VSSD),
                 ("vbox", NS_VBOX), ("vmw", NS_VMW)):
     ET.register_namespace(_p, _ns)
@@ -206,7 +211,10 @@ def parse_ovf_xml(text):
     os_sec = _first_local(root, "OperatingSystemSection")
     if os_sec is not None:
         for k, v in os_sec.attrib.items():
-            if _localname(k) == "ostype" and "vbox" in k.lower():
+            # ovf_vmware_compat_v2: el namespace de vbox:ostype es
+            # "http://www.virtualbox.org/ovf/machine", que NO contiene
+            # la subcadena "vbox". Buscamos "virtualbox" en su lugar.
+            if _localname(k) == "ostype" and "virtualbox" in k.lower():
                 out["ostype_vbox"] = v; break
         if not out["ostype_vbox"]:
             for k, v in os_sec.attrib.items():
@@ -261,7 +269,8 @@ def parse_ovf_xml(text):
     _vhs = _first_local(root, "VirtualHardwareSection")
     if _vhs is not None:
         for _c in _vhs.iter():
-            if _localname(_c.tag) == "Firmware":
+            _ln = _localname(_c.tag)
+            if _ln == "Firmware":
                 _fw = ""
                 for _k, _v in _c.attrib.items():
                     if _localname(_k) == "type":
@@ -269,6 +278,16 @@ def parse_ovf_xml(text):
                 if _fw.lower() in ("efi", "uefi"):
                     out["firmware"] = "uefi"
                 break
+            # ovf_vmware_compat_v2: leer tambien vmw:Config firmware
+            if _ln == "Config":
+                _k = _v = ""
+                for _ak, _av in _c.attrib.items():
+                    _lnk = _localname(_ak)
+                    if _lnk == "key": _k = _av
+                    elif _lnk == "value": _v = _av
+                if _k == "firmware" and _v.lower() in ("efi", "uefi"):
+                    out["firmware"] = "uefi"
+                    break
 
     for disk in _iter_local(root, "Disk"):
         disk_id = file_ref = units = fmt = ""
@@ -282,14 +301,47 @@ def parse_ovf_xml(text):
                 except ValueError: pass
             elif ln == "capacityAllocationUnits": units = v
             elif ln == "format": fmt = v
+        # ovf_vmware_compat_v3: tras el fix, fileRef ya no coincide
+        # con diskId (file0 vs vmdisk0). Resolvemos el nombre de
+        # archivo por el fileRef y lo asignamos al disco cuyo disk_id
+        # coincide. Tambien aceptamos la vieja coincidencia (OVA
+        # antiguos exportados antes del fix).
+        _resolved_href = _resolve_file_ref(root, file_ref) if file_ref else ""
         for d in out["disks"]:
             if d.get("disk_id") == disk_id:
-                d["file"] = _resolve_file_ref(root, file_ref)
+                d["file"] = _resolved_href
                 d["capacity_gb"] = capacity
                 d["format"] = fmt
                 d["capacity_units"] = units
 
     return out
+
+
+
+def _vbox_to_vmware_ostype(vbox_ostype):
+    """ovf_export_destino_v1: mapea un ostype de VirtualBox al osType
+    equivalente de VMware (atributo vmw:osType). VMware lo usa para
+    autodetectar el SO invitado al importar. Devuelve "" si no hay
+    match (entonces no se emite el atributo).
+    """
+    s = str(vbox_ostype or "").strip().lower().replace("_64", "")
+    _map = {
+        "ubuntu": "ubuntu-64", "debian": "debian-64", "fedora": "fedora-64",
+        "linuxmint": "ubuntu-64", "opensuse": "opensuse-64",
+        "archlinux": "otherlinux-64", "manjaro": "otherlinux-64",
+        "kali": "debian-64", "almalinux": "rhel-64", "rocky": "rhel-64",
+        "popos": "ubuntu-64", "elementary": "ubuntu-64", "zorin": "ubuntu-64",
+        "mx": "debian-64", "solus": "otherlinux-64", "alpine": "otherlinux-64",
+        "void": "otherlinux-64", "linux26": "otherlinux-64",
+        "windows11": "windows9-64", "windows10": "windows9-64",
+        "win11": "windows9-64", "win10": "windows9-64",
+        "windows7": "windows7-64", "win7": "windows7-64",
+        "windowsvista": "winvista-64", "winvista": "winvista-64",
+        "windowsxp": "winXPPro", "winxp": "winXPPro",
+        "windows2000": "winNetStandard", "win2k": "winNetStandard",
+        "macos": "darwin-64", "android": "other-64",
+    }
+    return _map.get(s, "")
 
 
 # _OVF_IO_PART_B_MARKER
@@ -298,36 +350,46 @@ def parse_ovf_xml(text):
 # ---------------------------------------------------------------------------
 def build_ovf_xml(vm_name, os_type, distro_or_version, cpus, memory_mb,
                   disks, networks, vbox_ostype=None, cdroms=None,
-                  annotation="", firmware="bios"):
-    """Construye un descriptor OVF minimo pero valido.
+                  annotation="", firmware="bios", destino="virtualbox",
+                  disk_sizes=None):
+    """Genera un descriptor OVF.
 
-    `disks` es una lista de dicts: {file, capacity_gb, format, disk_id}
-    `networks` es una lista de dicts: {name, model}
+    ovf_vmware_template_v1: cuando el destino es VMware, genera el
+    descriptor replicando exactamente el formato que produce VMware
+    ovftool (namespace por defecto + atributos con prefijo ovf:).
+    Esto evita los problemas de ovftool al resolver fileRef.
+    Para VirtualBox y Virtual.Machine se mantiene el formato anterior
+    (ElementTree con prefijo ovf:).
     """
+    if destino == "vmware":
+        return _build_ovf_xml_vmware(
+            vm_name, os_type, distro_or_version, cpus, memory_mb,
+            disks, networks, vbox_ostype, cdroms, annotation,
+            firmware, disk_sizes,
+        )
+    # --- Formato ElementTree clasico (VirtualBox / Virtual.Machine) ---
+    if destino not in ("virtualbox", "virtmachine"):
+        destino = "virtualbox"
+
     env = ET.Element(f"{{{NS_OVF}}}Envelope")
 
     refs = ET.SubElement(env, f"{{{NS_OVF}}}References")
-    for d in disks:
+    _refs_info = ET.SubElement(refs, f"{{{NS_OVF}}}Info")
+    _refs_info.text = "List of files in this OVF package"
+    for _i, d in enumerate(disks):
         f = ET.SubElement(refs, f"{{{NS_OVF}}}File")
-        f.set(f"{{{NS_OVF}}}id", d["disk_id"])
+        f.set(f"{{{NS_OVF}}}id", f"file{_i+1}")
         f.set(f"{{{NS_OVF}}}href", d["file"])
-        f.set(f"{{{NS_OVF}}}size", "0")
-    # ovf_ova_io_v1_cdrom: File entries para las ISOs incluidas.
-    for i, cd in enumerate(cdroms or []):
-        if cd.get("file_arcname"):
-            fid = cd.get("file_id") or f"cdrom{i}_file"
-            f = ET.SubElement(refs, f"{{{NS_OVF}}}File")
-            f.set(f"{{{NS_OVF}}}id", fid)
-            f.set(f"{{{NS_OVF}}}href", cd["file_arcname"])
-            f.set(f"{{{NS_OVF}}}size", "0")
+        _sz = int(_sizes.get(d.get("disk_id"), 0) or 0)
+        f.set(f"{{{NS_OVF}}}size", str(_sz))
 
     ds = ET.SubElement(env, f"{{{NS_OVF}}}DiskSection")
     info = ET.SubElement(ds, f"{{{NS_OVF}}}Info")
     info.text = "List of the virtual disks"
-    for d in disks:
+    for _i, d in enumerate(disks):
         disk = ET.SubElement(ds, f"{{{NS_OVF}}}Disk")
         disk.set(f"{{{NS_OVF}}}diskId", d["disk_id"])
-        disk.set(f"{{{NS_OVF}}}fileRef", d["disk_id"])
+        disk.set(f"{{{NS_OVF}}}fileRef", f"file{_i+1}")
         disk.set(f"{{{NS_OVF}}}capacity", str(int(d.get("capacity_gb") or 0)))
         disk.set(f"{{{NS_OVF}}}capacityAllocationUnits", "byte * 2^30")
         disk.set(f"{{{NS_OVF}}}format", d.get("format", ""))
@@ -347,9 +409,6 @@ def build_ovf_xml(vm_name, os_type, distro_or_version, cpus, memory_mb,
     nm.text = vm_name
     desc = ET.SubElement(vs, f"{{{NS_OVF}}}Description")
     desc.text = "Exportado por Virtual.Machine desde vm_config.ini"
-    if annotation:
-        _ann = ET.SubElement(vs, f"{{{NS_OVF}}}Annotation")
-        _ann.text = annotation
 
     os_sec = ET.SubElement(vs, f"{{{NS_OVF}}}OperatingSystemSection")
     cim_ids = {"linux": "80", "windows": "96", "macos": "103", "android": "80"}
@@ -403,12 +462,6 @@ def build_ovf_xml(vm_name, os_type, distro_or_version, cpus, memory_mb,
     ET.SubElement(item, f"{{{NS_RASD}}}ElementName").text = "SATA Controller"
     ET.SubElement(item, f"{{{NS_RASD}}}InstanceID").text = "4"
     ET.SubElement(item, f"{{{NS_RASD}}}ResourceType").text = "20"
-    # ovf_ova_io_v1_sata_subtype: VirtualBox exige ResourceSubType
-    # cuando ResourceType=20 (SATA). Valores válidos: AHCI,
-    # virtio-scsi, NVMe. Sin él, la importación falla con
-    #   "Host resource of type 'Other Storage Device (20)' is
-    #    supported with SATA AHCI or Virtio-SCSI or NVMe
-    #    controllers only, line 2 (subtype)."
     ET.SubElement(item, f"{{{NS_RASD}}}ResourceSubType").text = "AHCI"
 
     for i, d in enumerate(disks):
@@ -431,9 +484,6 @@ def build_ovf_xml(vm_name, os_type, distro_or_version, cpus, memory_mb,
         ET.SubElement(item, f"{{{NS_RASD}}}ResourceSubType").text = n.get("model") or "E1000"
         ET.SubElement(item, f"{{{NS_RASD}}}ResourceType").text = "10"
 
-    # ovf_ova_io_v1_cdrom: unidades CD/DVD SIEMPRE sobre SATA (Parent=4).
-    # ResourceType 15 = CD-ROM. Si cd["file_arcname"] existe, se referencia
-    # el ISO incluido; si no, se emite la unidad vacia.
     for i, cd in enumerate(cdroms or []):
         item = ET.SubElement(vhs, f"{{{NS_OVF}}}Item")
         ET.SubElement(item, f"{{{NS_RASD}}}AddressOnParent").text = str(i)
@@ -445,22 +495,6 @@ def build_ovf_xml(vm_name, os_type, distro_or_version, cpus, memory_mb,
             fid = cd.get("file_id") or f"cdrom{i}_file"
             ET.SubElement(item, f"{{{NS_RASD}}}HostResource").text = f"ovf:/file/{fid}"
 
-    # ovf_ova_io_v1_remove_keyboard_videocard:
-    # El teclado (ResourceType 13) no se declara. VirtualBox rechaza
-    # ese tipo con "Unknown resource type 13" y ademas no lo necesita:
-    # teclado y raton son implicitos en cualquier VM. Los OVF que
-    # genera VirtualBox tampoco los declaran.
-
-    # ovf_ova_io_v1_remove_keyboard_videocard:
-    # La tarjeta de video se omitia con ResourceType 24, pero en la
-    # interpretacion de VirtualBox el 24 es "USB Controller", no video.
-    # VirtualBox y VMware infieren la GPU por si solos; no hace falta
-    # declararla. Se elimina para evitar el error de importacion.
-
-    # ovf_ova_vbox_uefi_v1: VirtualBox detecta el firmware UEFI a
-    # traves de vbox:BIOSSettings/vbox:Firmware. Sin esto, cualquier
-    # OVA importado en VirtualBox se queda en BIOS legacy aunque el
-    # disco sea GPT+EFI, y el usuario tiene que activar EFI a mano.
     if (firmware or "").lower() in ("uefi", "efi"):
         _bios = ET.SubElement(vhs, f"{{{NS_VBOX}}}BIOSSettings")
         _fw = ET.SubElement(_bios, f"{{{NS_VBOX}}}Firmware")
@@ -470,9 +504,175 @@ def build_ovf_xml(vm_name, os_type, distro_or_version, cpus, memory_mb,
     return xml_bytes.decode("utf-8")
 
 
-# ---------------------------------------------------------------------------
-# Empaquetado / desempaquetado OVA
-# ---------------------------------------------------------------------------
+def _build_ovf_xml_vmware(vm_name, os_type, distro_or_version, cpus,
+                           memory_mb, disks, networks, vbox_ostype, cdroms,
+                           annotation, firmware, disk_sizes):
+    """ovf_vmware_template_v1: descriptor VMware como string literal.
+
+    Replica byte a byte el formato que produce ovftool: namespace
+    por defecto, atributos con prefijo ovf:, sin elemento Annotation.
+    """
+    _sizes = dict(disk_sizes or {})
+    _vbox_ost = vbox_ostype or map_vm_to_ostype(os_type, distro_or_version)
+    _vmw_ost = _vbox_to_vmware_ostype(_vbox_ost) or "otherGuest"
+
+    # --- File entries ---
+    _refs_lines = []
+    for _i, _d in enumerate(disks):
+        _sz = int(_sizes.get(_d.get("disk_id"), 0) or 0)
+        _href = _d.get("file") or f"disk{_i+1}.vmdk"
+        _refs_lines.append(
+            f'    <File ovf:href="{_href}" ovf:id="file{_i+1}" ovf:size="{_sz}"/>'
+        )
+
+    # --- Disk entries ---
+    _disk_lines = []
+    for _i, _d in enumerate(disks):
+        _cap = int(_d.get("capacity_gb") or 0)
+        _fmt = _d.get("format", "") or (
+            "http://www.vmware.com/interfaces/specifications/"
+            "vmdk.html#streamOptimized"
+        )
+        _disk_lines.append(
+            f'    <Disk ovf:capacity="{_cap}" '
+            f'ovf:capacityAllocationUnits="byte * 2^30" '
+            f'ovf:diskId="vmdisk{_i+1}" ovf:fileRef="file{_i+1}" '
+            f'ovf:format="{_fmt}" ovf:populatedSize="0"/>'
+        )
+
+    # --- Network ---
+    _net_name = "nat"
+    if networks:
+        _net_name = networks[0].get("name") or "nat"
+    _net_lines = [
+        f'    <Network ovf:name="{_net_name}">',
+        f'      <Description>The {_net_name} network</Description>',
+        '    </Network>',
+    ]
+
+    # --- VirtualHardware items ---
+    _hw_lines = []
+    _hw_lines.append(
+        '      <Item>\n'
+        '        <rasd:AllocationUnits>hertz * 10^6</rasd:AllocationUnits>\n'
+        '        <rasd:Description>Number of Virtual CPUs</rasd:Description>\n'
+        f'        <rasd:ElementName>{cpus} virtual CPU(s)</rasd:ElementName>\n'
+        '        <rasd:InstanceID>1</rasd:InstanceID>\n'
+        '        <rasd:ResourceType>3</rasd:ResourceType>\n'
+        f'        <rasd:VirtualQuantity>{cpus}</rasd:VirtualQuantity>\n'
+        '      </Item>'
+    )
+    _hw_lines.append(
+        '      <Item>\n'
+        '        <rasd:AllocationUnits>byte * 2^20</rasd:AllocationUnits>\n'
+        '        <rasd:Description>Memory Size</rasd:Description>\n'
+        f'        <rasd:ElementName>{memory_mb}MB of memory</rasd:ElementName>\n'
+        '        <rasd:InstanceID>2</rasd:InstanceID>\n'
+        '        <rasd:ResourceType>4</rasd:ResourceType>\n'
+        f'        <rasd:VirtualQuantity>{memory_mb}</rasd:VirtualQuantity>\n'
+        '      </Item>'
+    )
+    _hw_lines.append(
+        '      <Item>\n'
+        '        <rasd:Address>0</rasd:Address>\n'
+        '        <rasd:Description>SATA Controller</rasd:Description>\n'
+        '        <rasd:ElementName>sataController0</rasd:ElementName>\n'
+        '        <rasd:InstanceID>3</rasd:InstanceID>\n'
+        '        <rasd:ResourceSubType>vmware.sata.ahci</rasd:ResourceSubType>\n'
+        '        <rasd:ResourceType>20</rasd:ResourceType>\n'
+        '      </Item>'
+    )
+    for _i, _d in enumerate(disks):
+        _hw_lines.append(
+            '      <Item>\n'
+            f'        <rasd:AddressOnParent>{_i}</rasd:AddressOnParent>\n'
+            f'        <rasd:ElementName>disk{_i}</rasd:ElementName>\n'
+            f'        <rasd:HostResource>ovf:/disk/vmdisk{_i+1}</rasd:HostResource>\n'
+            f'        <rasd:InstanceID>{7 + _i}</rasd:InstanceID>\n'
+            '        <rasd:Parent>3</rasd:Parent>\n'
+            '        <rasd:ResourceType>17</rasd:ResourceType>\n'
+            '      </Item>'
+        )
+    for _i, _n in enumerate(networks or [{"name": "nat"}]):
+        _nm = _n.get("name") or "nat"
+        _hw_lines.append(
+            '      <Item>\n'
+            f'        <rasd:AddressOnParent>{2 + _i}</rasd:AddressOnParent>\n'
+            '        <rasd:AutomaticAllocation>true</rasd:AutomaticAllocation>\n'
+            f'        <rasd:Connection>{_nm}</rasd:Connection>\n'
+            f'        <rasd:Description>PCNet32 ethernet adapter on "{_nm}"</rasd:Description>\n'
+            '        <rasd:ElementName>ethernet0</rasd:ElementName>\n'
+            f'        <rasd:InstanceID>{10 + _i}</rasd:InstanceID>\n'
+            '        <rasd:ResourceSubType>PCNet32</rasd:ResourceSubType>\n'
+            '        <rasd:ResourceType>10</rasd:ResourceType>\n'
+            '      </Item>'
+        )
+    for _i, _cd in enumerate(cdroms or []):
+        _hw_lines.append(
+            '      <Item ovf:required="false">\n'
+            f'        <rasd:AddressOnParent>{_i + 1}</rasd:AddressOnParent>\n'
+            '        <rasd:AutomaticAllocation>false</rasd:AutomaticAllocation>\n'
+            f'        <rasd:ElementName>cdrom{_i}</rasd:ElementName>\n'
+            f'        <rasd:InstanceID>{20 + _i}</rasd:InstanceID>\n'
+            '        <rasd:Parent>3</rasd:Parent>\n'
+            '        <rasd:ResourceType>15</rasd:ResourceType>\n'
+            '      </Item>'
+        )
+
+    _hw_block = "\n".join(_hw_lines)
+    _refs_block = "\n".join(_refs_lines)
+    _disks_block = "\n".join(_disk_lines)
+    _net_block = "\n".join(_net_lines)
+
+    _fw_config = ""
+    if (firmware or "").lower() in ("uefi", "efi"):
+        _fw_config = (
+            '      <vmw:Config ovf:required="false" '
+            'vmw:key="firmware" vmw:value="efi"/>\n'
+        )
+
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Envelope xmlns="http://schemas.dmtf.org/ovf/envelope/1" '
+        'xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" '
+        'xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/'
+        'CIM_ResourceAllocationSettingData" '
+        'xmlns:vssd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/'
+        'CIM_VirtualSystemSettingData" '
+        'xmlns:vmw="http://www.vmware.com/schema/ovf">\n'
+        '  <References>\n'
+        f'{_refs_block}\n'
+        '  </References>\n'
+        '  <DiskSection>\n'
+        '    <Info>Virtual disk information</Info>\n'
+        f'{_disks_block}\n'
+        '  </DiskSection>\n'
+        '  <NetworkSection>\n'
+        '    <Info>The list of logical networks</Info>\n'
+        f'{_net_block}\n'
+        '  </NetworkSection>\n'
+        '  <VirtualSystem ovf:id="vm">\n'
+        '    <Info>A virtual machine</Info>\n'
+        f'    <Name>{vm_name}</Name>\n'
+        f'    <OperatingSystemSection ovf:id="80" vmw:osType="{_vmw_ost}">\n'
+        '      <Info>The kind of installed guest operating system</Info>\n'
+        '    </OperatingSystemSection>\n'
+        '    <VirtualHardwareSection>\n'
+        '      <Info>Virtual hardware requirements</Info>\n'
+        '      <System>\n'
+        '        <vssd:ElementName>Virtual Hardware Family</vssd:ElementName>\n'
+        '        <vssd:InstanceID>0</vssd:InstanceID>\n'
+        f'        <vssd:VirtualSystemIdentifier>{vm_name}</vssd:VirtualSystemIdentifier>\n'
+        '        <vssd:VirtualSystemType>vmx-14</vssd:VirtualSystemType>\n'
+        '      </System>\n'
+        f'{_hw_block}\n'
+        f'{_fw_config}'
+        '    </VirtualHardwareSection>\n'
+        '  </VirtualSystem>\n'
+        '</Envelope>\n'
+    )
+
+
 def free_space_for_path(path):
     """Devuelve bytes libres en el FS que contiene `path`.
 
@@ -491,7 +691,7 @@ def free_space_for_path(path):
         return -1
 
 
-def check_ovf_space(path, needed_bytes, margin=1.2):
+def check_ovf_space(path, needed_bytes, margin=1.05, extra_context=None):
     """Comprueba si hay espacio suficiente en el FS de `path`.
 
     Devuelve (ok, free, msg):
@@ -500,7 +700,14 @@ def check_ovf_space(path, needed_bytes, margin=1.2):
       ok=None   → cabe pero con poco margen (< margin); msg advierte.
 
     `needed_bytes` es el mínimo indispensable; `margin` es el factor
-    de seguridad (1.2 = necesitamos 20% extra para no ir al límite).
+    de seguridad (1.05 = 5% extra para no ir al límite). El margen se
+    bajó de 1.20 a 1.05 en ovf_space_optimize_v1: los factores de
+    estimación ya incluyen su propio colchón y duplicar el margen
+    pedía espacio libre irreal a discos externos.
+
+    `extra_context`: lista opcional de líneas adicionales (str) que se
+    concatenan al mensaje devuelto. Se usa para añadir un desglose de
+    "qué ocupa qué" y sugerencias de alternativas.
     """
     free = free_space_for_path(path)
     if free < 0:
@@ -508,25 +715,38 @@ def check_ovf_space(path, needed_bytes, margin=1.2):
     need = max(0, int(needed_bytes))
     if need <= 0:
         return True, free, ""
+    _extra = list(extra_context or [])
     if free < need:
         falta = need - free
-        return False, free, (
-            f"Espacio insuficiente en {path}.\n"
-            f"  Necesario: {human_bytes_io(need)}\n"
-            f"  Disponible: {human_bytes_io(free)}\n"
-            f"  Faltan: {human_bytes_io(falta)}\n\n"
+        _lines = [
+            f"Espacio insuficiente en {path}.\n",
+            f"  Necesario: {human_bytes_io(need)}",
+            f"  Disponible: {human_bytes_io(free)}",
+            f"  Faltan: {human_bytes_io(falta)}",
+        ]
+        if _extra:
+            _lines.append("")
+            _lines.extend(_extra)
+        _lines.append("")
+        _lines.append(
             "Libera espacio en ese disco (o elige otro destino) y "
             "vuelve a intentarlo."
         )
+        return False, free, "\n".join(_lines)
     if free < int(need * float(margin)):
-        return None, free, (
-            f"El espacio libre en {path} va a quedar muy justo.\n"
-            f"  Necesario (mínimo): {human_bytes_io(need)}\n"
-            f"  Recomendado: {human_bytes_io(int(need * float(margin)))}\n"
-            f"  Disponible: {human_bytes_io(free)}\n\n"
-            "Si se queda sin espacio a mitad, la operación fallará.\n"
-            "¿Continuar de todos modos?"
-        )
+        _lines = [
+            f"El espacio libre en {path} va a quedar muy justo.\n",
+            f"  Necesario (mínimo): {human_bytes_io(need)}",
+            f"  Recomendado: {human_bytes_io(int(need * float(margin)))}",
+            f"  Disponible: {human_bytes_io(free)}",
+        ]
+        if _extra:
+            _lines.append("")
+            _lines.extend(_extra)
+        _lines.append("")
+        _lines.append("Si se queda sin espacio a mitad, la operación fallará.")
+        _lines.append("¿Continuar de todos modos?")
+        return None, free, "\n".join(_lines)
     return True, free, ""
 
 
@@ -759,46 +979,155 @@ def read_ovf_descriptor_only(ova_path):
 # ---------------------------------------------------------------------------
 def _qemu_img_convert(src, dest, fmt, extra_opts=None,
                        log_emit=None, progress_emit=None, is_cancelled=None):
+    """Convierte un disco con qemu-img convert.
+
+    ovf_qemu_img_measure_poll_v1: no dependemos de qemu-img -p (que
+    solo activa la barra si stdout es terminal y ademas varia entre
+    versiones de QEMU). En su lugar:
+
+      1. Preguntamos a `qemu-img measure` cuanto pesara el destino.
+      2. Lanzamos la conversion sin -p.
+      3. Medimos el archivo destino cada 500 ms y estimamos el %.
+      4. Al terminar, cerramos la barra en 100.
+
+    Funciona en cualquier version de QEMU, sin TTYs ni parseo.
+    """
+    import time as _time
+    import json as _json
+
     def _log(m):
         if log_emit:
             try: log_emit(m)
             except Exception: pass
+
     if not shutil.which("qemu-img"):
         raise RuntimeError("qemu-img no esta en el PATH.")
     if os.path.exists(dest):
         try: os.remove(dest)
         except OSError: pass
-    cmd = ["qemu-img", "convert", "-p", "-O", fmt]
+
+    # 1) Tamano esperado del destino.
+    #    ovf_qemu_img_measure_poll_v2: qemu-img measure NO acepta
+    #    opciones especificas de subformato (falla con
+    #    subformat=streamOptimized,compat6 para VMDK). Cascada:
+    #      a) measure con TODAS las opciones (funciona en QCOW2 -c).
+    #      b) measure SIN opciones (funciona en VMDK plano).
+    #      c) estimacion por factor segun formato (ultimo recurso).
+    expected = 0
+    _src_size = 0
+    try:
+        _src_size = os.path.getsize(src)
+    except OSError:
+        _src_size = 0
+
+    # 1a) measure con opciones
+    try:
+        _mc = ["qemu-img", "measure", "-O", fmt]
+        if extra_opts:
+            _mc += list(extra_opts)
+        _mc.append(src)
+        _mr = subprocess.run(_mc, capture_output=True, text=True, timeout=120)
+        if _mr.returncode == 0:
+            _md = json.loads(_mr.stdout or "{}")
+            _req = int(_md.get("required") or 0)
+            _full = int(_md.get("fully-allocated") or 0)
+            expected = max(_req, _full)
+            if expected > 0:
+                _log(f"==> qemu-img measure: destino esperado ~{expected/1e9:.2f} GB.")
+    except Exception:
+        pass
+
+    # 1b) measure sin opciones (para VMDK stream-optimized)
+    if expected <= 0:
+        try:
+            _mc2 = ["qemu-img", "measure", "-O", fmt, src]
+            _mr2 = subprocess.run(_mc2, capture_output=True, text=True, timeout=120)
+            if _mr2.returncode == 0:
+                _md2 = json.loads(_mr2.stdout or "{}")
+                _req2 = int(_md2.get("required") or 0)
+                _full2 = int(_md2.get("fully-allocated") or 0)
+                expected = max(_req2, _full2)
+                if expected > 0:
+                    _log(f"==> qemu-img measure (sin opciones): destino "
+                         f"esperado ~{expected/1e9:.2f} GB.")
+        except Exception:
+            pass
+
+    # 1c) Estimacion por factor segun formato
+    if expected <= 0 and _src_size > 0:
+        _fmt_low = (fmt or "").lower()
+        if _fmt_low == "vmdk":
+            # VMDK stream-optimized: ~1.0x el origen (no comprime, pero
+            # suele descartar snapshots internos).
+            expected = int(_src_size * 1.05)
+        elif _fmt_low == "qcow2":
+            # QCOW2 con -c: ~0.5x el origen.
+            expected = int(_src_size * 0.55)
+        else:
+            expected = _src_size
+        _log(f"==> Estimacion por factor ({_fmt_low}): destino esperado "
+             f"~{expected/1e9:.2f} GB (origen: {_src_size/1e9:.2f} GB).")
+
+    if expected <= 0:
+        _log("[AVISO] Sin estimacion de tamano; sin barra de progreso.")
+
+    # 2) Lanzar la conversion sin -p
+    cmd = ["qemu-img", "convert", "-O", fmt]
     if extra_opts:
-        cmd += extra_opts
+        cmd += list(extra_opts)
     cmd += [src, dest]
     _log(f"==> qemu-img convert -O {fmt}: {os.path.basename(src)} -> {os.path.basename(dest)}")
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE)
+
+    # 3) Polling del archivo destino
     last_pct = -1
-    if proc.stdout is not None:
-        for line in iter(proc.stdout.readline, ""):
+    try:
+        while True:
+            rc = proc.poll()
             if is_cancelled and is_cancelled():
-                proc.terminate()
+                try: proc.terminate()
+                except Exception: pass
                 try: proc.wait(timeout=5)
                 except Exception:
                     try: proc.kill()
                     except Exception: pass
-                try: os.remove(dest)
+                try:
+                    if os.path.exists(dest): os.remove(dest)
                 except OSError: pass
                 raise RuntimeError("Conversion cancelada por el usuario.")
-            m = re.search(r"(\d+(?:\.\d+)?)\s*%", line or "")
-            if m and progress_emit:
-                pct = int(float(m.group(1)))
+            try:
+                cur = os.path.getsize(dest)
+            except OSError:
+                cur = 0
+            if expected > 0 and progress_emit:
+                pct = min(99, int(cur * 100 / expected))
                 if pct != last_pct:
                     last_pct = pct
                     progress_emit(pct, f"Convirtiendo {os.path.basename(src)}... {pct}%")
-    proc.wait()
+            if rc is not None:
+                break
+            _time.sleep(0.5)
+    finally:
+        try: proc.wait(timeout=10)
+        except Exception: pass
+
+    # 4) Comprobaciones finales
     if proc.returncode != 0:
+        _err = b""
+        try:
+            if proc.stderr is not None:
+                _err = proc.stderr.read() or b""
+        except Exception:
+            pass
         try:
             if os.path.exists(dest): os.remove(dest)
         except OSError: pass
-        raise RuntimeError(f"qemu-img convert fallo (codigo {proc.returncode}).")
+        _msg = _err.decode("utf-8", "replace").strip() or f"rc={proc.returncode}"
+        raise RuntimeError(f"qemu-img convert fallo (codigo {proc.returncode}): {_msg}")
+
+    if progress_emit:
+        progress_emit(100, f"Convertido: {os.path.basename(dest)}")
     return dest
 
 
@@ -816,6 +1145,22 @@ def convert_to_qcow2(src, dest, log_emit=None, progress_emit=None,
     """Convierte un disco (VMDK, VHD, RAW, ...) a QCOW2."""
     return _qemu_img_convert(src, dest, "qcow2", extra_opts=[],
                               log_emit=log_emit, progress_emit=progress_emit,
+                              is_cancelled=is_cancelled)
+
+
+def convert_to_qcow2_compressed(src, dest, log_emit=None,
+                                 progress_emit=None,
+                                 is_cancelled=None):
+    """Convierte un disco a QCOW2 aplanado y comprimido con zlib.
+
+    Marcador ovf_qcow2_compressed_live_progress_v1: aplanado
+    (descarta snapshots internos y backing file) + compresion
+    zlib. Emite progreso en vivo porque el bucle interno de
+    _qemu_img_convert corta tanto en \r como en \n.
+    """
+    return _qemu_img_convert(src, dest, "qcow2", extra_opts=["-c"],
+                              log_emit=log_emit,
+                              progress_emit=progress_emit,
                               is_cancelled=is_cancelled)
 
 
