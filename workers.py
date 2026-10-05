@@ -1347,36 +1347,6 @@ class InstallWorker(QThread):
         self.log_signal.emit("==> Firmware OVMF de macOS verificado: CODE compartido + VARS privado.")
         return code_src, vars_dst
 
-    def _boot_token_label(self, token):
-        """Etiqueta legible para el log del worker, sin depender de métodos de la UI."""
-        if token == "network":
-            return "Red/PXE"
-        if token == "cdrom":
-            return "CD/DVD"
-        if token.startswith("cdrom:"):
-            ident = token.split(":", 1)[1]
-            for d in self._storage_devices_from_config():
-                if str(d.get("id", "")) == ident and d.get("device") == "cdrom":
-                    path = d.get("path") or ""
-                    name = d.get("name") or "CD/DVD"
-                    return f"CD/DVD: {name} — {os.path.basename(path) if path else 'vacío'}"
-            return "CD/DVD"
-        if token == "disk":
-            return "Disco principal"
-        if token.startswith("disk:"):
-            ident = token.split(":", 1)[1]
-            for d in self._storage_devices_from_config():
-                if str(d.get("id", "")) == ident:
-                    name = d.get("name") or ident
-                    typ = d.get("device", "sata")
-                    if typ == "nvme":
-                        return "NVMe — " + name
-                    if typ == "floppy":
-                        return "Floppy — " + name
-                    return "SATA — " + name
-            return "SATA — " + ident
-        return token
-
     def _boot_arg(self):
         # Compatibilidad con configuraciones antiguas. El orden nuevo usa bootindex.
         return {"disk": "c", "cdrom": "d", "network": "n"}.get(self.boot_device, "d")
