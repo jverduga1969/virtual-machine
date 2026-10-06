@@ -7,6 +7,8 @@ validar/generar nombres de interfaces TAP. Sin dependencias de PyQt.
 import os
 import re
 
+# d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+# fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
 def list_host_network_interfaces():
     """Lista interfaces de red reales del host (excluye looper/virtuales obvias)."""
     names = []

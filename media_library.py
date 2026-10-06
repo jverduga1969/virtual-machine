@@ -976,9 +976,13 @@ class MediaLibrary:
 
     # -------------------------------------------------------- consultas
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def find_orphans(self):
         return [e for e in self._entries.values() if not self._file_exists(e)]
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def find_duplicates(self):
         """Agrupa por sha256. Solo entre entradas con hash calculado."""
         by_hash = {}
@@ -1023,5 +1027,7 @@ class MediaLibrary:
         }
 
     @staticmethod
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def human_bytes(n):
         return _human_bytes(n)

@@ -511,6 +511,8 @@ def ensure_virtualization_dependencies(need_ovmf=False, need_swtpm=False, need_s
         )
 
 
+# d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+# fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
 def pci_preflight_host(selected):
     """Preflight PCI/VFIO independiente de la interfaz gráfica.
     Se ejecuta en InstallWorker sin depender de métodos de VirtualMachineManagerApp.

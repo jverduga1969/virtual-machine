@@ -61,6 +61,8 @@ class SchedulerMixin:
             "last_run": 0.0 if run_immediately else time.monotonic(),
         }
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def unregister_scheduled_task(self, name):
         tasks = getattr(self, "_scheduler_tasks", None)
         if tasks:

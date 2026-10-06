@@ -206,10 +206,14 @@ class SnapshotsGraphView(QGraphicsView):
             return
         super().wheelEvent(event)
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def reset_zoom(self):
         self.resetTransform()
         self._zoom = 1.0
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def fit_all(self):
         rect = self._scene.itemsBoundingRect()
         if rect.isNull() or rect.isEmpty():

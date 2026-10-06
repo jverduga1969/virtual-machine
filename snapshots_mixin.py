@@ -956,6 +956,8 @@ class SnapshotsMixin:
         self._save_snapshots_meta(meta)
 
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def manage_snapshots(self):
         if not self._vm_is_selected():
             QMessageBox.information(self, self.tr("Snapshots"), "Selecciona una máquina virtual.")

@@ -516,6 +516,7 @@ class GuestIntegrationMixin:
         if self.current_vm_dir and os.path.exists(self._guest_agent_socket_path()): self.guest_agent_status_label.setText(self.tr("Estado: canal QGA presente; pulsa Probar conexión."))
         else: self.guest_agent_status_label.setText(self.tr("Estado: canal QGA no activo en este momento."))
 
+    def save_guest_tools_settings(self):
         # vm_config_save_cancel_v1_grupo_b_doc:
         # Este campo forma parte del "Grupo B" y se auto-guarda a
         # proposito: NO pasa por el modelo Guardar/Descartar del
@@ -533,7 +534,6 @@ class GuestIntegrationMixin:
         #   - Anadirlo a _collect_config_from_ui() y _load_config_comparable(),
         #   - Engancharlo a _wire_config_dirty_signals(),
         #   - Anadirlo a la lista de claves comparadas en _has_pending_changes().
-    def save_guest_tools_settings(self):
         if not self.current_vm_dir: return
         cfg=load_vm_config(self.current_vm_dir); extra=cfg.get("extra") or {}; extra["guest_agent_enabled"]=self.guest_agent_enabled.isChecked()
         save_vm_config(self.current_vm_dir,cfg["name"],cfg["os_type"],cfg["ram"],cfg["cores"],cfg["disk_size"],cfg["disk_type"],cfg["disk_format"],cfg["disk_ext"],extra,cfg["firmware"],cfg["secure_boot"],cfg["tpm"],cfg["boot_device"],cfg["network_model"],cfg["audio_device"],cfg["network_mode"],cfg["network_interface"],cfg["network_count"],cfg["graphics_mode"],cfg["graphics_vram"],cfg["boot_order"],network_devices=cfg.get("network_devices",[]),passthrough_devices=cfg.get("passthrough_devices",[]),chipset=cfg.get("chipset","pc"))
@@ -590,6 +590,7 @@ class GuestIntegrationMixin:
         _suffix = self.tr("Se activará automáticamente al iniciar la VM.") if mode != 'disabled' else self.tr("No se activa.")
         self.clipboard_status_label.setText(self.tr("Configuración actual: {0}. {1} {2}").format(labels.get(mode,mode), _suffix, detail))
 
+    def save_clipboard_settings(self):
         # vm_config_save_cancel_v1_grupo_b_doc:
         # Este campo forma parte del "Grupo B" y se auto-guarda a
         # proposito: NO pasa por el modelo Guardar/Descartar del
@@ -607,7 +608,6 @@ class GuestIntegrationMixin:
         #   - Anadirlo a _collect_config_from_ui() y _load_config_comparable(),
         #   - Engancharlo a _wire_config_dirty_signals(),
         #   - Anadirlo a la lista de claves comparadas en _has_pending_changes().
-    def save_clipboard_settings(self):
         if not self.current_vm_dir: return
         cfg=load_vm_config(self.current_vm_dir); extra=cfg.get("extra") or {}; extra["clipboard"]={"mode":self.clipboard_mode.currentData()}
         save_vm_config(self.current_vm_dir,cfg["name"],cfg["os_type"],cfg["ram"],cfg["cores"],cfg["disk_size"],cfg["disk_type"],cfg["disk_format"],cfg["disk_ext"],extra,cfg["firmware"],cfg["secure_boot"],cfg["tpm"],cfg["boot_device"],cfg["network_model"],cfg["audio_device"],cfg["network_mode"],cfg["network_interface"],cfg["network_count"],cfg["graphics_mode"],cfg["graphics_vram"],cfg["boot_order"],network_devices=cfg.get("network_devices",[]),passthrough_devices=cfg.get("passthrough_devices",[]),chipset=cfg.get("chipset","pc")); self.refresh_clipboard_ui(); self._update_manager_details(); QMessageBox.information(self,self.tr("Clipboard"),self.tr("Configuración del clipboard guardada para esta VM."))

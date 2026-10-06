@@ -1931,6 +1931,8 @@ class VmLifecycleMixin:
             pass
         return sorted(groups)
 
+    def edit_vm_label(self):
+        """Abre el diálogo de grupo + color para la VM seleccionada."""
         # vm_config_save_cancel_v1_grupo_b_doc:
         # Este campo forma parte del "Grupo B" y se auto-guarda a
         # proposito: NO pasa por el modelo Guardar/Descartar del
@@ -1948,8 +1950,6 @@ class VmLifecycleMixin:
         #   - Anadirlo a _collect_config_from_ui() y _load_config_comparable(),
         #   - Engancharlo a _wire_config_dirty_signals(),
         #   - Anadirlo a la lista de claves comparadas en _has_pending_changes().
-    def edit_vm_label(self):
-        """Abre el diálogo de grupo + color para la VM seleccionada."""
         if not self._vm_is_selected():
             QMessageBox.information(
                 self, self.tr("Etiqueta de la VM"),
@@ -3253,6 +3253,8 @@ class VmLifecycleMixin:
         if hasattr(self, "_invalidate_vm_config_cache"):
             self._invalidate_vm_config_cache(vm_dir)
 
+    def edit_vm_notes(self):
+        """Abre el dialogo para editar las notas de la VM seleccionada."""
         # vm_config_save_cancel_v1_grupo_b_doc:
         # Este campo forma parte del "Grupo B" y se auto-guarda a
         # proposito: NO pasa por el modelo Guardar/Descartar del
@@ -3270,8 +3272,6 @@ class VmLifecycleMixin:
         #   - Anadirlo a _collect_config_from_ui() y _load_config_comparable(),
         #   - Engancharlo a _wire_config_dirty_signals(),
         #   - Anadirlo a la lista de claves comparadas en _has_pending_changes().
-    def edit_vm_notes(self):
-        """Abre el dialogo para editar las notas de la VM seleccionada."""
         if not self._vm_is_selected():
             QMessageBox.information(
                 self, self.tr("Notas de la VM"),
@@ -9436,6 +9436,8 @@ class VmLifecycleMixin:
             name = self.combo_lin_distro.currentText()
         self.input_vm_name.setText(name)
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def toggle_mac_iso_mode(self, checked):
         """Activa/desactiva el modo "imagen existente" de macOS.
 
@@ -9458,9 +9460,8 @@ class VmLifecycleMixin:
         else:
             self.input_win_iso.setPlaceholderText("/ruta/a/windows.iso")
 
-    def toggle_iso_mode(self, *args):
-        return
-
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def browse_iso(self, line_edit_target):
         file_name, _ = QFileDialog.getOpenFileName(self, "Seleccionar archivo ISO", "", "Archivos ISO (*.iso);;Todos los archivos (*)")
         if file_name:

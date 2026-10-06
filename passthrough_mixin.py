@@ -319,6 +319,8 @@ class PassthroughMixin:
             ))
         return "\n".join(lines)
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def copy_vfio_diagnostic(self):
         try:
             QApplication.clipboard().setText(self._vfio_diagnostic_text())

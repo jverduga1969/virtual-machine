@@ -59,6 +59,8 @@ class StorageMixin:
         except Exception:
             return False
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def manage_disks(self):
         if not self._vm_is_selected():
             QMessageBox.information(self, "Discos", "Selecciona una máquina virtual.")
@@ -1280,6 +1282,8 @@ class StorageMixin:
             devices.append({"id":"dev_" + uuid.uuid4().hex[:12],"name":"CD/DVD 1","path":os.path.abspath(path) if path else "","device":"cdrom"})
         self._write_storage_devices(devices)
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def configure_boot_order(self):
         if not self._vm_is_selected():
             QMessageBox.information(self, "Arranque", "Primero crea o selecciona una máquina virtual.")
@@ -1340,6 +1344,8 @@ class StorageMixin:
             self._invalidate_vm_config_cache(self.current_vm_dir)
         self.log_message("==> Orden de arranque guardado: " + " → ".join(self._boot_token_label(x) for x in order))
 
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
+    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def manage_cdrom(self):
         if not self._vm_is_selected():
             QMessageBox.information(self,"CD / DVD","Selecciona una máquina virtual."); return
