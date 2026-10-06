@@ -25,7 +25,7 @@ Estrategia robusta:
 
 import os
 
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFormLayout, QGroupBox, QLabel,

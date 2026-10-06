@@ -15,11 +15,10 @@ import time
 import uuid
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QMessageBox, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QMessageBox, QDialog, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QFormLayout, QCheckBox, QFileDialog,
     QTreeWidgetItem,
 )
-from task_progress import TaskProgressDialog
 
 import vm_config
 from vm_config import load_vm_config, save_vm_config

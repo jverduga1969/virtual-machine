@@ -44,18 +44,6 @@ ALL_MODES = (MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID, MODE_HYBRID
 DEFAULT_PROTOCOL = PROTOCOL_VNC
 DEFAULT_MODE = MODE_EMBEDDED
 
-def _tr(text):
-    """Atajo de traduccion para textos de UI de este modulo.
-
-    pylupdate6 no reconoce este wrapper por nombre, asi que los
-    strings importantes se envuelven ademas con
-    QCoreApplication.translate('VirtualMachineManagerApp', ...)
-    directamente en describe_requirements().
-    """
-    if _QCA is None:
-        return text
-    return _QCA.translate('VirtualMachineManagerApp', text)
-
 
 # --- Sockets por VM ----------------------------------------------------------
 def vnc_socket_path(vm_dir: str) -> str:

@@ -1097,11 +1097,6 @@ class StorageMixin:
         except Exception:
             pass
 
-    def _unregister_storage_path(self, path):
-        devices=self._storage_devices_all(self.current_vm_dir)
-        devices=[d for d in devices if os.path.abspath(d.get("path","")) != os.path.abspath(path)]
-        self._write_storage_devices(devices)
-
     def _ensure_storage_target_vm(self):
         """Crea/guarda una VM provisional cuando el usuario está en Nueva VM y quiere añadir almacenamiento."""
         if self._vm_is_selected():

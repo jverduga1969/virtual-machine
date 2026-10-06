@@ -255,43 +255,6 @@ class PassthroughMixin:
             except Exception: pass
         return out
 
-    def _pci_preflight(self, selected):
-        """Verificación antes de intentar pasar PCI a QEMU. No hace binding/desbinding automáticamente."""
-        diag=self._intel_vtd_diagnostic()
-        lines=[
-            self.tr("IOMMU/Intel VT-d: {0}").format(diag['state']),
-            self.tr("Firmware/ACPI DMAR: {0}").format(diag['firmware']),
-            self.tr("Grupos IOMMU: {0}").format(len(diag['groups'])),
-        ]
-        bad=[]
-        for d in selected or []:
-            if d.get("kind")!="pci": continue
-            addr=d.get("address","")
-            group=d.get("iommu_group")
-            drv=d.get("driver") or "sin driver"
-            members=d.get("iommu_shared") or []
-            if group is None:
-                bad.append(self.tr(
-                    "{0}: no tiene grupo IOMMU ({1})").format(addr, drv))
-            elif members:
-                bad.append(self.tr(
-                    "{0}: comparte grupo IOMMU {1} con {2}").format(
-                        addr, group, ', '.join(members)))
-            elif drv!="vfio-pci":
-                bad.append(self.tr(
-                    "{0}: driver actual {1}; todavía no está ligado a vfio-pci"
-                ).format(addr, drv))
-            lines.append(self.tr(
-                "• {0} | grupo {1} | driver {2}"
-            ).format(
-                addr,
-                group if group is not None else "—",
-                drv))
-        if bad:
-            lines.append("Advertencias:")
-            lines.extend("  " + x for x in bad)
-        return diag, bad, "\n".join(lines)
-
     def refresh_vfio_diagnostics(self):
         if not hasattr(self, "vfio_diag_label"):
             return

@@ -77,10 +77,6 @@ class CenteredVNCWidget(QVNCWidget):
         """
         self.set_zoom(None if enabled else 100)
 
-    def zoom_percent(self):
-        """None si estamos en modo ajustar; int si estamos en zoom manual."""
-        return self._zoom_percent
-
     # ------------------------------------------------------------------
     # Cálculo del tamaño
     # ------------------------------------------------------------------
@@ -239,20 +235,6 @@ class CenteredVNCWidget(QVNCWidget):
                 pass
 
         painter.end()
-
-    def _scaled_rect(self):
-        """Compatibilidad: rect donde se pinta la imagen en modo ajustar."""
-        if getattr(self, "backbuffer", None) is None:
-            return None
-        scaled = self.backbuffer.scaled(
-            self.width(), self.height(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.frontbuffer = scaled
-        x = (self.width() - scaled.width()) // 2
-        y = (self.height() - scaled.height()) // 2
-        return QRect(x, y, scaled.width(), scaled.height())
 
     # ------------------------------------------------------------------
     # Ratón

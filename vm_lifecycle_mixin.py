@@ -5502,6 +5502,13 @@ class VmLifecycleMixin:
         self.check_tpm.setChecked(bool(profile.get("tpm", False) or is_win11))
         self.update_firmware_options_visibility()
         self._update_vm_summary()
+        # macos_graphics_per_version_signal_v2: recalcular la UI de
+        # graficos explicitamente. Sin esto, el cambio de version de
+        # macOS no desbloqueaba QXL en vivo (habia que guardar).
+        try:
+            self._refresh_snapshot_compat_ui_on_os_change()
+        except Exception:
+            pass
 
     def update_firmware_options_visibility(self, *args):
         os_type = self.combo_main_os.currentData()
@@ -6394,103 +6401,6 @@ class VmLifecycleMixin:
         self._vnc_last_size = (0, 0)
         self._vnc_resize_timer.start()
 
-    def _recreate_vnc_backbuffer(self, w):
-        """Recrea el QImage backbuffer del widget VNC con las dimensiones
-        actuales del framebuffer remoto.
-
-        Se llama cuando detectamos que el guest cambió de resolución. El
-        QVNCWidget original no recrea su backbuffer en ese caso: sigue
-        escribiendo sobre un QImage del tamaño anterior. Al recrearlo
-        (y pedir al servidor un frame completo), la parte "nueva" de la
-        pantalla por fin se dibuja.
-
-        Es seguro llamarlo aunque el atributo no exista: se registra en
-        el log y se sigue con el resto del flujo.
-        """
-        try:
-            from PyQt6.QtGui import QImage
-        except Exception:
-            return
-        try:
-            vw = int(getattr(w, "vncWidth", 0) or 0)
-            vh = int(getattr(w, "vncHeight", 0) or 0)
-            if vw <= 0 or vh <= 0:
-                return
-
-            # Recrear el backbuffer con el mismo formato que usa el widget.
-            fmt = getattr(w, "PIX_FORMAT", None)
-            if fmt is None:
-                fmt = QImage.Format.Format_RGB32
-            new_back = QImage(vw, vh, fmt)
-            new_back.fill(0)
-
-            # Asignar y limpiar referencias al frontbuffer anterior.
-            try:
-                w.backbuffer = new_back
-            except Exception:
-                pass
-            try:
-                w.frontbuffer = None
-            except Exception:
-                pass
-
-            # Forzar al servidor VNC a enviarnos un frame completo.
-            # El QVNCWidget original no expone un método público para
-            # esto, pero internamente RFBClient tiene uno. Probamos los
-            # nombres habituales.
-            requested = False
-            for attr in ("requestFullFrame", "request_full_update",
-                         "requestFramebufferUpdate", "requestUpdate",
-                         "refresh", "forceRefresh"):
-                fn = getattr(w, attr, None)
-                if callable(fn):
-                    try:
-                        fn()
-                        requested = True
-                        break
-                    except Exception:
-                        continue
-            # Si no hay método directo, probamos sobre el hilo RFB.
-            if not requested:
-                for child_attr in ("connectionThread", "_rfb",
-                                   "rfbClient", "_client"):
-                    child = getattr(w, child_attr, None)
-                    if child is None:
-                        continue
-                    for attr in ("requestFullFrame", "request_full_update",
-                                 "requestFramebufferUpdate", "requestUpdate",
-                                 "refresh"):
-                        fn = getattr(child, attr, None)
-                        if callable(fn):
-                            try:
-                                fn()
-                                requested = True
-                                break
-                            except Exception:
-                                continue
-                    if requested:
-                        break
-
-            # Limpiar también el caché interno de updates si existe.
-            for attr in ("updateRect", "lastUpdateRect", "dirtyRect"):
-                try:
-                    if hasattr(w, attr):
-                        setattr(w, attr, None)
-                except Exception:
-                    pass
-
-            self.log_message(
-                f"==> VNC: nueva resolución detectada "
-                f"({vw}x{vh}); backbuffer recreado"
-                + (" y frame completo solicitado." if requested
-                   else " (sin método de refresco disponible en el cliente).")
-            )
-        except Exception as e:
-            try:
-                self.log_message(f"[AVISO] VNC: error al recrear backbuffer: {e}")
-            except Exception:
-                pass
-
     def _check_vnc_guest_resolution(self):
         """Watcher del framebuffer del guest con reconexión automática.
 
@@ -6580,40 +6490,6 @@ class VmLifecycleMixin:
             self._vnc_reconnect_debounce = timer
         self._vnc_reconnect_reason = reason
         timer.start(int(delay_ms))
-
-    def _auto_reconnect_vnc_late(self):
-        """Reconexión diferida tardía (8 s tras arranque).
-
-        Cubre el caso de guests lentos (Windows, macOS con OpenCore) que
-        tardan más de 3.5 s en establecer su resolución final. Solo
-        reconecta si sigue habiendo una VM activa y si no ha habido ya
-        una reconexión automática reciente (flag compartido con
-        _do_scheduled_vnc_reconnect).
-        """
-        if not self._vm_is_selected():
-            return
-        try:
-            state = self._runtime_state(os.path.basename(self.current_vm_dir))
-        except Exception:
-            return
-        if state not in ("running", "paused"):
-            return
-        w = getattr(self, "vnc_widget", None)
-        if w is None:
-            return
-        # Si el usuario ya reconectó manualmente hace poco, no molestar.
-        last = getattr(self, "_vnc_last_manual_reconnect_ts", 0)
-        import time as _t
-        if (_t.monotonic() - last) < 6:
-            return
-        try:
-            self.log_message(
-                "==> VNC: reconexión tardía (8 s) para asegurar la "
-                "resolución final del guest."
-            )
-        except Exception:
-            pass
-        self._manual_refresh_vnc()
 
     def _do_scheduled_vnc_reconnect(self):
         """Ejecuta la reconexión diferida, si sigue habiendo VM activa."""
@@ -7175,27 +7051,6 @@ class VmLifecycleMixin:
             self._sync_embedded_vnc(state)
         else:
             self._sync_spice_widget(state, mode)
-
-
-    def _kill_stale_spice_viewers(self):
-        """Mata cualquier spicy/remote-viewer huérfano de intentos previos.
-
-        Es útil sobre todo durante el desarrollo: si el flag se quedó mal y
-        se lanzaron varios visores seguidos, al arrancar limpiamos. En
-        producción el bucle está evitado por el flag _external_viewer_proc
-        + ventana de gracia.
-        """
-        import shutil as _sh
-        import subprocess as _sp
-        for name in ("spicy", "remote-viewer"):
-            binary = _sh.which(name)
-            if not binary:
-                continue
-            try:
-                _sp.run(["pkill", "-f", binary], check=False,
-                        stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, timeout=2)
-            except Exception:
-                pass
 
     def _viewer_popen_env(self):
         """Env para lanzar el visor externo con backend X11.
@@ -9628,7 +9483,16 @@ class VmLifecycleMixin:
         if os_type == "windows":
             return "std", "VGA estándar (QEMU -vga std)"
         if os_type == "macos":
-            return "vga-macos", "VGA de OSX-KVM (VGA virtual)"
+            # macos_graphics_per_version_v1: Catalina+ soporta QXL
+            # (Apple incluye driver desde 10.15). High Sierra y
+            # Mojave solo VGA generico.
+            try:
+                _qxl_ok = self._macos_version_supports_qxl()
+            except Exception:
+                _qxl_ok = False
+            if _qxl_ok:
+                return "qxl", "macOS 10.15+: Red Hat QXL 2D"
+            return "vga-macos", "VGA de OSX-KVM (macOS < 10.15)"
         if os_type == "android":
             # Android-x86 9.0 (kernel 4.9) no tiene driver VirtIO-GPU y
             # cae a un shell de rescate. QXL 2D es lo que
@@ -9796,8 +9660,18 @@ class VmLifecycleMixin:
                 auto_video = self.tr("VGA estándar (QEMU -vga std)")
                 auto_accel = self.tr("sin aceleración 3D")
             elif os_type == "macos":
-                auto_video = self.tr("VGA de OSX-KVM (VGA virtual)")
-                auto_accel = self.tr("gestionada por OpenCore/OSX-KVM")
+                # macos_graphics_per_version_v1: reflejar la
+                # eleccion real de "Automatico" segun version.
+                try:
+                    _qxl_ok = self._macos_version_supports_qxl()
+                except Exception:
+                    _qxl_ok = False
+                if _qxl_ok:
+                    auto_video = self.tr("Red Hat QXL 2D (macOS 10.15+)")
+                    auto_accel = self.tr("driver nativo de Apple desde 10.15")
+                else:
+                    auto_video = self.tr("VGA de OSX-KVM (VGA virtual)")
+                    auto_accel = self.tr("gestionada por OpenCore/OSX-KVM")
             elif virgl_ok:
                 auto_video = self.tr("VirtIO-GPU + VirGL 3D")
                 auto_accel = self.tr("OpenGL / VirGL")
@@ -9820,6 +9694,8 @@ class VmLifecycleMixin:
                     "venus": self.tr("VirtIO-GPU + Venus/Vulkan 3D"),
                     "qxl": self.tr("Red Hat QXL 2D"),
                     "vmware": self.tr("VMware SVGA II"),
+                    # vga_std_explicit_v1
+                    "std": self.tr("VGA estándar (QEMU -vga std)"),
                     "none": self.tr("Sin video / Headless"),
                 }
                 selected_name = selected_map.get(selected, self.combo_graphics.currentText())

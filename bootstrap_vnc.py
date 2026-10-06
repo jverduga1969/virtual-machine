@@ -23,8 +23,6 @@ Nunca lanza excepciones: devuelve `(ok, error_msg)` para que el llamador
 decida qué hacer.
 """
 import importlib.util
-import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -47,14 +45,6 @@ def _ok(msg):
 def _has_module(name):
     try:
         return importlib.util.find_spec(name) is not None
-    except Exception:
-        return False
-
-
-def _in_venv():
-    """True si el intérprete actual corre dentro de un venv."""
-    try:
-        return sys.prefix != sys.base_prefix
     except Exception:
         return False
 

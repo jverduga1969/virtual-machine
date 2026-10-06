@@ -5,7 +5,7 @@
 quitar tarjetas de red; elegir bridge/TAP/interfaz según el modo de red).
 """
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QListWidgetItem, QMessageBox, QDialog
+from PyQt6.QtWidgets import QListWidgetItem, QDialog
 
 from network_utils import list_host_bridges, sanitize_tap_name
 from dialogs import NetworkDeviceDialog

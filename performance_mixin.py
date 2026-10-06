@@ -649,22 +649,6 @@ class PerformanceMixin:
             return None, "sin interfaces medibles"
         return total, " + ".join(sources)
 
-    def _host_network_bytes(self):
-        total_rx=total_tx=0
-        try:
-            with open('/proc/net/dev', encoding='utf-8') as f:
-                for line in f:
-                    if ':' not in line: continue
-                    iface,data=line.split(':',1)
-                    iface=iface.strip()
-                    if iface == 'lo': continue
-                    parts=data.split()
-                    if len(parts) >= 9:
-                        total_rx += int(parts[0]); total_tx += int(parts[8])
-            return total_rx + total_tx
-        except Exception:
-            return None
-
     def _host_cpu_threads(self):
         try:
             return int(os.cpu_count() or 1)
@@ -698,4 +682,3 @@ class PerformanceMixin:
             lines.append(f"RAM disponible en host: {int(mem)/1024/1024:.2f} GiB")
         except Exception: pass
         QMessageBox.information(self,"📈 Rendimiento","\\n".join(lines))
-

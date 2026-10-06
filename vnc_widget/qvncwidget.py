@@ -11,25 +11,17 @@ import time
 from PyQt6.QtCore import (
     QSize,
     Qt,
-    pyqtSignal,
-    QSemaphore
+    pyqtSignal
 )
 from PyQt6.QtGui import (
     QImage,
     QPaintEvent,
     QPainter,
-    QColor,
-    QBrush,
-    QPixmap,
-    QResizeEvent,
     QKeyEvent,
     QMouseEvent
 )
 
-from PyQt6.QtWidgets import (
-    QWidget,
-    QLabel,
-)
+from PyQt6.QtWidgets import QWidget
 # QOpenGLWidget vive en PyQt6.QtOpenGLWidgets (no en QtWidgets) desde Qt6.
 # Lo importamos por separado; si no está disponible, la clase GL queda desactivada.
 

@@ -19,10 +19,10 @@ from PyQt6.QtWidgets import QMessageBox
 
 from console_backend import (
     PROTOCOL_VNC, PROTOCOL_SPICE,
-    MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE, MODE_HYBRID,
+    MODE_EMBEDDED,
     DEFAULT_PROTOCOL, DEFAULT_MODE,
     describe_requirements,
-    find_viewer, console_uri, build_viewer_args,
+    find_viewer, console_uri,
     socket_path as _cb_socket_path,
 )
 

@@ -177,33 +177,6 @@ class MacRecoveryMixin:
                     raise RuntimeError("La imagen Recovery contiene datos adicionales no descritos por el chunklist.")
         return True
 
-    def _download_macos_recovery_for_vm(self):
-        """Lanza la descarga del Recovery en segundo plano (no bloquea la UI).
-
-        Devuelve None inmediatamente. El llamador que necesite el path final
-        debe consultar self.current_vm_dir/BaseSystem.img cuando la tarea
-        asíncrona termine (o pulsar Iniciar de nuevo tras la descarga).
-        """
-        if not self.current_vm_dir:
-            raise RuntimeError("No hay una carpeta de VM seleccionada.")
-        os.makedirs(self.current_vm_dir, exist_ok=True)
-        product = self._macos_recovery_product()
-        vm_dir = self.current_vm_dir
-
-        def _work(log_emit, is_cancelled, progress_emit):
-            return self._macos_recovery_impl(product, vm_dir, is_cancelled, progress_emit, log_emit)
-
-        self.run_async(
-            _work,
-            f"System Recovery de macOS — {product['name']}",
-            on_success=lambda img: self.log_message(f"==> Recovery preparado: {os.path.basename(img)}"),
-            on_error=lambda e: self.log_message(f"[ERROR] Recovery: {e}"),
-            cancelable=True,
-            show_log=True,
-            subtitle="La imagen se descarga y verifica directamente en la carpeta de la VM.",
-        )
-        return None
-
     def _macos_recovery_impl(self, product, vm_dir, is_cancelled, progress_emit, log_emit):
         """Cuerpo real; corre en hilo de fondo. progress_emit(pct, text) es seguro."""
         class _Dlg:

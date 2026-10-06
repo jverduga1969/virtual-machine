@@ -8,26 +8,18 @@ Cada uno se usa y se descarta; no guardan estado entre aperturas.
 """
 import os
 import re
-import json
 import shutil
-import shlex
-import glob
 import subprocess
-import uuid
-import time
-from datetime import date, timedelta
-import requests
-from packaging import version
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QLineEdit, QComboBox, QPushButton,
-    QVBoxLayout, QHBoxLayout, QMessageBox, QGroupBox,
-    QFileDialog, QCheckBox, QDialog, QFormLayout, QSpinBox,
+    QVBoxLayout, QHBoxLayout, QMessageBox,
+    QFileDialog, QDialog, QFormLayout, QSpinBox,
     QRadioButton, QButtonGroup, QSizePolicy,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QTreeWidget, QTreeWidgetItem,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QPainter, QPen, QBrush, QPixmap, QColor
+from PyQt6.QtGui import QPainter, QPen, QBrush
 
 from network_utils import list_host_bridges
 

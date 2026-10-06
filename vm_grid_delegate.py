@@ -20,7 +20,7 @@ El delegate lee los datos del item:
 
 No toca ni señales ni comportamiento: solo pinta.
 """
-from PyQt6.QtCore import Qt, QRect, QSize, QModelIndex
+from PyQt6.QtCore import Qt, QRect, QSize
 from PyQt6.QtGui import QColor, QPainter, QPen, QBrush, QFont, QFontMetrics
 from PyQt6.QtWidgets import QStyledItemDelegate, QStyle
 

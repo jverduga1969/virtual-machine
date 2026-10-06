@@ -24,31 +24,6 @@ from workers import InstallWorker
 
 
 class InstallFlowMixin:
-    def _download_selected_os_installer_for_vm(self):
-        os_type = self.combo_main_os.currentData()
-        if os_type == "macos":
-            raise RuntimeError(self.tr("Para macOS utiliza 'Descargar System Recovery'. Apple distribuye el instalador completo como una aplicación; el flujo de Recovery de OSX-KVM es el método integrado en este gestor."))
-        if os_type == "android":
-            # Android-x86 / Bliss OS no tienen descarga automática: el
-            # usuario aporta su propia ISO. Esta guarda existe por si
-            # algún flujo futuro invoca este helper con una VM Android;
-            # el flujo real de start_installation ya no lo hace.
-            raise RuntimeError(self.tr(
-                "Android-x86 / Bliss OS no tienen descarga automática. "
-                "Descarga la ISO desde https://www.android-x86.org/download.html "
-                "o https://blissos.org/ y selecciónala en Plataforma → Android."
-            ))
-        if os_type == "windows":
-            win_ver = self.combo_win_ver.currentText()
-            url = get_latest_windows_iso_url(win_ver)
-            filename = os.path.join(self.current_vm_dir, "installer_" + re.sub(r"[^A-Za-z0-9_.-]", "_", win_ver.lower()) + ".iso")
-        else:
-            distro = self.combo_lin_distro.currentText()
-            distro_version = self._selected_lin_version()
-            url = iso_versions.get_iso_url(distro, distro_version)
-            filename = os.path.join(self.current_vm_dir, "installer_" + re.sub(r"[^A-Za-z0-9_.-]", "_", distro.lower())
-                                    + iso_versions.iso_filename_tag(distro_version) + ".iso")
-        return self._download_file_to(url, filename)
 
     def _download_file_to(self, url, filename):
         self.log_message(f"==> Descargando: {url}")

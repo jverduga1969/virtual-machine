@@ -12,14 +12,12 @@ ignoran pero que esta app lee al reimportar.
 """
 
 import os
-import re
 import json
 import shutil
 import hashlib
 import subprocess
 import tarfile
 import tempfile
-import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime
 

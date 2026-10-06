@@ -14,15 +14,15 @@ se dibujan como líneas. Soporta:
 """
 import os
 
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
+from PyQt6.QtCore import Qt, QPointF, pyqtSignal
 from PyQt6.QtGui import (
-    QPainter, QPen, QColor, QBrush, QPixmap, QFont,
-    QPainterPath, QAction,
+    QPainter, QPen, QColor, QBrush, QPixmap,
+    QPainterPath,
 )
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsProxyWidget,
     QGraphicsPathItem, QMenu, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QSizePolicy, QMessageBox,
+    QLabel, QPushButton,
 )
 
 

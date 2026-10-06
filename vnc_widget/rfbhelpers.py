@@ -2,8 +2,7 @@
 import logging
 import vnc_widget.rfbconstants as c
 
-from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtCore import Qt
+from PyQt6.QtGui import QMouseEvent
 
 class RFBPixelformat:
     def __init__(self,
@@ -126,18 +125,6 @@ class RFBInput:
                 # Sin traducción especial ni texto: tecla desconocida.
                 logging.debug(f"Unhandled key: {eventID!r} | {eventStr!r}")
                 return 0
-
-        # Log específico para teclas modificadoras
-        if rfbKey in (0xFFE1, 0xFFE2, 0xFFE3, 0xFFE4, 0xFFE7, 0xFFE8, 0xFFE9, 0xFFEA, 0xFFEB, 0xFFEC):
-            names = {
-                0xFFE1: "Shift_L", 0xFFE2: "Shift_R",
-                0xFFE3: "Control_L", 0xFFE4: "Control_R",
-                0xFFE7: "Meta_L", 0xFFE8: "Meta_R",
-                0xFFE9: "Alt_L", 0xFFEA: "Alt_R",
-                0xFFEB: "Super_L", 0xFFEC: "Super_R",
-            }
-            import logging as _log
-            _log.getLogger("RFBClient").info(f"MODIFIER: {names.get(rfbKey, hex(rfbKey))} = {hex(rfbKey)}")
 
         # Log específico para teclas modificadoras
         if rfbKey in (0xFFE1, 0xFFE2, 0xFFE3, 0xFFE4, 0xFFE7, 0xFFE8, 0xFFE9, 0xFFEA, 0xFFEB, 0xFFEC):

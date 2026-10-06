@@ -35,7 +35,6 @@ Persistencia en QSettings:
     api/token     (str, 64 chars hex)
 """
 
-import json
 import os
 import re
 import shutil

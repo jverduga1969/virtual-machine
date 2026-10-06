@@ -1579,50 +1579,6 @@ class SnapshotsMixin:
             lines.append(f"query-named-block-nodes falló: {e}")
         return "\n".join(lines)
 
-    def _snapshot_graphics_blocker(self):
-        """Detecta gráficos no migrables que impiden savevm/loadvm (p. ej. VirGL)."""
-        if not self._vm_is_selected():
-            return ""
-        state = self._runtime_state(os.path.basename(self.current_vm_dir))
-        if state not in ("running", "paused"):
-            return ""
-
-        # Primero revisamos el proceso QEMU real: esto evita equivocarnos con
-        # el modo configurado cuando está en "auto".
-        try:
-            pid_path = os.path.join(self.current_vm_dir, "qemu.pid")
-            if os.path.isfile(pid_path):
-                with open(pid_path, "r", encoding="utf-8") as f:
-                    pid = f.read().strip()
-                cmdline_path = f"/proc/{pid}/cmdline"
-                if os.path.isfile(cmdline_path):
-                    raw = Path(cmdline_path).read_bytes().replace(b"\x00", b" ").decode("utf-8", "ignore")
-                    if "virtio-vga-gl" in raw or "virtio-gpu-gl" in raw or "venus=true" in raw or "-device\x00virtio-vga-gl" in raw:
-                        return (
-                            "QEMU está ejecutando la VM con VirtIO-GPU + VirGL/Venus, "
-                            "y ese dispositivo gráfico no es migrable. QEMU bloquea los "
-                            "snapshots completos (savevm) con este dispositivo. "
-                            "Para crear un snapshot completo debes apagar la VM, cambiar "
-                            "Gráficos/GPU a 'VirtIO-GPU 2D (compatible)' (o VGA estándar) "
-                            "y volver a iniciarla antes de crear el snapshot."
-                        )
-        except Exception:
-            pass
-
-        # Fallback a la configuración guardada para VMs antiguas o si /proc no está disponible.
-        try:
-            cfg = load_vm_config(self.current_vm_dir)
-            mode = str(cfg.get("graphics_mode") or "auto").lower()
-            if mode in ("virgl", "venus"):
-                return (
-                    "La VM está configurada con gráficos VirGL/Venus, que no son "
-                    "migrables para snapshots completos de QEMU. Cambia Gráficos/GPU "
-                    "a 'VirtIO-GPU 2D (compatible)' o VGA estándar y reinicia la VM."
-                )
-        except Exception:
-            pass
-        return ""
-
     def _snapshot_log(self, message):
         """Registra un mensaje del snapshot.
 
@@ -2542,4 +2498,3 @@ class SnapshotsMixin:
                 self.tr('Error al cambiar nombre'),
                 self.tr('No se pudo cambiar el nombre.\n\n{0}').format(e),
             )
-
