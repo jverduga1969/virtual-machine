@@ -71,6 +71,35 @@ class SnapshotCompatMixin:
     # ------------------------------------------------------------------
     # Aplicar el estado del flag a toda la UI
     # ------------------------------------------------------------------
+    def _macos_version_supports_qxl(self):
+        """macos_graphics_per_version_v1: True si la version de macOS
+        seleccionada soporta QXL (Catalina 10.15+).
+
+        Apple incluye driver QXL desde macOS 10.15. High Sierra
+        (10.13) y Mojave (10.14) NO lo tienen: si se elige QXL, la
+        pantalla queda negra o a resolucion minima al cargar el
+        framebuffer de macOS.
+
+        Si no podemos determinar la version (widget ausente o combo
+        vacio), devolvemos False: se aplica el bloqueo conservador.
+        """
+        if not hasattr(self, "combo_macos_ver"):
+            return False
+        try:
+            txt = (self.combo_macos_ver.currentText() or "").lower()
+        except Exception:
+            return False
+        # High Sierra (10.13) y Mojave (10.14) NO soportan QXL.
+        if "10.13" in txt or "10.14" in txt:
+            return False
+        if "high sierra" in txt or "mojave" in txt:
+            return False
+        # Si el combo esta vacio o sin seleccion, conservador.
+        if not txt.strip():
+            return False
+        # Todo lo demas (Catalina 10.15 en adelante) si.
+        return True
+
     def _apply_snapshot_compat_ui(self):
         active = self._is_snapshot_compat_active()
 
@@ -119,8 +148,16 @@ class SnapshotCompatMixin:
         combo = getattr(self, "combo_graphics", None)
         if combo is not None:
             _gl_blocked = {"virgl", "venus"}
-            _macos_blocked = {"qxl", "vmware", "vmware-svga",
-                              "virtio", "none"}
+            # macos_graphics_per_version_v1: QXL es funcional a
+            # partir de macOS 10.15 (Catalina). En High Sierra y
+            # Mojave solo VGA generico.
+            _macos_old = _is_macos and not self._macos_version_supports_qxl()
+            if _macos_old:
+                _macos_blocked = {"qxl", "vmware", "vmware-svga",
+                                  "virtio", "none"}
+            else:
+                _macos_blocked = {"vmware", "vmware-svga",
+                                  "virtio", "none"}
             _macos_tooltips = {
                 "qxl": (
                     "QXL no tiene driver para macOS. OpenCore puede "
@@ -180,10 +217,19 @@ class SnapshotCompatMixin:
                 except Exception:
                     pass
                 if _is_macos and data in _macos_tooltips:
-                    try:
-                        combo.setItemData(i, _macos_tooltips[data], 3)
-                    except Exception:
-                        pass
+                    # macos_graphics_per_version_v1: en Catalina+
+                    # QXL no lleva tooltip de bloqueo. Limpiamos
+                    # el que hubiera quedado de una version previa.
+                    if data == "qxl" and not _macos_old:
+                        try:
+                            combo.setItemData(i, "", 3)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            combo.setItemData(i, _macos_tooltips[data], 3)
+                        except Exception:
+                            pass
             cur = combo.currentData()
             _fallback = False
             if active and cur in _gl_blocked:
@@ -196,6 +242,15 @@ class SnapshotCompatMixin:
                     combo.blockSignals(True)
                     combo.setCurrentIndex(idx)
                     combo.blockSignals(False)
+        # macos_graphics_refresh_label_v1: recalcular el texto del
+        # item 'Automatico' del combo Graficos. Sin esto, en macOS
+        # Catalina+ el texto del label no se actualiza al cambiar la
+        # version en vivo (solo cuando el fallback lo fuerza, que
+        # ocurre con High Sierra y Mojave).
+        try:
+            self._refresh_auto_graphics_label()
+        except Exception:
+            pass
 
         # --- 2) Aviso en Pantalla ---
         notice = getattr(self, "label_snapshot_compat_notice", None)

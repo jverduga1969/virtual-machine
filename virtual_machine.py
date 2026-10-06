@@ -61,14 +61,13 @@ from iso_sources import SUPPORTED_AUTODETECT, get_latest_iso_url, get_latest_win
 import iso_versions
 import principal_cdrom
 from network_utils import (
-    list_host_network_interfaces, list_host_bridges,
+    list_host_bridges,
     network_interface_exists, sanitize_tap_name,
 )
 from host_deps import (
     ensure_osx_kvm_present, detect_linux_package_manager, find_ovmf_files,
     ovmf_available, detect_host_graphics, prewarm_host_capabilities,
     get_virtualization_dependency_status, ensure_virtualization_dependencies,
-    pci_preflight_host,
 )
 from shared_folders import (
     bash_squote, find_virtiofsd, get_shared_folder_dependency_status,
@@ -1054,6 +1053,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_macos_ver.blockSignals(False)
         self.combo_macos_ver.currentIndexChanged.connect(self.maybe_autofill_vm_name)
         self.combo_macos_ver.currentIndexChanged.connect(self.apply_os_profile_defaults)
+        # macos_graphics_per_version_signal_v1: refrescar la UI de
+        # graficos cuando cambia la version de macOS. Sin esto, el
+        # bloqueo de QXL (macos_graphics_per_version_v1) solo se
+        # recalculaba al reabrir la VM o al guardar.
+        try:
+            self.combo_macos_ver.currentIndexChanged.connect(
+                self._refresh_snapshot_compat_ui_on_os_change
+            )
+        except Exception:
+            pass
         v_mac.addWidget(self.combo_macos_ver)
 
         # La fuente de instalación de macOS se elige como medio en la
@@ -1419,8 +1428,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.combo_graphics.addItem(self.tr("VirtIO-GPU 2D (compatible • snap. discos ✓ • snap. completo ✗)"), "virtio")
         self.combo_graphics.addItem(self.tr("VirtIO-GPU + VirGL 3D (OpenGL • snapshots ✗)"), "virgl")
         self.combo_graphics.addItem(self.tr("VirtIO-GPU + Venus/Vulkan 3D (experimental • snapshots ✗)"), "venus")
-        self.combo_graphics.addItem(self.tr("Red Hat QXL 2D (3D ✗ • snap. completo ✓ • macOS ⚠)"), "qxl")
-        self.combo_graphics.addItem(self.tr("VMware SVGA II (3D acelerado ✗ • snap. completo ✓ • macOS ⚠)"), "vmware")
+        self.combo_graphics.addItem(self.tr("Red Hat QXL 2D (3D ✗ • snap. completo ✓ • macOS 10.15+)"), "qxl")
+        self.combo_graphics.addItem(self.tr("VMware SVGA II (3D acelerado ✗ • snap. completo ✓ • macOS: no recomendado)"), "vmware")
+        # vga_std_explicit_v1: opcion explicita de VGA estandar para
+        # todos los SO. Util para debug, compatibilidad maxima o VMs
+        # antiguas sin driver paravirtualizado.
+        self.combo_graphics.addItem(self.tr("VGA estándar (QEMU -vga std • máximo compat.)"), "std")
         self.combo_graphics.addItem(self.tr("Sin video / Headless"), "none")
         self.combo_graphics.setToolTip(self.tr(
 "Automático detecta las capacidades del host y usa aceleración 3D "

@@ -347,6 +347,12 @@ class InstallWorker(QThread):
         if self.graphics_mode in ("none", "off", "disabled"):
             return "-display none -vga none", "Sin video (headless)"
 
+        # vga_std_explicit_v1: VGA estandar explicito. Util para debug,
+        # compatibilidad maxima y VMs antiguas. En macOS este modo no
+        # llega aqui (macOS usa otra rama con -device VGA).
+        if self.graphics_mode == "std":
+            return ("-vga std", "VGA estándar (QEMU -vga std)")
+
         # VNC embedded: cuando está activo, forzamos gráficos sin GL.
         # VNC no soporta contextos OpenGL, así que un backend con GL fallaría
         # con "Display vnc is incompatible with the GL context".
@@ -545,12 +551,6 @@ class InstallWorker(QThread):
         tpm_cmd = f'swtpm socket --tpm2 --tpmstate dir="{tpm_dir}" --ctrl type=unixio,path="{socket_path}" --daemon'
         qemu_tpm = f'-chardev socket,id=chrtpm,path="{socket_path}" -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0'
         return tpm_cmd, qemu_tpm
-
-    def _network_model_for_guest(self):
-        # macOS suele tener mejor compatibilidad con el modelo Intel e1000-82545em.
-        if self.os_type == "macos" and self.network_model == "e1000":
-            return "e1000-82545em"
-        return self.network_model
 
     def _insert_pre_qmp_args(self, script_content, pre_qmp):
         """Inserta argumentos extra de QEMU (VirtioFS, Guest Agent) justo antes
@@ -1346,10 +1346,6 @@ class InstallWorker(QThread):
             raise RuntimeError(f"OVMF VARS no quedó disponible: {vars_dst}")
         self.log_signal.emit("==> Firmware OVMF de macOS verificado: CODE compartido + VARS privado.")
         return code_src, vars_dst
-
-    def _boot_arg(self):
-        # Compatibilidad con configuraciones antiguas. El orden nuevo usa bootindex.
-        return {"disk": "c", "cdrom": "d", "network": "n"}.get(self.boot_device, "d")
 
     def _storage_devices_from_config(self):
         try:
@@ -2665,4 +2661,3 @@ class _BackgroundCallThread(QThread):
             self.done_signal.emit(result, None)
         except Exception as e:
             self.done_signal.emit(None, e)
-
