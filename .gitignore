@@ -145,3 +145,21 @@ TRASPASO_HISTORICO.md
 # auditoria_nivel0_v1 / tanda_a_archive_v1
 _archive/
 AUDITORIA.md
+
+# ---- Añadidos 2026-10-19 (pre-push) ----
+# Traspasos de proyecto (todos los formatos y nombres conocidos)
+Traspaso*.md
+Traspaso de proyecto*.md
+TRASPASO*.md
+
+# Carpetas de traspaso antiguas (v39/, v40/, ...)
+/v[0-9]*/
+
+# Scripts one-shot con prefijos no cubiertos por el bloque anterior
+aplicar_*.py
+integrar_*.py
+
+# Basura de sesión detectada en el git status del 2026-10-19
+deepseek_bash_*.sh
+Fix
+=

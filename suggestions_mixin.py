@@ -137,7 +137,15 @@ def compute_suggestions(vm_dir, host_ram_gb=None, tr=None):
     # ============================================================
     # 1. Disco del host donde vive la VM
     # ============================================================
-    used_pct, free_bytes, _ = _disk_usage_for(vm_dir)
+    # suggestions_underscore_shadowing_v1: ojo con usar `_` como
+    # throwaway en esta función. `_` es el nombre que se le da arriba
+    # a la función de traducción:
+    #     _ = tr if callable(tr) else (lambda s, *a, **k: s)
+    # Un `_` aquí la sobreescribiría con un int y todas las llamadas
+    # `_("...").format(...)` fallarían con
+    #     TypeError: 'int' object is not callable
+    # Por eso el tercer valor (que además no se usa) lleva nombre real.
+    used_pct, free_bytes, total_bytes = _disk_usage_for(vm_dir)
     if used_pct is not None:
         if used_pct >= DISK_CRIT_PCT:
             suggestions.append((
@@ -358,6 +366,20 @@ class SuggestionsMixin:
         try:
             suggestions = compute_suggestions(self.current_vm_dir, tr=self.tr)
         except Exception as e:
+            # suggestions_underscore_shadowing_v1: además de mostrar
+            # el mensaje en el panel, dejar traza completa en la
+            # Consola de Progreso (si existe). Sin esto, un fallo
+            # dentro de compute_suggestions solo se veía como
+            # "Error al analizar" sin contexto.
+            try:
+                import traceback as _tb
+                if hasattr(self, "log_message"):
+                    self.log_message(
+                        "[AVISO] Sugerencias: excepción en "
+                        "compute_suggestions():\n" + _tb.format_exc()
+                    )
+            except Exception:
+                pass
             self.suggestions_label.setText(
                 f"<span style='color:#c62828;'>⚠️ Error al analizar: {e}</span>"
             )
@@ -379,3 +401,5 @@ class SuggestionsMixin:
             color = color_map.get(level, "#333")
             parts.append(f"<span style='color:{color};'>{icon} {text}</span>")
         self.suggestions_label.setText("<br><br>".join(parts))
+
+# suggestions_underscore_shadowing_v1_applied

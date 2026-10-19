@@ -119,9 +119,70 @@ class InstallWorker(QThread):
         self._smb_share_readonly = False
 
     def _cpu_args(self):
-        if self.cpu_model.lower() in ("", "auto"):
-            return "host"
-        return self.cpu_model
+        """Args de -cpu para la VM.
+
+        Marcador: cpu_features_v1 (extiende el comportamiento historico).
+
+        Base: 'host' o el modelo explicito elegido en el combo.
+
+        Extras opcionales, que se anaden como sufijos '+flag' o 'flag':
+          • Virtualizacion anidada (+vmx / +svm), auto-detectada del host.
+          • Hyper-V enlightenments (solo VMs Windows).
+
+        macOS y Android se devuelven sin extras: macOS arma su propia
+        cadena de CPU en su rama de run(), y Android-x86/Bliss OS no
+        se benefician de ninguna de las dos features.
+        """
+        base = "host" if self.cpu_model.lower() in ("", "auto") else self.cpu_model
+
+        if self.os_type not in ("linux", "windows"):
+            return base
+
+        extras = []
+
+        # 1) Virtualizacion anidada.
+        if bool((self.extra_params or {}).get("nested_virt", False)):
+            _flag = self._host_nested_virt_flag()
+            if _flag:
+                extras.append(_flag)
+                self.log_signal.emit(
+                    f"==> CPU: virtualizacion anidada activada ({_flag})."
+                )
+            else:
+                self.log_signal.emit(
+                    "[AVISO] Virtualizacion anidada solicitada, pero el "
+                    "host no expone ni vmx (Intel) ni svm (AMD) en "
+                    "/proc/cpuinfo. Se omite el flag."
+                )
+
+        # 2) Hyper-V enlightenments (solo Windows).
+        if (self.os_type == "windows"
+                and bool((self.extra_params or {}).get(
+                    "hyperv_enlightenments", False))):
+            extras.extend([
+                "hv-relaxed",
+                "hv-vapic",
+                "hv-spinlocks=0x1fff",
+                "hv-time",
+                "hv-synic",
+                "hv-stimer",
+                "hv-reset",
+                "hv-frequencies",
+                "hv-reenlightenment",
+                "hv-tlbflush",
+                "hv-ipi",
+            ])
+            self.log_signal.emit(
+                "==> CPU: optimizaciones Hyper-V activadas "
+                "(hv-relaxed, hv-vapic, hv-spinlocks, hv-time, "
+                "hv-synic, hv-stimer, hv-reset, hv-frequencies, "
+                "hv-reenlightenment, hv-tlbflush, hv-ipi)."
+            )
+
+        if extras:
+            return base + "," + ",".join(extras)
+        return base
+
 
     def _qemu_chardev_supports(self, chardev_name):
         qemu = shutil.which("qemu-system-x86_64")
@@ -141,14 +202,74 @@ class InstallWorker(QThread):
         return str(cfg.get("mode", "disabled")) != "disabled"
 
     def _clipboard_qemu_args(self):
-        if not self._clipboard_enabled() or self.os_type == "macos":
+        """Devuelve (qemu_args, note) para el canal de clipboard.
+
+        Marcador: clipboard_full_v1.
+
+        El chardev correcto depende del PROTOCOLO de consola activo:
+
+          - SPICE  -> spicevmc  (chardev nativo del servidor SPICE)
+          - VNC    -> qemu-vdagent (QEMU 6.1+). Ademas el -vnc debe
+                      llevar ,clipboard=on; lo anade _console_args via
+                      console_backend.qemu_console_args.
+          - Native -> sin chardev: el clipboard de la ventana GTK de
+                      QEMU se activa con -display gtk,clipboard=on
+                      (lo hace _graphics_args).
+
+        macOS y Android no tienen spice-vdagent ni equivalente. Se
+        devuelve ("", aviso) para que el llamador lo registre.
+        """
+        if not self._clipboard_enabled():
             return "", ""
+        if self.os_type == "macos":
+            return "", (
+                "[AVISO] Clipboard: macOS no tiene spice-vdagent ni "
+                "equivalente. El clipboard host<->guest no es posible "
+                "con QEMU/KVM. Se omite el canal."
+            )
+        if self.os_type == "android":
+            return "", (
+                "[AVISO] Clipboard: Android-x86 / Bliss OS no traen "
+                "spice-vdagent usable. El clipboard host<->guest no es "
+                "posible. Se omite el canal."
+            )
+
+        _proto = str(getattr(self, "console_protocol", "vnc") or "vnc").lower()
+        _mode = str(getattr(self, "console_mode", "embedded") or "embedded").lower()
+
+        if _mode == "native":
+            # GTK clipboard: no usa chardev.
+            return "", (
+                "==> Clipboard: ventana nativa de QEMU (-display gtk,"
+                "clipboard=on). Solo texto. Si el backend fuese SDL, "
+                "no se anadira el flag y el clipboard no estara activo."
+            )
+
+        if _proto == "spice":
+            return (
+                '-chardev spicevmc,id=vdagent0,name=vdagent '
+                '-device virtio-serial '
+                '-device virtserialport,chardev=vdagent0,name=com.redhat.spice.0',
+                "==> Clipboard: SPICE vdagent (bidireccional completo: "
+                "texto e imagenes). El guest necesita spice-vdagent "
+                "(Linux) o SPICE Guest Tools (Windows).",
+            )
+
+        # VNC: qemu-vdagent. Opcional en QEMU (introducido en 6.1).
         if not self._qemu_chardev_supports("qemu-vdagent"):
-            raise RuntimeError("Este QEMU no ofrece qemu-vdagent; no se puede activar el clipboard integrado.")
+            return "", (
+                "[AVISO] Clipboard: este QEMU no ofrece el chardev "
+                "'qemu-vdagent' (necesario para VNC, disponible desde "
+                "QEMU 6.1). El clipboard por VNC no esta disponible. "
+                "Actualiza QEMU o cambia la consola a SPICE."
+            )
         return (
             '-chardev qemu-vdagent,id=vdagent0,name=vdagent,clipboard=on,mouse=off '
-            '-device virtio-serial -device virtserialport,chardev=vdagent0,name=com.redhat.spice.0',
-            "Clipboard: QEMU vdagent activo (bidireccional). El guest necesita spice-vdagent/SPICE Guest Tools."
+            '-device virtio-serial '
+            '-device virtserialport,chardev=vdagent0,name=com.redhat.spice.0',
+            "==> Clipboard: QEMU vdagent por VNC (solo texto). El "
+            "guest necesita spice-vdagent (Linux) o SPICE Guest Tools "
+            "(Windows).",
         )
 
     def _qemu_supports_audiodev(self, backend_name):
@@ -409,14 +530,67 @@ class InstallWorker(QThread):
         mode = self.graphics_mode or "auto"
         clipboard_on = self._clipboard_enabled() and self.os_type in ("linux", "windows")
         display_gl_args, display_gl_ok = self._display_opengl_args()
-        if clipboard_on:
+        # clipboard_no_display_conflict_v1: el flag clipboard=on de
+        # -display gtk SOLO se anade cuando la consola abre una
+        # VENTANA NATIVA de QEMU (console_mode=native). Con consola
+        # por socket (embedded/external/hybrid/hybrid_gl) el unico
+        # -display valido lo emite console_backend.qemu_console_args
+        # (-display none), y el clipboard viaja por el chardev que
+        # emite _clipboard_qemu_args (spicevmc / qemu-vdagent).
+        _add_gtk_clipboard = (
+            clipboard_on and self.console_mode == MODE_NATIVE
+        )
+        if _add_gtk_clipboard:
+            if display_gl_args.startswith("-display gtk"):
+                display_gl_args = re.sub(
+                    r"-display gtk(?:,([^ ]+))?",
+                    lambda m: "-display gtk,"
+                              + ((m.group(1) + ",") if m.group(1) else "")
+                              + "clipboard=on",
+                    display_gl_args, count=1,
+                )
+            elif display_gl_args.startswith("-display sdl"):
+                # SDL no soporta clipboard=on; no forzamos nada.
+                self.log_signal.emit(
+                    "[AVISO] Clipboard en modo native: el backend SDL no "
+                    "soporta clipboard=on. Usa consola VNC o SPICE para el "
+                    "clipboard, o configura QEMU con soporte GTK."
+                )
+            else:
+                self.log_signal.emit(
+                    "[AVISO] Clipboard en modo native: QEMU no reporta un "
+                    "backend GTK/SDL. Se omite el flag clipboard=on."
+                )
             if display_gl_args.startswith("-display gtk"):
                 display_gl_args = re.sub(r"-display gtk(?:,([^ ]+))?", lambda m: "-display gtk," + ((m.group(1) + ",") if m.group(1) else "") + "clipboard=on", display_gl_args, count=1)
             else:
                 display_gl_args = "-display gtk,clipboard=on"
                 display_gl_ok = True
+        # virgl_udmabuf_autodetect_v1: VirGL con blob=true (que es lo
+        # que emite este worker) necesita /dev/udmabuf accesible. Sin el,
+        # QEMU aborta:
+        #   warning: open /dev/udmabuf: Permission denied
+        #   need rutabaga or udmabuf for blob resources
+        # Degradamos a 2D automaticamente cuando no es utilizable.
+        _udmabuf_ok = True
+        try:
+            _udmabuf_ok = (os.path.exists("/dev/udmabuf")
+                           and os.access("/dev/udmabuf", os.R_OK | os.W_OK))
+        except Exception:
+            _udmabuf_ok = False
+        if not _udmabuf_ok:
+            try:
+                self.log_signal.emit(
+                    "==> VirGL no utilizable: /dev/udmabuf no es accesible. "
+                    "Se usara VirtIO-GPU 2D. Para habilitar VirGL: "
+                    "sudo bash scripts/fix_udmabuf_permissions_v1.sh "
+                    "(y reiniciar sesion)."
+                )
+            except Exception:
+                pass
         virgl_ok = (self._qemu_supports("virtio-vga-gl") and
-                    self._virgl_available() and display_gl_ok)
+                    self._virgl_available() and display_gl_ok and
+                    _udmabuf_ok)
         # Venus is an optional Vulkan path. Do not expose it as usable merely
         # because virglrenderer exists: the host also needs a working Vulkan
         # stack. The stable automatic mode remains VirGL/OpenGL.
@@ -432,7 +606,7 @@ class InstallWorker(QThread):
 
         # Windows: priorizamos un VGA estándar porque funciona sin instalar drivers VirtIO.
         if self.os_type == "windows" and mode == "auto":
-            return (f"{display_gl_args} -vga std" if clipboard_on else "-vga std"), "Windows: VGA estándar (máxima compatibilidad)"
+            return (f"{display_gl_args} -vga std" if _add_gtk_clipboard else "-vga std"), "Windows: VGA estándar (máxima compatibilidad)"
 
         # Android-x86 9.0 (kernel 4.9) no trae driver VirtIO-GPU: al arrancar
         # se queda en "Detecting Android-x86..." y cae a un shell de
@@ -467,8 +641,8 @@ class InstallWorker(QThread):
             if virgl_ok:
                 return f"{display_gl_args} -device virtio-vga-gl,hostmem={hostmem},blob=true".strip(), "VirtIO-GPU + VirGL 3D (OpenGL host)"
             if virtio_ok:
-                return (f"{display_gl_args} -device virtio-vga" if clipboard_on else "-device virtio-vga"), "VirtIO-GPU 2D"
-            return (display_gl_args if clipboard_on else ""), "QEMU VGA estándar"
+                return (f"{display_gl_args} -device virtio-vga" if _add_gtk_clipboard else "-device virtio-vga"), "VirtIO-GPU 2D"
+            return (display_gl_args if _add_gtk_clipboard else ""), "QEMU VGA estándar"
 
         if mode == "qxl":
             if self.firmware == "uefi":
@@ -478,7 +652,7 @@ class InstallWorker(QThread):
                     "prueba 'Automático' o 'VirtIO-GPU 2D'."
                 )
             if self._qemu_supports("qxl"):
-                return (f"{display_gl_args} -vga qxl" if clipboard_on else "-vga qxl"), "Red Hat QXL 2D (sin 3D; snapshot compatible)"
+                return (f"{display_gl_args} -vga qxl" if _add_gtk_clipboard else "-vga qxl"), "Red Hat QXL 2D (sin 3D; snapshot compatible)"
             return "-vga std", "QXL no disponible; VGA estándar"
 
         if mode in ("vmware", "vmware-svga"):
@@ -489,7 +663,7 @@ class InstallWorker(QThread):
                     "prueba 'Automático' o 'VirtIO-GPU 2D'."
                 )
             # QEMU expone este dispositivo como VMware SVGA II compatible.
-            return (f"{display_gl_args} -vga vmware" if clipboard_on else "-vga vmware"), "VMware SVGA II compatible (sin 3D acelerado; snapshot compatible)"
+            return (f"{display_gl_args} -vga vmware" if _add_gtk_clipboard else "-vga vmware"), "VMware SVGA II compatible (sin 3D acelerado; snapshot compatible)"
 
         if mode == "virtio":
             if virtio_ok:
@@ -749,11 +923,15 @@ class InstallWorker(QThread):
                     f'if [ -S {sock_q} ]; then VIRTIOFS_OK_{i}=1; break; fi; '
                     f'if ! kill -0 "${{VIRTIOFS_PID_{i}}}" 2>/dev/null; then break; fi; '
                     f'sleep 0.05; done\n'
-                    f'if [ "$VIRTIOFS_OK_{i}" = "1" ]; then\n'
+                    f'if [ "$VIRTIOFS_OK_{i}" = "1" ] && kill -0 "${{VIRTIOFS_PID_{i}}}" 2>/dev/null; then\n'
                     f'  echo "==> VirtioFS listo: {guest}"\n'
                     f'  EXTRA_FS_ARGS+=(-chardev \'{chardev_elem}\' -device \'{device_elem}\')\n'
                     f'else\n'
-                    f'  echo "[AVISO] VirtioFS no disponible para {guest}; la VM continuará SIN esta carpeta compartida. Detalle: {log_path}"\n'
+                    f'  if [ "$VIRTIOFS_OK_{i}" = "1" ]; then\n'
+                    f'    echo "[AVISO] VirtioFS: virtiofsd murió tras crear el socket para {guest}; la VM continuará SIN esta carpeta compartida. Detalle: {log_path}"\n'
+                    f'  else\n'
+                    f'    echo "[AVISO] VirtioFS no disponible para {guest}; la VM continuará SIN esta carpeta compartida. Detalle: {log_path}"\n'
+                    f'  fi\n'
                     f'  rm -f {pidfile_q}\n'
                     f'fi'
                 )
@@ -1250,6 +1428,324 @@ class InstallWorker(QThread):
         log_path = os.path.join(self.vm_dir, "serial.log")
         return f'-serial file:"{log_path}"'
 
+    def _rng_args(self):
+        """Devuelve los args de VirtIO-RNG si el usuario lo activo.
+
+        Marcador: virtio_rng_v1.
+
+        VirtIO-RNG entrega entropia real del host al guest a traves
+        de un dispositivo paravirtualizado. Arregla el clasico
+        "generar claves SSH en el guest tarda 30 s" cuando el kernel
+        del guest tiene poca entropia al arrancar.
+
+        Requiere driver virtio-rng en el guest:
+          - Linux: modulo virtio_rng (incluido en el kernel).
+          - Windows: VirtIO Guest Tools.
+          - macOS y Android: sin soporte; el flag se ignora.
+
+        Se verifica que el QEMU del host exponga el dispositivo. Si
+        no, se omite con un aviso en lugar de abortar el arranque.
+        """
+        if not bool((self.extra_params or {}).get("virtio_rng", False)):
+            return ""
+        if self.os_type == "macos":
+            return ""
+        if not self._qemu_supports("virtio-rng-pci"):
+            self.log_signal.emit(
+                "[AVISO] VirtIO-RNG solicitado pero este QEMU no expone "
+                "'virtio-rng-pci'. Se omite el dispositivo."
+            )
+            return ""
+        return "-device virtio-rng-pci"
+
+    def _watchdog_args(self):
+        """Args del watchdog de hardware si el usuario lo activo.
+
+        Marcador: virtio_watchdog_v1.
+
+        Intenta 'virtio-watchdog-pci' (QEMU 9.0+) y cae a 'i6300esb'
+        (disponible en cualquier QEMU moderno) si el primero no existe.
+        La accion se pasa con '-watchdog-action' (global para todos los
+        watchdogs de la VM).
+
+        macOS se omite: no trae driver para ninguno de los dos.
+        """
+        if not bool((self.extra_params or {}).get("virtio_watchdog", False)):
+            return ""
+        if self.os_type == "macos":
+            return ""
+        action = str(
+            (self.extra_params or {}).get("virtio_watchdog_action")
+            or "reset"
+        ).lower()
+        if action not in ("reset", "poweroff", "shutdown", "pause",
+                          "none", "debug"):
+            action = "reset"
+        if self._qemu_supports("virtio-watchdog-pci"):
+            return (
+                f"-device virtio-watchdog-pci "
+                f"-watchdog-action {action}"
+            )
+        if self._qemu_supports("i6300esb"):
+            self.log_signal.emit(
+                "==> Watchdog: este QEMU no expone 'virtio-watchdog-pci' "
+                "(introducido en QEMU 9.0). Se usa 'i6300esb' como "
+                "respaldo con la misma accion."
+            )
+            return f"-device i6300esb -watchdog-action {action}"
+        self.log_signal.emit(
+            "[AVISO] Watchdog solicitado, pero este QEMU no expone ni "
+            "'virtio-watchdog-pci' ni 'i6300esb'. Se omite el dispositivo."
+        )
+        return ""
+
+    def _balloon_args(self):
+        """Args del VirtIO balloon si el usuario lo activo.
+
+        Marcador: virtio_balloon_v1.
+
+        Permite al driver del guest devolver al host la RAM que no
+        esta usando. Util cuando corren varias VMs a la vez.
+
+        macOS se omite: no trae driver virtio_balloon.
+        """
+        if not bool((self.extra_params or {}).get("virtio_balloon", False)):
+            return ""
+        if self.os_type == "macos":
+            return ""
+        if not self._qemu_supports("virtio-balloon-pci"):
+            self.log_signal.emit(
+                "[AVISO] VirtIO balloon solicitado, pero este QEMU no "
+                "expone 'virtio-balloon-pci'. Se omite el dispositivo."
+            )
+            return ""
+        return "-device virtio-balloon-pci"
+
+    def _smp_arg(self):
+        """Devuelve el flag -smp completo para la VM.
+
+        Marcador: cpu_topology_v1.
+
+        Modo 'auto' (default): formato historico por SO.
+          - macOS: cpus=N,cores=N,threads=1,sockets=1
+          - resto: cpus=N
+        Modo 'manual': emite la topologia elegida por el usuario
+        (sockets x cores x threads). Si el producto NO coincide con
+        los nucleos configurados, se emite un aviso y se cae a auto:
+        nunca arrancamos QEMU con una topologia incoherente.
+        """
+        topo = (self.extra_params or {}).get("cpu_topology") or {}
+        mode = str(topo.get("mode") or "auto").lower()
+        if mode == "manual":
+            try:
+                s = max(1, int(topo.get("sockets") or 1))
+                c = max(1, int(topo.get("cores") or self.cores))
+                t = max(1, int(topo.get("threads") or 1))
+            except (TypeError, ValueError):
+                s = c = t = 0
+            if s and c and t:
+                total = s * c * t
+                try:
+                    want = int(self.cores)
+                except (TypeError, ValueError):
+                    want = total
+                if total == want:
+                    return (
+                        f"-smp cpus={total},sockets={s},"
+                        f"cores={c},threads={t}"
+                    )
+                self.log_signal.emit(
+                    f"[AVISO] Topologia manual ({s}S x {c}C x {t}T = "
+                    f"{total} vCPU) no coincide con los {self.cores} "
+                    "nucleos configurados. Se usara el modo automatico."
+                )
+        if self.os_type == "macos":
+            return (
+                f"-smp {self.cores},cores={self.cores},"
+                f"threads=1,sockets=1"
+            )
+        return f"-smp {self.cores}"
+
+    def _host_nested_virt_flag(self):
+        """Devuelve '+vmx' (Intel) o '+svm' (AMD) si el host expone la
+        extension de virtualizacion. None si no aplica.
+
+        Marcador: cpu_features_v1. Se lee /proc/cpuinfo para no depender
+        de que lscpu este instalado. Solo se miran las lineas 'flags';
+        el 'model name' puede contener la palabra 'vmx' por casualidad.
+        """
+        try:
+            with open("/proc/cpuinfo", "r") as f:
+                for line in f:
+                    ll = line.lower()
+                    if not ll.startswith("flags"):
+                        continue
+                    try:
+                        flags = ll.split(":", 1)[1]
+                    except IndexError:
+                        continue
+                    padded = " " + flags.strip() + " "
+                    if " vmx " in padded:
+                        return "+vmx"
+                    if " svm " in padded:
+                        return "+svm"
+                    # Solo hace falta la primera linea de flags; todas
+                    # las CPUs del host tienen el mismo conjunto.
+                    return None
+        except Exception:
+            pass
+        return None
+
+    def _can_lock_memory(self):
+        """True si RLIMIT_MEMLOCK cubre la RAM de la VM.
+
+        Marcador: memfd_lock_autodetect_v1.
+
+        Devuelve (puede, limite_bytes) donde `puede` es True si el
+        proceso puede bloquear toda la RAM de la VM. Si no se puede
+        determinar la RAM, devuelve (True, None) para conservar el
+        comportamiento anterior (fail-safe: intenta la opcion).
+
+        La RAM se lee del worker buscando en varios atributos
+        habituales (ram, ram_gb, ram_bytes). El formato tipico es
+        "8G" o "8192M" (cadena), o un entero en bytes si es
+        ram_bytes.
+        """
+        try:
+            import resource
+        except Exception:
+            return True, None
+        try:
+            soft, hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+            limit = hard if hard != resource.RLIM_INFINITY else soft
+            if limit == resource.RLIM_INFINITY:
+                return True, None
+        except Exception:
+            return True, None
+
+        # Localizar la RAM de la VM.
+        ram_bytes = 0
+        for attr in ("ram_bytes", "ram_gb", "ram"):
+            try:
+                v = getattr(self, attr, None)
+            except Exception:
+                v = None
+            if v is None:
+                continue
+            try:
+                if attr == "ram_bytes":
+                    ram_bytes = int(v)
+                elif attr == "ram_gb":
+                    ram_bytes = int(v) * 1024 * 1024 * 1024
+                else:
+                    s = str(v).upper().strip().replace(" ", "")
+                    if s.endswith("G"):
+                        ram_bytes = int(float(s[:-1]) * 1024 * 1024 * 1024)
+                    elif s.endswith("M"):
+                        ram_bytes = int(float(s[:-1]) * 1024 * 1024)
+                    else:
+                        # Asumimos GB por defecto.
+                        ram_bytes = int(float(s)) * 1024 * 1024 * 1024
+                break
+            except Exception:
+                continue
+
+        # Si tampoco esta en atributos, mirar en extra_params.
+        if ram_bytes <= 0:
+            try:
+                _ep = getattr(self, "extra_params", None) or {}
+                _r = _ep.get("ram")
+                if _r:
+                    s = str(_r).upper().strip()
+                    if s.endswith("G"):
+                        ram_bytes = int(float(s[:-1]) * 1024 * 1024 * 1024)
+                    elif s.endswith("M"):
+                        ram_bytes = int(float(s[:-1]) * 1024 * 1024)
+                    else:
+                        ram_bytes = int(float(s)) * 1024 * 1024 * 1024
+            except Exception:
+                pass
+
+        if ram_bytes <= 0:
+            # Sin info: conservador, dejamos pasar (comportamiento previo).
+            return True, limit
+
+        return limit >= ram_bytes, limit
+
+    def _memory_args(self):
+        """Devuelve los flags de tuning de memoria de QEMU.
+
+        Marcador: memory_tuning_v1.
+
+        Se aplican a TODAS las VMs (los flags actuan sobre el backend
+        de memoria del host, no sobre el guest). Formato legacy,
+        soportado por QEMU 8.2 y compatible con la linea -m {size}
+        existente:
+
+          hugepages=on   -> -mem-path /dev/hugepages -mem-prealloc
+          prealloc=on    -> -mem-prealloc
+          memfd-lock=on  -> -overcommit mem-lock=on
+
+        Con hugepages activo, prealloc se anade automaticamente: sin
+        el, QEMU intenta reservar hugepages al vuelo y puede fallar
+        si no hay suficientes libres en ese instante.
+        """
+        mt = (self.extra_params or {}).get("memory_tuning") or {}
+        _hp = bool(mt.get("hugepages"))
+        _pa = bool(mt.get("prealloc"))
+        _ml = bool(mt.get("memfd_lock"))
+
+        parts = []
+
+        if _hp:
+            _hp_path = "/dev/hugepages"
+            if os.path.isdir(_hp_path):
+                parts.append(f"-mem-path {_hp_path}")
+                if not _pa:
+                    parts.append("-mem-prealloc")
+            else:
+                self.log_signal.emit(
+                    "[AVISO] Hugepages solicitadas pero /dev/hugepages no "
+                    "existe en el host. Se omite -mem-path. Monta hugetlbfs "
+                    "o desmarca la opcion."
+                )
+
+        if _pa and "-mem-prealloc" not in parts:
+            parts.append("-mem-prealloc")
+
+        if _ml:
+            # memfd_lock_autodetect_v1: comprobar RLIMIT_MEMLOCK.
+            # Si no cubre la RAM de la VM, QEMU aborta con
+            # 'mlockall: Cannot allocate memory'. Mejor omitir
+            # la opcion y avisar que romper el arranque.
+            _lock_ok, _lock_limit = self._can_lock_memory()
+            if _lock_ok:
+                parts.append("-overcommit mem-lock=on")
+            else:
+                try:
+                    _limit_mb = (
+                        int(_lock_limit) // (1024 * 1024)
+                        if _lock_limit else 0
+                    )
+                except Exception:
+                    _limit_mb = 0
+                self.log_signal.emit(
+                    "[AVISO] memfd-lock solicitado, pero "
+                    "RLIMIT_MEMLOCK del proceso ("
+                    f"{_limit_mb} MB) es menor que la RAM de la VM. "
+                    "Se omite -overcommit mem-lock=on para no "
+                    "romper el arranque. Para activarlo: anade "
+                    "'memlock unlimited' en "
+                    "/etc/security/limits.conf o "
+                    "/etc/security/limits.d/ y reinicia la sesion."
+                )
+
+        if parts:
+            self.log_signal.emit(
+                "==> Memoria: " + " ".join(parts)
+            )
+        return " ".join(parts)
+
     def _passthrough_args(self):
         # Modo compatibilidad de snapshots (marcador snapshot_compat_v1):
         # los dispositivos PCI/USB son hardware físico sin vmstate
@@ -1410,62 +1906,29 @@ class InstallWorker(QThread):
         import re as _re
         return bool(_re.search(r"-machine\s+q35(?:\b|,)", args))
 
-    def _resolve_disk_bus_for_os(self, devtype):
-        """Decide qué bus usar para un disco duro según el SO invitado.
+    def _resolve_disk_bus_for_os(self, devtype, bus_hint="auto"):
+        """Decide qué bus QEMU usar para un disco duro.
 
-        Marcador interno: nvme_default_all_modern_os
-
-        Reglas:
-          • device="nvme" explícito → siempre NVMe (respetado).
-          • device="floppy" / "cdrom" → no aplica.
-          • device="sata" (disco duro genérico):
-              - macOS              → "sata_ahci" (OpenCore/OSX-KVM usan SATA)
-              - Windows XP / 2000  → "ide"       (sin drivers AHCI)
-              - Windows Vista / 7  → "sata_ahci" (sin driver NVMe nativo)
-              - Windows 8.1+ / 10 / 11 → "nvme"
-              - Linux (moderno)    → "nvme"
-              - Otros              → "nvme" (fallback)
+        disk_bus_v1: delega en disk_bus.resolve_disk_bus_for_os. Se
+        mantiene este wrapper para no romper llamadas existentes.
+        El default de "auto" ya NO es NVMe: es SATA/AHCI (preserva
+        snapshots completos, marcador sata_default_all_modern_os_v1).
         """
-        if devtype == "nvme":
-            return "nvme"
-        if devtype in ("floppy", "cdrom"):
-            return devtype
-        # A partir de aquí, devtype == "sata" (disco duro genérico).
-        if self.os_type == "macos":
-            return "sata_ahci"
-        if self.os_type == "windows":
-            win_ver = str((self.extra_params or {}).get("win_ver") or "").lower()
-            if "xp" in win_ver or "2000" in win_ver:
-                return "ide"
-            if "vista" in win_ver or "windows 7" in win_ver:
-                return "sata_ahci"
-            return "nvme"
-        if self.os_type == "linux":
-            return "nvme"
-        if self.os_type == "android":
-            # Android-x86 / Bliss OS se instalan y arrancan mejor en
-            # AHCI: el instalador particiona y monta sin necesitar
-            # drivers NVMe específicos del kernel Android-x86.
-            # AHCI (ide.0..ide.5) sólo existe en Q35; si el chipset
-            # guardado es i440FX (pc), el bus ide.2 no existe y QEMU
-            # falla con "Bus 'ide.2' not found". En ese caso se
-            # degrada a IDE heredado, que sí funciona en ambos.
-            return "sata_ahci" if self._chipset_is_q35() else "ide"
-        return "nvme"
+        from disk_bus import resolve_disk_bus_for_os as _r
+        win_ver = str((self.extra_params or {}).get("win_ver") or "")
+        return _r(
+            os_type=self.os_type,
+            win_ver=win_ver,
+            chipset_is_q35=self._chipset_is_q35(),
+            devtype=devtype,
+            bus_hint=bus_hint,
+        )
 
     def _disk_runtime_args(self):
         """Construye los argumentos de disco para QEMU.
 
-        El bus real se decide con _resolve_disk_bus_for_os(), que traduce
-        el "device" lógico (sata/nvme/floppy) al bus QEMU adecuado según
-        el sistema operativo invitado:
-
-          • NVMe            → -device nvme,...
-          • SATA AHCI       → -device ide-hd,bus=ide.N (AHCI del Q35)
-          • IDE heredado    → -device ide-hd (sin bus explícito)
-          • Floppy          → -device floppy,...
-
-        Marcador: nvme_default_all_modern_os
+        Marcadores: disk_bus_v1, virtio_scsi_v1, virtio_blk_v1,
+        disk_bus_limits_v1_worker.
         """
         args = []
         devices = [
@@ -1477,15 +1940,48 @@ class InstallWorker(QThread):
             disk_files = self._vm_disk_files()
             devices = [
                 {"id": None, "name": os.path.basename(p),
-                 "path": p, "device": self._device_type_for_path(p)}
+                 "path": p, "device": self._device_type_for_path(p),
+                 "bus_hint": "auto"}
                 for p in disk_files
             ]
 
+        from disk_bus import validate_disk_bus_limits
+        _cdroms = [d for d in self._storage_devices_from_config()
+                   if d.get("device") == "cdrom"]
+        _errors = validate_disk_bus_limits(
+            devices,
+            os_type=self.os_type,
+            win_ver=str((self.extra_params or {}).get("win_ver") or ""),
+            chipset_is_q35=self._chipset_is_q35(),
+            cdroms_count=len(_cdroms),
+        )
+        if _errors:
+            raise RuntimeError(
+                "Configuración de discos incompatible:\n\n"
+                + "\n".join("  • " + e for e in _errors)
+                + "\n\nSugerencia: usa VirtIO-SCSI para muchos discos, "
+                "o reduce el número de discos SATA (máx. 4 en Q35)."
+            )
+
+        _needs_scsi_controller = False
+        for d in devices:
+            _hint = str(d.get("bus_hint") or "auto").lower()
+            _bus_probe = self._resolve_disk_bus_for_os(
+                d.get("device", "sata"), bus_hint=_hint
+            )
+            if _bus_probe == "virtio-scsi":
+                _needs_scsi_controller = True
+                break
+        if _needs_scsi_controller:
+            args.append("-device virtio-scsi-pci,id=scsi0")
+
         sata_ahci_port = 0
+        _scsi_id_counter = 0
         for idx, d in enumerate(devices):
             path = d.get("path")
             devtype = d.get("device", "sata")
-            bus = self._resolve_disk_bus_for_os(devtype)
+            _hint = str(d.get("bus_hint") or "auto").lower()
+            bus = self._resolve_disk_bus_for_os(devtype, bus_hint=_hint)
             ident = d.get("id")
             token = f"disk:{ident}" if ident else f"disk:{os.path.basename(path)}"
             boot_index = self._boot_index_for(token)
@@ -1511,18 +2007,14 @@ class InstallWorker(QThread):
                 if boot_index:
                     dev += f',bootindex={boot_index}'
                 args.append(dev)
-
             elif bus == "floppy":
                 args.append(f'-drive file="{path}",format=raw,if=none,id={drive_id}')
                 if boot_index:
                     args.append(f'-device floppy,drive={drive_id},bootindex={boot_index}')
                 else:
                     args.append(f'-device floppy,drive={drive_id}')
-
             elif bus == "sata_ahci":
                 args.append(f'-drive file="{path}",format={fmt},if=none,id={drive_id}')
-                # Discos SATA empiezan en ide.2: los primeros
-                # puertos del AHCI (ide.0, ide.1) están reservados para CDs.
                 port = 2 + sata_ahci_port
                 sata_ahci_port += 1
                 dev = (f'-device ide-hd,drive={drive_id},id={drive_id},'
@@ -1530,41 +2022,63 @@ class InstallWorker(QThread):
                 if boot_index:
                     dev += f',bootindex={boot_index}'
                 args.append(dev)
-
-            else:  # "ide" — IDE heredado para Windows XP/2000
+            elif bus == "virtio-blk":
+                args.append(f'-drive file="{path}",format={fmt},if=none,id={drive_id}')
+                dev = f'-device virtio-blk-pci,drive={drive_id},id={drive_id}'
+                if boot_index:
+                    dev += f',bootindex={boot_index}'
+                args.append(dev)
+            elif bus == "virtio-scsi":
+                args.append(f'-drive file="{path}",format={fmt},if=none,id={drive_id}')
+                dev = (f'-device scsi-hd,drive={drive_id},id={drive_id},'
+                       f'bus=scsi0.0,channel=0,scsi-id={_scsi_id_counter},lun=0')
+                _scsi_id_counter += 1
+                if boot_index:
+                    dev += f',bootindex={boot_index}'
+                args.append(dev)
+            else:
                 args.append(f'-drive file="{path}",format={fmt},if=none,id={drive_id}')
                 dev = f'-device ide-hd,drive={drive_id},id={drive_id}'
                 if boot_index:
                     dev += f',bootindex={boot_index}'
                 args.append(dev)
 
-        # Log informativo del bus elegido.
         try:
-            buses = {self._resolve_disk_bus_for_os(d.get("device", "sata"))
-                     for d in devices if d.get("device") in ("sata", "nvme")}
+            buses = {self._resolve_disk_bus_for_os(
+                        d.get("device", "sata"),
+                        bus_hint=str(d.get("bus_hint") or "auto"))
+                     for d in devices
+                     if d.get("device") in ("sata", "nvme")}
             if buses:
+                from disk_bus import bus_label as _bl
+                _labels = sorted(_bl(b) for b in buses)
                 self.log_signal.emit(
-                    f"==> Disco(s) duro(s): bus {', '.join(sorted(buses))} "
-                    f"(según SO invitado)."
+                    f"==> Disco(s) duro(s): bus {', '.join(_labels)}."
                 )
         except Exception:
             pass
 
         return " \\\n    ".join(args)
 
-
     def _console_args(self):
         """Devuelve los argumentos -vnc/-spice según protocolo y modo.
 
-        Si el modo es 'native' devuelve '' (QEMU usará -display gtk/sdl).
-        En embedded/external siempre se emite un socket Unix; la diferencia
-        es quién se conecta (widget Qt o visor externo).
+        Marcador: clipboard_full_v1.
+
+        Si el clipboard esta activo y el protocolo es VNC, se pasa
+        clipboard_on=True a console_backend para que anada
+        ,clipboard=on al -vnc. Sin ese flag, QEMU no conecta el
+        chardev qemu-vdagent al servidor VNC.
         """
+        _clipboard_on = (
+            self._clipboard_enabled()
+            and self.os_type in ("linux", "windows")
+        )
         args, info = qemu_console_args(
-            self.vm_dir, self.console_protocol, self.console_mode
+            self.vm_dir, self.console_protocol, self.console_mode,
+            clipboard_on=_clipboard_on,
         )
         return args, info
-
     def _cdrom_runtime_args(self, iso_path):
         """Construye las unidades ópticas por SATA AHCI.
 
@@ -2107,7 +2621,11 @@ class InstallWorker(QThread):
 
             self.log_signal.emit(f"==> macOS: CPU {cpu_model.split(',')[0]}, RAM {self.ram}, {self.cores} CPU(s).")
             if self._clipboard_enabled():
-                self.log_signal.emit("==> macOS: clipboard pendiente de integración SPICE específica; no se fuerza en este arranque.")
+                self.log_signal.emit(
+                    "[AVISO] Clipboard: macOS no tiene spice-vdagent "
+                    "ni equivalente. El clipboard host<->guest no "
+                    "es posible con QEMU/KVM. Se omite el canal."
+                )
             self.log_signal.emit(f"==> macOS: gráficos: {mode} (gestionados directamente por el administrador).")
             self.log_signal.emit(f"==> macOS: audio: {audio_backend.upper()}.")
             self.log_signal.emit("==> macOS: red NAT + VirtIO.")
@@ -2148,11 +2666,11 @@ trap 'rm -f "{qmp_path}" "{pid_path}"' EXIT
 echo "==> Lanzando macOS mediante QEMU interno del administrador..."
 qemu-system-x86_64 \
     -enable-kvm \
-    -m {self.ram} \
+    -m {self.ram} {self._memory_args()} \
     -cpu {cpu_model},"{my_options}" \
     -machine q35 \
     {self._pointer_args()} \
-    -smp {self.cores},cores={self.cores},threads=1,sockets=1 \
+    {self._smp_arg()} \
     -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc" \
     -drive if=pflash,format=raw,readonly=on,file="{code_path}" \
     -drive if=pflash,format=raw,file="{vars_path}" \
@@ -2350,7 +2868,7 @@ wait $QEMU_PID
             pid_path = os.path.join(self.vm_dir, "qemu.pid")
             clipboard_args, clipboard_note = self._clipboard_qemu_args()
             if clipboard_note:
-                self.log_signal.emit("==> " + clipboard_note)
+                self.log_signal.emit(clipboard_note)
             script_content = f'''#!/bin/bash
 ulimit -l unlimited 2>/dev/null || true
 set -e
@@ -2360,10 +2878,10 @@ echo "==> Creando disco virtual para {win_ver}..."
 {tpm_cmd}
 trap 'rm -f "{socket_path}" "{qmp_path}" "{pid_path}"' EXIT
 echo "==> Iniciando QEMU para Windows ({self.firmware.upper()}{secure_note}{tpm_note})..."
-qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} -smp {self.cores} \
-    -cpu {cpu_arg} -smp cores={self.cores},threads=1 \
+qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} {self._memory_args()} {self._smp_arg()} \
+    -cpu {cpu_arg} \
     {disk_args} \
-    {firmware_args} {tpm_args} {audio_args} {graphics_args} {clipboard_args} {self._passthrough_args()} \
+    {firmware_args} {tpm_args} {audio_args} {self._rng_args()} {self._watchdog_args()} {self._balloon_args()} {graphics_args} {clipboard_args} {self._passthrough_args()} \
     {self._serial_args()} {cdrom_args} {self._network_args(boot_index_network)} \
     -qmp unix:"{qmp_path}",server=on,wait=off &
 QEMU_PID=$!
@@ -2427,7 +2945,7 @@ wait $QEMU_PID
             cpu_arg = self._cpu_args()
             clipboard_args, clipboard_note = self._clipboard_qemu_args()
             if clipboard_note:
-                self.log_signal.emit("==> " + clipboard_note)
+                self.log_signal.emit(clipboard_note)
             script_content = f'''#!/bin/bash
 ulimit -l unlimited 2>/dev/null || true
 set -e
@@ -2436,9 +2954,9 @@ echo "==> Creando disco virtual para Android..."
 {tpm_cmd}
 trap 'rm -f "{socket_path}" "{qmp_path}" "{pid_path}"' EXIT
 echo "==> Iniciando QEMU para Android ({self.firmware.upper()})..."
-qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} -smp {self.cores} \\
+qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} {self._memory_args()} {self._smp_arg()} \\
     -cpu {cpu_arg} {disk_args} \\
-    {firmware_args} {tpm_args} {audio_args} {graphics_args} {clipboard_args} {self._passthrough_args()} \\
+    {firmware_args} {tpm_args} {audio_args} {self._rng_args()} {self._watchdog_args()} {self._balloon_args()} {graphics_args} {clipboard_args} {self._passthrough_args()} \\
     {self._serial_args()} {cdrom_args} {self._network_args(boot_index_network)} \\
     -qmp unix:"{qmp_path}",server=on,wait=off &
 QEMU_PID=$!
@@ -2482,7 +3000,7 @@ wait $QEMU_PID
             cpu_arg = self._cpu_args()
             clipboard_args, clipboard_note = self._clipboard_qemu_args()
             if clipboard_note:
-                self.log_signal.emit("==> " + clipboard_note)
+                self.log_signal.emit(clipboard_note)
             script_content = f'''#!/bin/bash
 ulimit -l unlimited 2>/dev/null || true
 set -e
@@ -2492,9 +3010,9 @@ echo "==> Creando disco virtual para {distro}..."
 {tpm_cmd}
 trap 'rm -f "{socket_path}" "{qmp_path}" "{pid_path}"' EXIT
 echo "==> Iniciando QEMU para {distro} ({self.firmware.upper()}{secure_note}{tpm_note})..."
-qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} -smp {self.cores} \
+qemu-system-x86_64 -enable-kvm {self.chipset_args} -m {self.ram} {self._memory_args()} {self._smp_arg()} \
     -cpu {cpu_arg} {disk_args} \
-    {firmware_args} {tpm_args} {audio_args} {graphics_args} {clipboard_args} {self._passthrough_args()} \
+    {firmware_args} {tpm_args} {audio_args} {self._rng_args()} {self._watchdog_args()} {self._balloon_args()} {graphics_args} {clipboard_args} {self._passthrough_args()} \
     {self._serial_args()} {self._cdrom_runtime_args("$ISO_FINAL")} {self._network_args(boot_index_network)} \
     -qmp unix:"{qmp_path}",server=on,wait=off &
 QEMU_PID=$!
@@ -2661,3 +3179,18 @@ class _BackgroundCallThread(QThread):
             self.done_signal.emit(result, None)
         except Exception as e:
             self.done_signal.emit(None, e)
+
+
+# disk_bus_v1_workers
+# virtio_scsi_v1
+# virtio_blk_v1
+# disk_bus_limits_v1_worker
+
+
+# clipboard_full_v1
+
+# virtio_rng_v1_workers
+
+# memfd_lock_autodetect_v1
+
+# virtiofsd_startup_verify_v1

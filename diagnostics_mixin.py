@@ -401,6 +401,19 @@ class DiagnosticsMixin:
         suffix = self.tr(" ({0})").format(detail) if detail else ""
         label.setText(f"{name}: {status}{suffix}")
         self._set_status_color(label, bool(ok))
+        # config_host_deps_icons_v1: actualizar el icono si existe.
+        _icons = getattr(self, "_dep_icon_for_label", None)
+        if _icons is not None:
+            _ic = _icons.get(label)
+            if _ic is not None:
+                try:
+                    _ic.setText("\u2705" if ok else "\u274c")
+                    _ic.setToolTip(
+                        "" if ok
+                        else self.tr("Falta este requisito.")
+                    )
+                except Exception:
+                    pass
 
     def _set_status_color(self, label, state):
         """Colorea el estado: verde=OK, rojo=FALTA/error, gris=sin comprobar."""
@@ -422,6 +435,18 @@ class DiagnosticsMixin:
         for label, name in labels:
             label.setText(f"{name}: {self.tr('SIN COMPROBAR')}")
             self._set_status_color(label, None)
+            # config_host_deps_icons_v1: icono pendiente.
+            _icons = getattr(self, "_dep_icon_for_label", None)
+            if _icons is not None:
+                _ic = _icons.get(label)
+                if _ic is not None:
+                    try:
+                        _ic.setText("\u23f3")
+                        _ic.setToolTip(
+                            self.tr("Pendiente de comprobar.")
+                        )
+                    except Exception:
+                        pass
         self.header_host_status.setText(self.tr("Virtualización: sin comprobar"))
         self.header_host_status.setStyleSheet("color: #757575; font-weight: bold;")
         self.header_host_status.setToolTip(self.tr("Pulsa 'Comprobar dependencias' para realizar el diagnóstico completo del sistema."))

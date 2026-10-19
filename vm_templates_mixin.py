@@ -225,27 +225,32 @@ class VmTemplatesMixin:
     # Botón "Nueva VM": muestra menú si hay plantillas
     # ------------------------------------------------------------------
     def _on_new_vm_clicked(self, checked=False, btn=None):
-        tpls = self._list_templates()
-        if not tpls:
-            self.new_vm()
-            return
-
+        # quick_create_v1_menu: el menu SIEMPRE se muestra (con o sin
+        # plantillas) para ofrecer "Modo Rapido" como primera opcion.
         menu = QMenu(self)
-        act_blank = QAction(self.tr("🆕 Nueva VM en blanco"), self)
+
+        act_quick = QAction(self.tr("✨ Modo Rápido"), self)
+        act_quick.triggered.connect(
+            lambda _checked=False: self.open_quick_create()
+        )
+        menu.addAction(act_quick)
+
+        act_blank = QAction(self.tr("⚙️  Modo Experto"), self)
         act_blank.triggered.connect(self.new_vm)
         menu.addAction(act_blank)
-        menu.addSeparator()
 
-        header = QAction(self.tr("Desde plantilla:"), self)
-        header.setEnabled(False)
-        menu.addAction(header)
-
-        for disp, _path in tpls:
-            a = QAction(f"📋 {disp}", self)
-            a.triggered.connect(
-                lambda _checked=False, n=disp: self.create_vm_from_template(n)
-            )
-            menu.addAction(a)
+        tpls = self._list_templates()
+        if tpls:
+            menu.addSeparator()
+            header = QAction(self.tr("📋 Desde Plantilla:"), self)
+            header.setEnabled(False)
+            menu.addAction(header)
+            for disp, _path in tpls:
+                a = QAction(f"📋 {disp}", self)
+                a.triggered.connect(
+                    lambda _checked=False, n=disp: self.create_vm_from_template(n)
+                )
+                menu.addAction(a)
 
         target = btn if btn is not None else getattr(self, "btn_new_vm", None)
         try:
@@ -259,6 +264,7 @@ class VmTemplatesMixin:
                 menu.exec()
             except Exception:
                 self.new_vm()
+        # fin quick_create_v1_menu
 
     # ------------------------------------------------------------------
     # Crear VM desde plantilla

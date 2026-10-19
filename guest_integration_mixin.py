@@ -241,10 +241,25 @@ class GuestIntegrationMixin:
         """Monta automáticamente, en un Linux instalado, las carpetas VirtioFS
         marcadas como auto-start. Requiere qemu-guest-agent en el guest.
 
-        Corre en un hilo de fondo: primero espera (hasta 3 min) a que el
-        agente responda, y en cuanto lo hace configura /etc/fstab y arranca la
-        unidad automount de cada carpeta. Así funciona aunque el guest tarde en
-        arrancar; si la VM se apaga antes, termina sin molestar."""
+        Marcador: shared_folders_autoconfig_v1_rev4.
+
+        El montaje se hace ANTES del login (unidad .mount generada por
+        systemd-fstab-generator desde /etc/fstab). Aquí solo se arranca
+        ahora mismo con 'systemctl start' (nunca 'enable': son unidades
+        generadas, no 'enable'-ables).
+
+        Visibilidad en el panel lateral de los file managers GTK:
+          - Opción 'x-gvfs-show' en la línea de /etc/fstab. GVfs la
+            interpreta y muestra el mount en Nautilus/Nemo/Caja/Thunar.
+          - Marcador por usuario en ~/.config/gtk-3.0/bookmarks, como
+            respaldo si la versión de GVfs del guest no aplica
+            x-gvfs-show.
+
+        Sobre 'readonly': se respeta el flag de la configuración.
+        Sobre escritura desde varios usuarios: VirtioFS hereda UID/GID
+        y modo de la carpeta del host. Se avisa en el log si RW no
+        funcionará para todos los usuarios (sin tocar permisos del
+        host)."""
         if not self.current_vm_dir:
             return
         vm_dir = self.current_vm_dir
@@ -269,37 +284,78 @@ class GuestIntegrationMixin:
             if not self._qga_wait_ready(vm_dir, log_emit, is_cancelled):
                 return
             log_emit("==> Guest Agent listo; configurando montajes.")
+
             for d in pending:
                 if is_cancelled():
                     return
                 tag = re.sub(r"[^A-Za-z0-9_.-]", "_", str(d.get("guest") or "share"))[:40] or "share"
                 mountpoint = "/mnt/" + tag
-                opts = "nofail,x-systemd.automount"
-                if d.get("readonly"):
-                    opts += ",ro"
-                line = f"{tag} {mountpoint} virtiofs {opts} 0 0"
-                qline = shlex.quote(line)
-                # No ejecutamos `mount` directamente: con x-systemd.automount
-                # podría quedarse esperando y hacer que guest-exec parezca
-                # colgado. Creamos la entrada persistente, recargamos systemd y
-                # arrancamos solo la unidad automount; el montaje real ocurre
-                # al acceder a /mnt/<tag>. El nombre de la unidad lo calcula
-                # systemd-escape (escapa '-', '.', etc.); el cálculo manual es
-                # solo un respaldo.
-                fallback_unit = mountpoint.lstrip("/").replace("/", "-") + ".automount"
+                readonly = bool(d.get("readonly"))
+                # rev4: x-gvfs-show para que GVfs muestre el mount en
+                # el panel lateral de Nautilus/Nemo/Caja/Thunar.
+                rw_flag = "ro" if readonly else "rw"
+                mount_opts = f"nofail,x-gvfs-show,{rw_flag}"
+                fstab_line = f"{tag} {mountpoint} virtiofs {mount_opts} 0 0"
+
+                if not readonly:
+                    host_path = str(d.get("host") or "")
+                    if host_path and os.path.isdir(host_path):
+                        try:
+                            st = os.stat(host_path)
+                            # rev5: solo avisamos si el owner NO es UID 1000.
+                            # Con UID 1000 en el host y UID 1000 en el guest
+                            # (caso normal de un solo usuario), el guest
+                            # escribe por permisos de owner y no hay nada
+                            # que ajustar. Solo es relevante cuando los UIDs
+                            # no coinciden (multi-usuario real).
+                            if not (st.st_mode & 0o002) and st.st_uid != 1000:
+                                log_emit(
+                                    f"[INFO] La carpeta '{host_path}' pertenece al UID "
+                                    f"{st.st_uid} y no es escribible por otros (o+w). "
+                                    f"Los usuarios del guest con UID distinto no podrán "
+                                    f"escribir. Solo necesitas ajustar permisos si vas "
+                                    f"a usar varios usuarios con UIDs distintos: "
+                                    f"sudo chmod -R 777 {host_path}"
+                                )
+                        except OSError:
+                            pass
+
+                bookmark_uri = "file://" + mountpoint
                 script = "\n".join([
                     "set -e",
                     "mkdir -p " + shlex.quote(mountpoint),
                     "touch /etc/fstab",
-                    "grep -Fqx -- " + qline + " /etc/fstab || printf '%s\\n' " + qline + " >> /etc/fstab",
+                    # Reemplaza cualquier entrada previa para este mountpoint
+                    # (por ejemplo, la rev3 sin x-gvfs-show).
+                    "awk -v mp=" + shlex.quote(mountpoint) + " '$2!=mp' /etc/fstab > /tmp/.fstab.vmfix",
+                    "cat /tmp/.fstab.vmfix > /etc/fstab",
+                    "rm -f /tmp/.fstab.vmfix",
+                    "printf '%s\\n' " + shlex.quote(fstab_line) + " >> /etc/fstab",
                     "systemctl daemon-reload",
-                    "U=$(systemd-escape -p --suffix=automount " + shlex.quote(mountpoint) + " 2>/dev/null || true)",
-                    "[ -n \"$U\" ] || U=" + shlex.quote(fallback_unit),
-                    "systemctl start \"$U\"",
+                    "umount " + shlex.quote(mountpoint) + " 2>/dev/null || true",
+                    "UNIT=$(systemd-escape -p --suffix=mount " + shlex.quote(mountpoint) + ")",
+                    "systemctl start \"$UNIT\"",
+                    "grep -q ' " + mountpoint + " ' /proc/mounts",
+                    # Marcador GTK por usuario humano (Nautilus/Nemo/Caja/Thunar).
+                    "BM_URI=" + shlex.quote(bookmark_uri),
+                    "BM_LABEL=" + shlex.quote(tag),
+                    "for _u in $(getent passwd | awk -F: '$3>=1000 && $3<60000 && $7!~/nologin|false/ {print $1}'); do",
+                    "  _h=$(getent passwd \"$_u\" | awk -F: '{print $6}')",
+                    "  [ -n \"$_h\" ] && [ -d \"$_h\" ] || continue",
+                    "  _bd=\"$_h/.config/gtk-3.0\"",
+                    "  mkdir -p \"$_bd\"",
+                    "  _bf=\"$_bd/bookmarks\"",
+                    "  touch \"$_bf\"",
+                    "  _bl=\"$BM_URI $BM_LABEL\"",
+                    "  grep -Fqx -- \"$_bl\" \"$_bf\" || printf '%s\\n' \"$_bl\" >> \"$_bf\"",
+                    "  chown \"$_u:\" \"$_bd\" 2>/dev/null || true",
+                    "  chown \"$_u:\" \"$_bf\" 2>/dev/null || true",
+                    "done",
                 ])
-                log_emit(f"==> Configurando montaje automático de VirtioFS: {mountpoint}")
+                log_emit(f"==> Configurando montaje automático (antes del login) de VirtioFS: {mountpoint}")
                 self._qga_exec("/bin/sh", ["-c", script], timeout=25, vm_dir=vm_dir)
-                log_emit(f"✓ VirtioFS montado automáticamente en {mountpoint}.")
+                estado = "solo lectura" if readonly else "lectura/escritura"
+                log_emit(f"✓ VirtioFS montado en {mountpoint} ({estado}); visible en el panel del explorador.")
 
         thread = _BackgroundCallThread(_work, parent=self)
         thread.log_signal.connect(self.log_message)
@@ -571,24 +627,104 @@ class GuestIntegrationMixin:
         return {"host":hp,"guest":gp,"method":method.currentData(),"mount_mode":mount_mode.currentData(),"readonly":ro.isChecked()}
 
     def refresh_clipboard_ui(self):
-        if not hasattr(self,"clipboard_mode"): return
-        data=self._shared_folders_data()
-        cfg={}
+        """Refresca el texto de estado del clipboard.
+
+        Marcador: clipboard_ui_protocol_v1.
+
+        Refleja el protocolo activo (VNC vs SPICE vs native) y avisa
+        cuando el clipboard NO es posible (macOS, Android).
+        """
+        if not hasattr(self, "clipboard_mode"):
+            return
+        cfg = {}
         try:
             if self.current_vm_dir:
-                c=load_vm_config(self.current_vm_dir); cfg=(c.get("extra") or {}).get("clipboard",{}) or {}
-        except Exception: cfg={}
-        mode=str(cfg.get("mode","disabled")); idx=self.clipboard_mode.findData(mode); self.clipboard_mode.setCurrentIndex(max(0,idx))
-        labels={"disabled":self.tr("Desactivado"),"host_to_guest":self.tr("Host → SO invitado"),"guest_to_host":self.tr("SO invitado → Host"),"bidirectional":self.tr("Bidireccional")}
+                c = load_vm_config(self.current_vm_dir)
+                cfg = (c.get("extra") or {}).get("clipboard", {}) or {}
+        except Exception:
+            cfg = {}
+        mode = str(cfg.get("mode", "disabled"))
+        idx = self.clipboard_mode.findData(mode)
+        self.clipboard_mode.setCurrentIndex(max(0, idx))
+        labels = {
+            "disabled": self.tr("Desactivado"),
+            "host_to_guest": self.tr("Host → SO invitado"),
+            "guest_to_host": self.tr("SO invitado → Host"),
+            "bidirectional": self.tr("Bidireccional"),
+        }
+
         if mode == "disabled":
             detail = self.tr("No se añadirá ningún canal de clipboard.")
-        elif self.current_vm_dir:
-            os_type = load_vm_config(self.current_vm_dir).get("os_type", "linux")
-            detail = (self.tr("QEMU vdagent + GTK: bidireccional. Requiere spice-vdagent/SPICE Guest Tools.") if os_type in ("linux", "windows") else self.tr("macOS: integración de clipboard pendiente."))
+        elif not self.current_vm_dir:
+            detail = self.tr(
+                "Selecciona una VM para comprobar la integración disponible."
+            )
         else:
-            detail = self.tr("Selecciona una VM para comprobar la integración disponible.")
-        _suffix = self.tr("Se activará automáticamente al iniciar la VM.") if mode != 'disabled' else self.tr("No se activa.")
-        self.clipboard_status_label.setText(self.tr("Configuración actual: {0}. {1} {2}").format(labels.get(mode,mode), _suffix, detail))
+            cfg_full = load_vm_config(self.current_vm_dir)
+            os_type = cfg_full.get("os_type", "linux")
+            extra = cfg_full.get("extra") or {}
+            proto = str(extra.get("console_protocol", "vnc")).lower()
+            cmode = str(extra.get("console_mode", "embedded")).lower()
+
+            if os_type == "macos":
+                detail = self.tr(
+                    "macOS NO tiene spice-vdagent ni equivalente. El "
+                    "clipboard host↔guest no es posible con QEMU/KVM. "
+                    "Se avisará al arrancar y se omitirá el canal."
+                )
+            elif os_type == "android":
+                detail = self.tr(
+                    "Android-x86 / Bliss OS no traen spice-vdagent usable. "
+                    "El clipboard host↔guest no es posible. Se avisará "
+                    "al arrancar y se omitirá el canal."
+                )
+            else:
+                if mode != "bidirectional":
+                    _dir_note = self.tr(
+                        " (Nota: QEMU/SPICE no aplican restricciones por "
+                        "dirección; en la práctica, con spice-vdagent "
+                        "el canal es bidireccional. Para bloquear un "
+                        "sentido, hazlo dentro del guest.)"
+                    )
+                else:
+                    _dir_note = ""
+
+                if cmode == "native":
+                    detail = self.tr(
+                        "Modo native: clipboard por la ventana GTK de "
+                        "QEMU (solo texto). Requiere que QEMU tenga "
+                        "backend GTK; con SDL no se puede habilitar."
+                    ) + _dir_note
+                elif proto == "spice":
+                    detail = self.tr(
+                        "SPICE vdagent: canal bidireccional completo "
+                        "(texto e imágenes). Requiere spice-vdagent "
+                        "(Linux) o SPICE Guest Tools (Windows) en el "
+                        "guest."
+                    ) + _dir_note
+                elif proto == "vnc":
+                    detail = self.tr(
+                        "VNC vdagent (QEMU 6.1+): canal bidireccional de "
+                        "SOLO TEXTO. Requiere spice-vdagent (Linux) o "
+                        "SPICE Guest Tools (Windows) en el guest. El "
+                        "flag clipboard=on se añade al -vnc."
+                    ) + _dir_note
+                else:
+                    detail = self.tr(
+                        "Protocolo de consola desconocido; se intentará "
+                        "el canal del protocolo activo."
+                    )
+
+        _suffix = (
+            self.tr("Se activará automáticamente al iniciar la VM.")
+            if mode != "disabled"
+            else self.tr("No se activa.")
+        )
+        self.clipboard_status_label.setText(
+            self.tr("Configuración actual: {0}. {1} {2}").format(
+                labels.get(mode, mode), _suffix, detail
+            )
+        )
 
     def save_clipboard_settings(self):
         # vm_config_save_cancel_v1_grupo_b_doc:
@@ -638,3 +774,14 @@ class GuestIntegrationMixin:
     def save_shared_folders(self):
         self._set_shared_folders_data(self._shared_folders_data()); QMessageBox.information(self,self.tr("Compartir"),self.tr("Configuración guardada. Se aplicará en el próximo arranque."))
 
+
+
+# clipboard_ui_protocol_v1
+
+# shared_folders_autoconfig_v1_rev2
+
+# shared_folders_autoconfig_v1_rev3
+
+# shared_folders_autoconfig_v1_rev4
+
+# shared_folders_autoconfig_v1_rev5

@@ -107,11 +107,18 @@ from snapshot_schedule_mixin import SnapshotScheduleMixin
 from backup_schedule_mixin import BackupScheduleMixin
 from media_library_mixin import MediaLibraryMixin
 from appearance_mixin import AppearanceMixin
+from quick_create_mixin import QuickCreateMixin
+from desktop_mode_mixin import DesktopModeMixin  # desktop_mode_v1
+from config_host_mixin import ConfigHostMixin  # config_host_mixin_v1
 from shortcuts_mixin import ShortcutsMixin
 from api_mixin import ApiMixin  # rest_api_v1
 from async_ui_mixin import AsyncUiMixin
+from vm_optimizer_mixin import VmOptimizerMixin  # vm_optimizer_v1
+from vm_open_checks_mixin import VmOpenChecksMixin  # vm_open_state_checks_v1
+from vm_open_checks_mixin import VmOpenChecksMixin  # vm_open_state_checks_v1
 from snapshots_graph import SnapshotsGraphView
 from console_ui_mixin import ConsoleUiMixin
+from console_deps_mixin import ConsoleDepsMixin  # console_deps_host_check_v1
 from console_backend import (
     PROTOCOL_VNC, PROTOCOL_SPICE, MODE_EMBEDDED, MODE_EXTERNAL, MODE_NATIVE,
     MODE_HYBRID, MODE_HYBRID_GL,
@@ -261,7 +268,83 @@ class _LinVersionsBridge(QObject):
     done = pyqtSignal(int, str, object, object)  # token, distro, versiones, error
 
 
-class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, AppearanceMixin, ShortcutsMixin, ApiMixin, ConsoleUiMixin, QMainWindow):
+# manual_config_stack_v1: sustituto de QStackedWidget para el sidebar
+# de "Configuración VM".
+#
+# Motivo: QStackedWidget calcula su sizeHint como el MÁXIMO de todas
+# sus páginas, incluidas las ocultas. Como Almacenamiento / Passthrough
+# / Compartición son altas, el stack declaraba ~1100 px de alto, el
+# contenedor padre heredaba ese mínimo, y el QScrollArea exterior
+# mostraba la barra de scroll incluso en páginas cortas (Sistema,
+# Procesador, Memoria, Dispositivos).
+#
+# Solución: sustituto manual que mantiene visible SOLO la página
+# activa. Los layouts de Qt ignoran widgets con isVisible()==False, así
+# que el sizeHint del padre refleja únicamente la página visible.
+class _ShrinkableStack(QWidget):
+    """Sustituto de QStackedWidget: solo la página activa es visible.
+
+    Marcador: manual_config_stack_v1.
+    """
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pages = []
+        self._current = -1
+        self._box = QVBoxLayout(self)
+        self._box.setContentsMargins(0, 0, 0, 0)
+        self._box.setSpacing(0)
+
+    def addWidget(self, w):
+        w.setVisible(False)
+        self._box.addWidget(w)
+        self._pages.append(w)
+        idx = len(self._pages) - 1
+        if self._current < 0:
+            self.setCurrentIndex(0)
+        return idx
+
+    def insertWidget(self, i, w):
+        return self.addWidget(w)
+
+    def setCurrentIndex(self, i):
+        if not (0 <= i < len(self._pages)):
+            return
+        if i == self._current:
+            return
+        for j, w in enumerate(self._pages):
+            w.setVisible(j == i)
+        self._current = i
+        self.updateGeometry()
+        try:
+            self.currentChanged.emit(i)
+        except Exception:
+            pass
+
+    def currentIndex(self):
+        return self._current
+
+    def count(self):
+        return len(self._pages)
+
+    def widget(self, i):
+        if 0 <= i < len(self._pages):
+            return self._pages[i]
+        return None
+
+    def currentWidget(self):
+        return self.widget(self._current)
+
+    def indexOf(self, w):
+        try:
+            return self._pages.index(w)
+        except ValueError:
+            return -1
+
+
+# quick_create_v1_wired
+class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMixin, DiagnosticsMixin, MacRecoveryMixin, GuestIntegrationMixin, PassthroughMixin, StorageMixin, VmLifecycleMixin, InstallFlowMixin, AsyncUiMixin, SuggestionsMixin, HealthDashboardMixin, CompareDefaultsMixin, VmTemplatesMixin, SnapshotCompatMixin, SchedulerMixin, SnapshotScheduleMixin, BackupScheduleMixin, MediaLibraryMixin, AppearanceMixin, ShortcutsMixin, ApiMixin, ConsoleUiMixin, ConsoleDepsMixin, QuickCreateMixin, DesktopModeMixin, ConfigHostMixin, VmOptimizerMixin, VmOpenChecksMixin, QMainWindow):
     def __init__(self):
         super().__init__()
 
@@ -798,9 +881,70 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             elif label == "Compartición":
                 self._comparticion_sidebar_row = _idx
 
+        # config_sidebar_height_v2: dos pasadas.
+        #   - Pasada 1 (inmediata): estimación generosa de 44 px por
+        #     item. En este punto sizeHintForRow todavía devuelve el
+        #     alto pre-estilo (sin Kvantum/Breeze), así que no sirve.
+        #   - Pasada 2 (diferida, 250 ms): recalcula cuando el widget
+        #     ya está renderizado y sizeHintForRow da el valor real.
+        #
+        # Además: sizePolicy (Fixed, Minimum) para que el layout del
+        # container no comprima el sidebar por debajo de su mínimo.
+        try:
+            self.config_sidebar.setSizePolicy(
+                QSizePolicy.Policy.Fixed,
+                QSizePolicy.Policy.Minimum,
+            )
+            _n = self.config_sidebar.count()
+            if _n > 0:
+                self.config_sidebar.setMinimumHeight(_n * 44 + 24)
+        except Exception:
+            pass
+
+        def _adjust_sidebar_height_v2():
+            try:
+                _n = self.config_sidebar.count()
+                if _n <= 0:
+                    return
+                _row_h = self.config_sidebar.sizeHintForRow(0)
+                if _row_h < 30:
+                    _row_h = 44
+                _sp = max(0, self.config_sidebar.spacing())
+                _min_h = _n * (_row_h + 2 * _sp) + 24
+                self.config_sidebar.setMinimumHeight(_min_h)
+                self.config_sidebar.updateGeometry()
+                _p = self.config_sidebar.parentWidget()
+                if _p is not None:
+                    _p.updateGeometry()
+                    _gp = _p.parentWidget()
+                    if _gp is not None:
+                        _gp.updateGeometry()
+            except Exception:
+                pass
+
+        try:
+            from PyQt6.QtCore import QTimer as _QTimer_sh
+            _QTimer_sh.singleShot(250, _adjust_sidebar_height_v2)
+        except Exception:
+            pass
+
         # --- Stack de páginas ---
-        self.config_stack = QStackedWidget()
+        # shrinkable_config_stack_v1: subclase que evita el scroll
+        # fantasma. Ver definición de _ShrinkableStack más arriba.
+        self.config_stack = _ShrinkableStack()
         self.config_stack.setObjectName("configStack")
+        # config_host_polish_v1: el QStackedWidget heredaba el mínimo
+        # vertical de la página MÁS ALTA (Almacenamiento, Passthrough,
+        # Compartición), aunque estuviera oculta. Eso inflaba el mínimo
+        # del stack → inflaba el mínimo de config_page → el QScrollArea
+        # exterior mostraba barra incluso en páginas cortas (Sistema,
+        # Procesador, Memoria, Dispositivos). Con Ignored en vertical,
+        # el stack se adapta al padre y el scroll solo aparece si la
+        # página VISIBLE realmente no cabe.
+        self.config_stack.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Ignored,
+        )
         self.config_sidebar.currentRowChanged.connect(self.config_stack.setCurrentIndex)
         self.config_sidebar.setCurrentRow(0)
 
@@ -996,6 +1140,61 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         )
         adv_grid.addWidget(self.check_autostart_on_launch, 2, 0, 1, 2)
 
+        # autostart_host_boot_v1: arranque automatico al iniciar el
+        # SISTEMA (no al abrir la app). Genera un servicio systemd
+        # --user que lanza la VM cuando arranca la sesion del usuario.
+        self.check_autostart_on_boot = QCheckBox(
+            self.tr("Arrancar al iniciar el sistema (sin abrir la app)")
+        )
+        self.check_autostart_on_boot.setToolTip(self.tr(
+            "Genera un servicio systemd --user (vm-<nombre>.service)\n"
+            "que arranca esta VM al iniciar la sesion del usuario.\n"
+            "La aplicacion NO necesita estar abierta.\n"
+            "\n"
+            "Diferencia con la casilla anterior:\n"
+            "  - La anterior: arranca al ABRIR la aplicacion.\n"
+            "  - Esta: arranca al INICIAR EL SISTEMA (sesion).\n"
+            "Se pueden activar las dos a la vez sin conflicto (solo\n"
+            "arranca una vez: la segunda comprobacion ve que ya esta\n"
+            "corriendo y se salta).\n"
+            "\n"
+            "Requiere que la VM se haya arrancado al menos una vez, para\n"
+            "que exista run_temp.sh en su carpeta.\n"
+            "\n"
+            "Para que arranque ANTES de iniciar sesion, ejecuta:\n"
+            "  sudo loginctl enable-linger $USER"
+        ))
+        self.check_autostart_on_boot.stateChanged.connect(
+            self._on_autostart_on_boot_changed
+        )
+        adv_grid.addWidget(self.check_autostart_on_boot, 3, 0, 1, 2)
+
+        # autostart_viewer_v1: abrir tambien el visor al iniciar.
+        # Solo aplica si el checkbox anterior esta marcado. Vive en
+        # un segundo unit systemd --user (vm-<nombre>-viewer.service)
+        # que arranca cuando hay sesion grafica, espera a que la VM
+        # tenga su puerto SPICE listo y lanza el visor preferido.
+        self.check_autostart_on_boot_viewer = QCheckBox(
+            self.tr("Abrir tambien el visor al iniciar")
+        )
+        self.check_autostart_on_boot_viewer.setToolTip(self.tr(
+            "Si esta marcado, al iniciar la sesion se abrira\n"
+            "automaticamente una ventana con la pantalla de la VM,\n"
+            "usando el visor preferido del protocolo configurado\n"
+            "(SPICE o VNC).\n"
+            "\n"
+            "Requiere que tambien este marcada la casilla anterior\n"
+            "(arrancar al iniciar el sistema).\n"
+            "\n"
+            "Si el visor no esta instalado, se deshabilita esta\n"
+            "casilla y se indica como instalarlo en el tooltip."
+        ))
+        self.check_autostart_on_boot_viewer.stateChanged.connect(
+            self._on_autostart_on_boot_viewer_changed
+        )
+        adv_grid.addWidget(self.check_autostart_on_boot_viewer, 4, 0, 1, 2)
+
+
         # Modo compatibilidad de snapshots (marcador snapshot_compat_v1).
         # Cuando está activo, la VM se arranca con hardware snapshoteable:
         # sin VirGL/Venus y sin passthrough PCI/USB. La UI de Pantalla
@@ -1008,7 +1207,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.check_snapshot_compat.stateChanged.connect(
             self._on_snapshot_compat_toggled
         )
-        adv_grid.addWidget(self.check_snapshot_compat, 3, 0, 1, 2)
+        adv_grid.addWidget(self.check_snapshot_compat, 5, 0, 1, 2)
 
         lay.addLayout(adv_grid)
         lay.addStretch()
@@ -1362,6 +1561,135 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
                 self.tr("{0} núcleos").format(v)), self._update_vm_summary())
         )
 
+        # Topología de CPU manual. Marcador: cpu_topology_v1.
+        self.check_cpu_topology_manual = QCheckBox(
+            self.tr("Configurar la topología manualmente "
+                    "(sockets / cores / threads)")
+        )
+        self.check_cpu_topology_manual.setToolTip(self.tr(
+            "Por defecto QEMU presenta los N vCPU como un solo socket\n"
+            "con N cores y 1 thread por core.\n"
+            "\n"
+            "Algunos sistemas operativos lo gestionan mejor con otra\n"
+            "distribucion:\n"
+            "  - Windows cuenta la licencia por socket: 2 sockets x 4\n"
+            "    cores puede salir mas barato que 1 socket x 8 cores.\n"
+            "  - Cargas NUMA y hipervisores anidados mejoran cuando la\n"
+            "    topologia coincide con la del host.\n"
+            "\n"
+            "El producto sockets x cores x threads DEBE coincidir con\n"
+            "los nucleos configurados en el slider de arriba. Si no\n"
+            "coincide, al arrancar se usa el modo automatico."
+        ))
+        self.check_cpu_topology_manual.stateChanged.connect(
+            self._on_cpu_topology_changed
+        )
+        lay.addWidget(self.check_cpu_topology_manual)
+
+        self._cpu_topo_widget = QWidget()
+        _ct_form = QGridLayout(self._cpu_topo_widget)
+        _ct_form.setContentsMargins(24, 0, 0, 0)
+        _ct_form.setHorizontalSpacing(14)
+        _ct_form.setVerticalSpacing(6)
+
+        _ct_form.addWidget(QLabel(self.tr("Sockets:")), 0, 0)
+        self.spin_cpu_sockets = QSpinBox()
+        self.spin_cpu_sockets.setRange(1, 8)
+        self.spin_cpu_sockets.setValue(1)
+        self.spin_cpu_sockets.valueChanged.connect(self._on_cpu_topology_changed)
+        _ct_form.addWidget(self.spin_cpu_sockets, 0, 1)
+
+        _ct_form.addWidget(QLabel(self.tr("Cores por socket:")), 0, 2)
+        self.spin_cpu_cores = QSpinBox()
+        self.spin_cpu_cores.setRange(1, 128)
+        self.spin_cpu_cores.setValue(2)
+        self.spin_cpu_cores.valueChanged.connect(self._on_cpu_topology_changed)
+        _ct_form.addWidget(self.spin_cpu_cores, 0, 3)
+
+        _ct_form.addWidget(QLabel(self.tr("Threads por core:")), 0, 4)
+        self.spin_cpu_threads = QSpinBox()
+        self.spin_cpu_threads.setRange(1, 4)
+        self.spin_cpu_threads.setValue(1)
+        self.spin_cpu_threads.valueChanged.connect(self._on_cpu_topology_changed)
+        _ct_form.addWidget(self.spin_cpu_threads, 0, 5)
+
+        _ct_form.setColumnStretch(6, 1)
+        self.label_cpu_topo_total = QLabel("")
+        self.label_cpu_topo_total.setWordWrap(True)
+        self.label_cpu_topo_total.setStyleSheet("font-size: 11px;")
+        _ct_form.addWidget(self.label_cpu_topo_total, 1, 0, 1, 7)
+
+        self._cpu_topo_widget.setVisible(False)
+        lay.addWidget(self._cpu_topo_widget)
+
+        # Características avanzadas de CPU. Marcador: cpu_features_v1.
+        _cf_sep = QLabel(self.tr("<b>Características avanzadas de CPU</b>"))
+        lay.addWidget(_cf_sep)
+
+        self.check_nested_virt = QCheckBox(
+            self.tr("Virtualización anidada (exponer VT-x / AMD-V al guest)")
+        )
+        self.check_nested_virt.setToolTip(self.tr(
+            "Expone al sistema invitado la extensión de virtualización\n"
+            "del host:\n"
+            "  - Intel: +vmx   (VT-x)\n"
+            "  - AMD:   +svm   (AMD-V)\n"
+            "\n"
+            "Permite ejecutar VMs DENTRO de esta VM (VirtualBox anidado,\n"
+            "KVM-in-KVM, Docker Desktop en Windows, WSL2, etc.).\n"
+            "\n"
+            "QEMU con '-cpu host' NO expone estas extensiones por\n"
+            "defecto: hay que pedirlo explicitamente.\n"
+            "\n"
+            "Requiere que el host tenga VT-x/AMD-V activado en la BIOS\n"
+            "y que el modulo kvm_intel / kvm_amd lo exponga. Si el host\n"
+            "no lo soporta, se ignora con un aviso.\n"
+            "\n"
+            "Nota: en el guest anidado el rendimiento es sensiblemente\n"
+            "menor que en el host. No apto para produccion."
+        ))
+        self.check_nested_virt.stateChanged.connect(
+            self._on_cpu_features_changed
+        )
+        lay.addWidget(self.check_nested_virt)
+
+        self.check_hyperv_enlight = QCheckBox(
+            self.tr("Optimizaciones Hyper-V (mejor rendimiento en Windows)")
+        )
+        self.check_hyperv_enlight.setToolTip(self.tr(
+            "Activa los 'enlightenments' que Windows reconoce para\n"
+            "reducir llamadas caras al hipervisor:\n"
+            "  hv-relaxed, hv-vapic, hv-spinlocks=0x1fff,\n"
+            "  hv-time, hv-synic, hv-stimer, hv-reset,\n"
+            "  hv-frequencies, hv-reenlightenment,\n"
+            "  hv-tlbflush, hv-ipi.\n"
+            "\n"
+            "Recomendado para Windows 10/11. En Linux, macOS y Android\n"
+            "estas features son ignoradas por el guest: se pueden\n"
+            "dejar marcadas sin efecto, pero no aportan nada.\n"
+            "\n"
+            "El worker solo las anade a VMs Windows.\n"
+            "\n"
+            "VirtualBox activa estas optimizaciones por defecto;\n"
+            "QEMU no. Activarlas suele marcar una diferencia visible\n"
+            "en benchmarks de compilacion y arranque."
+        ))
+        self.check_hyperv_enlight.stateChanged.connect(
+            self._on_cpu_features_changed
+        )
+        lay.addWidget(self.check_hyperv_enlight)
+
+        # Mantener el label "no coincide" sincronizado con el slider
+        # de nucleos: si el usuario lo cambia, el total recalculado
+        # puede pasar de verde a rojo sin tocar los spinboxes.
+        self.slider_cores.valueChanged.connect(
+            lambda *_: self._refresh_cpu_topology_total()
+        )
+        try:
+            self._refresh_cpu_topology_total()
+        except Exception:
+            pass
+
         hint = QLabel(self.tr(
             "El número de núcleos se ajusta al par más cercano al valor "
             "elegido, hasta la mitad de los hilos del host."
@@ -1414,6 +1742,106 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         hint.setStyleSheet("color:#888; font-size:11px;")
         lay.addWidget(hint)
         lay.addStretch()
+
+        # Tuning de memoria. Marcador: memory_tuning_v1.
+        _mt_sep = QLabel(self.tr("<b>Avanzado (rendimiento y memoria)</b>"))
+        lay.addWidget(_mt_sep)
+
+        self.check_mem_hugepages = QCheckBox(
+            self.tr("Usar hugepages del host (menos TLB miss, arranque mas lento)")
+        )
+        self.check_mem_hugepages.setToolTip(self.tr(
+            "Activa -mem-path /dev/hugepages.\n"
+            "\n"
+            "QEMU reserva la RAM de la VM con paginas gigantes del host\n"
+            "en lugar de paginas de 4 KB. Reduce los TLB misses y suele\n"
+            "mejorar el rendimiento entre un 5% y un 15% en cargas con\n"
+            "mucha memoria (bases de datos, compilacion, VMs anidadas).\n"
+            "\n"
+            "REQUISITO: el host debe tener hugepages reservadas. Esta\n"
+            "pagina muestra el estado del host y las que necesita esta\n"
+            "VM. Si no hay suficientes, QEMU abortara el arranque.\n"
+            "\n"
+            "En sistemas con poca RAM o muchas VMs a la vez, es mejor\n"
+            "dejarlo desactivado: las hugepages reservadas no estan\n"
+            "disponibles para el resto del sistema mientras lo esten."
+        ))
+        self.check_mem_hugepages.stateChanged.connect(
+            self._on_memory_tuning_changed
+        )
+        lay.addWidget(self.check_mem_hugepages)
+
+        self.label_mem_hugepages_status = QLabel("")
+        self.label_mem_hugepages_status.setWordWrap(True)
+        self.label_mem_hugepages_status.setStyleSheet(
+            "font-size: 11px; padding: 4px 0 8px 24px;"
+        )
+        self.label_mem_hugepages_status.setTextFormat(Qt.TextFormat.RichText)
+        lay.addWidget(self.label_mem_hugepages_status)
+
+        self.check_mem_prealloc = QCheckBox(
+            self.tr("Reservar toda la RAM al arrancar (prealloc)")
+        )
+        self.check_mem_prealloc.setToolTip(self.tr(
+            "Activa -mem-prealloc.\n"
+            "\n"
+            "QEMU reserva y fija en RAM toda la memoria de la VM al\n"
+            "arrancar, en lugar de asignarla bajo demanda.\n"
+            "\n"
+            "Ventajas:\n"
+            "  - Evita que la VM use swap del host con el tiempo.\n"
+            "  - Estabiliza la latencia cuando varias VMs compiten por\n"
+            "    memoria.\n"
+            "\n"
+            "Desventajas:\n"
+            "  - El arranque tarda mas (QEMU tiene que tocar cada pagina).\n"
+            "  - La RAM queda bloqueada en el host desde el primer\n"
+            "    instante, aunque el guest no la use todavia.\n"
+            "\n"
+            "Si se activan hugepages, prealloc se aplica igualmente\n"
+            "aunque esta casilla este desmarcada (QEMU lo necesita\n"
+            "para no fallar al reservar hugepages al vuelo)."
+        ))
+        self.check_mem_prealloc.stateChanged.connect(
+            self._on_memory_tuning_changed
+        )
+        lay.addWidget(self.check_mem_prealloc)
+
+        self.check_mem_memfd_lock = QCheckBox(
+            self.tr("Bloquear la RAM de la VM (memfd-lock, evita swap)")
+        )
+        self.check_mem_memfd_lock.setToolTip(self.tr(
+            "Activa -overcommit mem-lock=on.\n"
+            "\n"
+            "Pide al kernel que bloquee en RAM toda la memoria de la\n"
+            "VM: el host no podra mandarla a swap bajo presion de\n"
+            "memoria. Es lo que necesita una VM con carga critica\n"
+            "para no sufrir latencias impredecibles por swap.\n"
+            "\n"
+            "REQUISITO: el proceso QEMU necesita CAP_IPC_LOCK o un\n"
+            "RLIMIT_MEMLOCK alto. El script de arranque ya hace\n"
+            "'ulimit -l unlimited'; si el sistema no lo permite sin\n"
+            "privilegios, la opcion no tiene efecto y QEMU emite un\n"
+            "aviso, pero no falla.\n"
+            "\n"
+            "Impacto: la RAM de la VM cuenta como 'usada' en el host\n"
+            "desde el primer instante. Con varios guests grandes,\n"
+            "puede provocar OOM killer."
+        ))
+        self.check_mem_memfd_lock.stateChanged.connect(
+            self._on_memory_tuning_changed
+        )
+        lay.addWidget(self.check_mem_memfd_lock)
+
+        # Conectar el slider de RAM para que el estado de hugepages
+        # se recalcule al moverlo (necesidad = RAM / 2 MB por pagina).
+        self.slider_ram.valueChanged.connect(
+            lambda *_: self._refresh_hugepages_status()
+        )
+        try:
+            self._refresh_hugepages_status()
+        except Exception:
+            pass
 
     def _populate_config_pantalla(self):
         lay = self._config_page_layouts["Pantalla"]
@@ -1501,7 +1929,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # VM: dentro de la app, en un visor externo, o en la ventana
         # nativa de QEMU.
         # ------------------------------------------------------------------
-        console_group = QGroupBox(self.tr("Consola remota"))
+        # simple_mode_expand_v1: se expone como atributo para poder
+        # ocultarlo desde el modo simplificado.
+        self._console_group = QGroupBox(self.tr("Consola remota"))
+        console_group = self._console_group
         console_form = QFormLayout(console_group)
 
         self.combo_console_protocol = QComboBox()
@@ -1616,7 +2047,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         group = QGroupBox(self.tr("Adaptadores"))
         gl = QVBoxLayout(group)
         self.network_devices_list = QListWidget()
-        self.network_devices_list.setMinimumHeight(110)
+        # config_host_polish_v1: 110 px era demasiado. Con 70 se ve
+        # bien incluso con 3-4 adaptadores, y deja respirar la sección.
+        # El widget sigue creciendo con el layout si hay más contenido.
+        self.network_devices_list.setMinimumHeight(70)
         gl.addWidget(self.network_devices_list)
         row = QHBoxLayout()
         self.btn_network_add = QPushButton(self.tr("➕ Agregar adaptador"))
@@ -1735,13 +2169,114 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         )
         lay.addWidget(self.check_serial_to_file)
 
-        note = QLabel(self.tr(
+        # Entropia del host (VirtIO-RNG). Marcador: virtio_rng_v1.
+        self.check_virtio_rng = QCheckBox(
+            self.tr("Entropia del host (VirtIO-RNG)")
+        )
+        self.check_virtio_rng.setToolTip(self.tr(
+            "Activa -device virtio-rng-pci en la linea de QEMU.\n"
+            "\n"
+            "Entrega al guest entropia real del host a traves del\n"
+            "dispositivo paravirtualizado VirtIO-RNG. Arregla el clasico\n"
+            "problema de 'generar una clave SSH / GPG tarda 30 s' en el\n"
+            "guest cuando el kernel tiene poca entropia al arrancar.\n"
+            "\n"
+            "El guest necesita el driver virtio-rng:\n"
+            "  - Linux: modulo virtio_rng (incluido en el kernel).\n"
+            "  - Windows: VirtIO Guest Tools.\n"
+            "  - macOS y Android: sin soporte; el flag se ignora.\n"
+            "\n"
+            "Impacto en rendimiento: practicamente nulo."
+        ))
+        self.check_virtio_rng.stateChanged.connect(
+            self._on_virtio_rng_changed
+        )
+        lay.addWidget(self.check_virtio_rng)
+        # Watchdog de hardware (VirtIO o legacy). Marcador: virtio_watchdog_v1.
+        self.check_virtio_watchdog = QCheckBox(
+            self.tr("Watchdog de hardware (reinicia la VM si el guest cuelga)")
+        )
+        self.check_virtio_watchdog.setToolTip(self.tr(
+            "Activa un watchdog de hardware en la VM. Si el sistema\n"
+            "invitado deja de responder, el watchdog aplica la accion\n"
+            "configurada mas abajo.\n"
+            "\n"
+            "QEMU 9.0+ usa 'virtio-watchdog-pci'; en versiones anteriores\n"
+            "se usa 'i6300esb' como respaldo, con la misma accion. El\n"
+            "guest necesita el driver correspondiente: Linux lo trae en\n"
+            "el kernel (virtio_watchdog o i6300esb_wdt); Windows necesita\n"
+            "VirtIO Guest Tools o el driver WDT instalado.\n"
+            "\n"
+            "Util en VMs de kiosco o produccion, donde interesa que una\n"
+            "VM colgada se recupere sola."
+        ))
+        self.check_virtio_watchdog.stateChanged.connect(
+            self._on_virtio_watchdog_changed
+        )
+        lay.addWidget(self.check_virtio_watchdog)
+
+        # Accion del watchdog: solo activa si el checkbox esta marcado.
+        # simple_mode_expand_v1: se expone como atributo de instancia
+        # (self._wd_action_row) para poder ocultarlo desde el modo
+        # simplificado sin tocar el layout padre.
+        self._wd_action_row_widget = QWidget()
+        _wd_action_row = QHBoxLayout(self._wd_action_row_widget)
+        _wd_action_row.setContentsMargins(0, 0, 0, 0)
+        _wd_action_row.addSpacing(24)
+        _wd_action_row.addWidget(QLabel(self.tr("Accion del watchdog:")))
+        self.combo_virtio_watchdog_action = QComboBox()
+        self.combo_virtio_watchdog_action.addItem(
+            self.tr("Reiniciar (recomendado)"), "reset")
+        self.combo_virtio_watchdog_action.addItem(
+            self.tr("Apagar ordenadamente"), "shutdown")
+        self.combo_virtio_watchdog_action.addItem(
+            self.tr("Cortar la alimentacion"), "poweroff")
+        self.combo_virtio_watchdog_action.setToolTip(self.tr(
+            "Que debe hacer QEMU cuando el watchdog expire.\n"
+            "  - Reiniciar: la VM se reinicia (equivale a pulsar Reset).\n"
+            "  - Apagar ordenadamente: envia ACPI shutdown al guest.\n"
+            "  - Cortar la alimentacion: apagado forzado, sin avisar."
+        ))
+        self.combo_virtio_watchdog_action.setEnabled(False)
+        self.combo_virtio_watchdog_action.currentIndexChanged.connect(
+            self._on_virtio_watchdog_changed
+        )
+        _wd_action_row.addWidget(self.combo_virtio_watchdog_action)
+        _wd_action_row.addStretch()
+        lay.addWidget(self._wd_action_row_widget)
+
+        # VirtIO balloon. Marcador: virtio_balloon_v1.
+        self.check_virtio_balloon = QCheckBox(
+            self.tr("Permitir al guest devolver RAM al host (VirtIO balloon)")
+        )
+        self.check_virtio_balloon.setToolTip(self.tr(
+            "Activa -device virtio-balloon-pci.\n"
+            "\n"
+            "El driver del guest puede devolver al host la RAM que no\n"
+            "esta usando, reduciendo la presion de memoria cuando corren\n"
+            "varias VMs a la vez.\n"
+            "\n"
+            "En la practica, la mayoria de guests solo devuelven RAM si\n"
+            "un proceso les pide explicitamente que lo hagan (p. ej.\n"
+            "virsh setmem, o el driver del propio guest). El dispositivo\n"
+            "es util, pero no hace magia.\n"
+            "\n"
+            "El guest necesita el driver virtio_balloon (Linux) o\n"
+            "VirtIO Guest Tools (Windows)."
+        ))
+        self.check_virtio_balloon.stateChanged.connect(
+            self._on_virtio_balloon_changed
+        )
+        lay.addWidget(self.check_virtio_balloon)
+
+        self._devices_advanced_note = QLabel(self.tr(
             "Para pasar hardware físico (PCI/USB) a esta VM, usa la pestaña "
             "<b>Dispositivos</b> de la parte superior de la ventana."
         ))
-        note.setWordWrap(True)
-        note.setStyleSheet("color:#888; font-size:11px; padding-top:8px;")
-        lay.addWidget(note)
+        self._devices_advanced_note.setWordWrap(True)
+        self._devices_advanced_note.setStyleSheet(
+            "color:#888; font-size:11px; padding-top:8px;")
+        lay.addWidget(self._devices_advanced_note)
         lay.addStretch()
 
     def _on_pointer_device_changed(self, *args):
@@ -1767,6 +2302,245 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         except Exception:
             pass
 
+    def _on_virtio_rng_changed(self, *args):
+        """Guarda el flag de VirtIO-RNG al cambiarlo (si hay VM).
+
+        Marcador: virtio_rng_v1. Mismo patron que
+        _on_serial_to_file_changed: el flag va al Grupo B
+        (auto-guardado), no al modelo Guardar/Descartar.
+        """
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+        except Exception:
+            pass
+
+    def _on_virtio_watchdog_changed(self, *args):
+        """Persiste el watchdog y su accion (Grupo B, auto-save).
+
+        Marcador: virtio_watchdog_v1. Activa/desactiva el combo de
+        accion segun el checkbox y guarda el estado en vm_config.ini.
+        """
+        try:
+            _on = bool(
+                getattr(self, "check_virtio_watchdog", None)
+                and self.check_virtio_watchdog.isChecked()
+            )
+            _combo = getattr(self, "combo_virtio_watchdog_action", None)
+            if _combo is not None:
+                _combo.setEnabled(_on)
+        except Exception:
+            pass
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+        except Exception:
+            pass
+
+    def _on_virtio_balloon_changed(self, *args):
+        """Persiste el flag de VirtIO balloon (Grupo B, auto-save).
+
+        Marcador: virtio_balloon_v1.
+        """
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+        except Exception:
+            pass
+
+    def _on_cpu_topology_changed(self, *args):
+        """Marca dirty / auto-save y refresca el label 'Total'.
+
+        Marcador: cpu_topology_v1. Grupo B (auto-save) como el resto
+        de opciones avanzadas de Dispositivos/Procesador: no espera
+        a Guardar.
+        """
+        try:
+            on = bool(
+                getattr(self, "check_cpu_topology_manual", None)
+                and self.check_cpu_topology_manual.isChecked()
+            )
+            if hasattr(self, "_cpu_topo_widget"):
+                self._cpu_topo_widget.setVisible(on)
+        except Exception:
+            pass
+        try:
+            self._refresh_cpu_topology_total()
+        except Exception:
+            pass
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+        except Exception:
+            pass
+
+    def _refresh_cpu_topology_total(self):
+        """Recalcula el label 'Total: S x C x T = N vCPU'.
+
+        Verde si coincide con el slider de nucleos, rojo si no. En
+        rojo, el worker caera a modo auto al arrancar.
+        """
+        lbl = getattr(self, "label_cpu_topo_total", None)
+        if lbl is None:
+            return
+        try:
+            s = int(self.spin_cpu_sockets.value())
+            c = int(self.spin_cpu_cores.value())
+            t = int(self.spin_cpu_threads.value())
+        except Exception:
+            return
+        total = s * c * t
+        try:
+            target = int(self.slider_cores.value())
+        except Exception:
+            target = total
+        if total == target:
+            lbl.setText(
+                "<span style='color:#2e7d32; font-weight:bold;'>"
+                f"Total: {s} socket(s) x {c} core(s) x {t} thread(s) "
+                f"= {total} vCPU  \u2713</span>"
+            )
+        else:
+            lbl.setText(
+                "<span style='color:#c62828; font-weight:bold;'>"
+                f"Total: {s} x {c} x {t} = {total} vCPU \u2014 NO coincide "
+                f"con los {target} nucleos del slider. Al arrancar se "
+                f"usara el modo automatico.</span>"
+            )
+
+    def _on_cpu_features_changed(self, *args):
+        """Persiste los flags de características de CPU (Grupo B).
+
+        Marcador: cpu_features_v1. Mismo patrón que el resto de
+        opciones avanzadas de Procesador: auto-save, sin pasar por
+        Guardar/Descartar.
+        """
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+        except Exception:
+            pass
+
+    def _on_memory_tuning_changed(self, *args):
+        """Persiste los flags de memoria (Grupo B) y refresca el
+        estado de hugepages.
+
+        Marcador: memory_tuning_v1. Mismo patron que el resto de
+        opciones avanzadas: auto-save, sin pasar por Guardar.
+        """
+        try:
+            self._refresh_hugepages_status()
+        except Exception:
+            pass
+        if not self.current_vm_dir:
+            return
+        try:
+            if hasattr(self, "_save_hardware_lists"):
+                self._save_hardware_lists()
+        except Exception:
+            pass
+
+    def _refresh_hugepages_status(self):
+        """Actualiza el label con el estado del host y de la VM.
+
+        Marcador: memory_tuning_v1. Muestra:
+          - Hugepages reservadas en el host (hugepages-2048kB).
+          - Hugepages libres ahora mismo.
+          - Hugepages que necesitaria esta VM segun el slider de RAM.
+            Una pagina de 2 MB por cada 2 MB de RAM: 1 GB = 512 paginas.
+
+        En rojo cuando la opcion esta marcada y no hay suficientes.
+        En gris cuando la opcion esta desmarcada (informativo).
+        """
+        lbl = getattr(self, "label_mem_hugepages_status", None)
+        if lbl is None:
+            return
+
+        _HPDIR = "/sys/kernel/mm/hugepages/hugepages-2048kB"
+
+        def _read_int(path, default=0):
+            try:
+                with open(path, "r") as f:
+                    return int(f.read().strip())
+            except Exception:
+                return default
+
+        total_2m = _read_int(os.path.join(_HPDIR, "nr_hugepages"), 0)
+        free_2m = _read_int(os.path.join(_HPDIR, "free_hugepages"), 0)
+        _hp_mounted = os.path.isdir("/dev/hugepages")
+
+        try:
+            vm_ram_gb = int(self.slider_ram.value())
+        except Exception:
+            vm_ram_gb = 0
+        needed = vm_ram_gb * 512   # 1 GB / 2 MB = 512 paginas de 2 MB
+
+        _on = bool(
+            getattr(self, "check_mem_hugepages", None)
+            and self.check_mem_hugepages.isChecked()
+        )
+
+        if not _on:
+            lbl.setText(
+                "<span style='color:#666;'>"
+                f"Hugepages del host: {total_2m} reservadas "
+                f"({free_2m} libres). "
+                f"Esta VM necesita {needed} de 2 MB si activas la opcion."
+                + ("" if _hp_mounted else
+                   " <b>/dev/hugepages no esta montado.</b>")
+                + "</span>"
+            )
+            return
+
+        if not _hp_mounted:
+            lbl.setText(
+                "<span style='color:#c62828; font-weight:bold;'>"
+                "/dev/hugepages no existe en el host. Monta hugetlbfs para "
+                "que QEMU pueda usar hugepages (por ejemplo: "
+                "<code>sudo mount -t hugetlbfs none /dev/hugepages</code>), "
+                "o desmarca esta opcion.</span>"
+            )
+            return
+
+        if total_2m == 0:
+            lbl.setText(
+                "<span style='color:#c62828; font-weight:bold;'>"
+                f"Hugepages del host: 0 reservadas. Activa hugepages en el "
+                f"host antes de arrancar. Para {vm_ram_gb} GB de RAM se "
+                f"necesitan {needed} paginas: "
+                f"<code>sudo sysctl -w vm.nr_hugepages={needed}</code>"
+                "</span>"
+            )
+            return
+
+        if free_2m < needed:
+            _sug = total_2m + (needed - free_2m)
+            lbl.setText(
+                "<span style='color:#c62828; font-weight:bold;'>"
+                f"Hugepages del host: {total_2m} reservadas "
+                f"({free_2m} libres). Esta VM necesita {needed}: "
+                f"faltan {needed - free_2m}. Amplia la reserva con "
+                f"<code>sudo sysctl -w vm.nr_hugepages={_sug}</code> "
+                "(o cierra otras VMs que las esten usando).</span>"
+            )
+            return
+
+        lbl.setText(
+            "<span style='color:#2e7d32; font-weight:bold;'>"
+            f"Hugepages del host: {total_2m} reservadas "
+            f"({free_2m} libres). Esta VM necesita {needed}. \u2713</span>"
+        )
+
     def _build_host_deps_group(self):
         """Construye el QGroupBox del estado de virtualización del host.
 
@@ -1776,6 +2550,16 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         """
         deps_group = QGroupBox(self.tr("Estado del sistema de virtualización"))
         deps_layout = QVBoxLayout(deps_group)
+
+        # config_host_order_v1: subtitulo "para que sirve".
+        _deps_purpose = QLabel(self.tr(
+            "Para qué sirve: arrancar cualquier VM. QEMU y KVM son "
+            "imprescindibles; OVMF/UEFI, Secure Boot, TPM 2.0 y VirtIO "
+            "dependen del SO invitado."
+        ))
+        _deps_purpose.setWordWrap(True)
+        _deps_purpose.setStyleSheet("color: #666; font-size: 11px;")
+        deps_layout.addWidget(_deps_purpose)
 
         self.label_host_distro = QLabel(self.tr("Distribución: comprobando..."))
         self.label_host_manager = QLabel(self.tr("Gestor de paquetes: comprobando..."))
@@ -1794,13 +2578,28 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         status_grid = QGridLayout()
         status_grid.setHorizontalSpacing(18)
         status_grid.setVerticalSpacing(6)
+        # config_host_deps_icons_v1: cada requisito en su celda
+        # como [icono][texto]. El diccionario permite actualizar
+        # los iconos desde diagnostics_mixin sin depender del orden.
+        self._dep_icon_for_label = {}
         for i, lbl in enumerate((self.status_qemu, self.status_kvm, self.status_ovmf,
                                  self.status_swtpm, self.status_secure,
                                  self.status_virtio, self.status_audio)):
+            icon = QLabel("\u23f3")  # ⏳ pendiente
+            icon.setFixedWidth(22)
+            icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            icon.setToolTip(self.tr("Pendiente de comprobar"))
             lbl.setMinimumWidth(0)
             lbl.setWordWrap(True)
             lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-            status_grid.addWidget(lbl, i // 3, i % 3)
+            _cell = QWidget()
+            _cell_row = QHBoxLayout(_cell)
+            _cell_row.setContentsMargins(0, 0, 0, 0)
+            _cell_row.setSpacing(4)
+            _cell_row.addWidget(icon, 0)
+            _cell_row.addWidget(lbl, 1)
+            status_grid.addWidget(_cell, i // 3, i % 3)
+            self._dep_icon_for_label[lbl] = icon
         deps_layout.addLayout(status_grid)
 
         deps_buttons = QHBoxLayout()
@@ -1832,12 +2631,17 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         ctrl_group = QGroupBox(self.tr("Controladores y dispositivos"))
         ctrl_layout = QVBoxLayout(ctrl_group)
         self.storage_tree = QTreeWidget()
+        # disk_bus_column_v1: nueva columna "Bus" con el bus QEMU real
+        # (SATA/AHCI, NVMe, VirtIO-BLK, VirtIO-SCSI, IDE, AHCI, FDC).
+        # Se calcula con disk_bus.resolve_disk_bus_for_device() en
+        # storage_mixin.refresh_storage_ui().
         self.storage_tree.setHeaderLabels([
-            self.tr("Dispositivo"), self.tr("Tipo / archivo"),
-            self.tr("Tamaño")])
-        self.storage_tree.setColumnWidth(0, 300)
-        self.storage_tree.setColumnWidth(1, 320)
-        self.storage_tree.setColumnWidth(2, 150)
+            self.tr("Dispositivo"), self.tr("Bus"),
+            self.tr("Tipo / archivo"), self.tr("Tamaño")])
+        self.storage_tree.setColumnWidth(0, 240)
+        self.storage_tree.setColumnWidth(1, 120)
+        self.storage_tree.setColumnWidth(2, 260)
+        self.storage_tree.setColumnWidth(3, 150)
         self.storage_tree.setMinimumHeight(180)
         self.storage_tree.setAlternatingRowColors(True)
         self.storage_tree.setSizePolicy(QSizePolicy.Policy.Expanding,
@@ -1908,11 +2712,15 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         boot_row = QHBoxLayout()
         self.btn_storage_up = QPushButton(self.tr("⬆ Subir"))
         self.btn_storage_down = QPushButton(self.tr("⬇ Bajar"))
-        self.btn_storage_remove = QPushButton(self.tr("🗑 Quitar"))
         self.btn_storage_up.clicked.connect(lambda: self.move_storage_boot(-1))
         self.btn_storage_down.clicked.connect(lambda: self.move_storage_boot(1))
-        self.btn_storage_remove.clicked.connect(self.remove_storage_device)
-        for b in (self.btn_storage_up, self.btn_storage_down, self.btn_storage_remove):
+        # remove_boot_button_v1: el botón "🗑 Quitar" se eliminó porque
+        # solo mostraba un aviso: QEMU no permite sacar un dispositivo
+        # del boot order sin eliminarlo (el orden solo controla
+        # prioridad entre dispositivos existentes). Para eliminar un
+        # dispositivo, usa el botón "🗑 Eliminar" del árbol de
+        # Almacenamiento de arriba.
+        for b in (self.btn_storage_up, self.btn_storage_down):
             boot_row.addWidget(b)
         boot_row.addStretch()
         boot_layout.addLayout(boot_row)
@@ -1961,14 +2769,37 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # Centro de control estilo VirtualBox: lista única a la izquierda + área principal.
         left_panel = QWidget()
         # Solo un mínimo: el QSplitter decide el máximo real.
-        left_panel.setMinimumWidth(160)
+        left_panel.setMinimumWidth(170)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(6, 6, 6, 6)
         left_layout.setSpacing(6)
 
+        _lchdr = QHBoxLayout()
+        _lchdr.setContentsMargins(0, 0, 0, 0)
+        _lchdr.setSpacing(4)
         left_title = QLabel(self.tr("<b>MÁQUINAS VIRTUALES</b>"))
         left_title.setStyleSheet("font-size: 11px; padding: 4px 2px;")
-        left_layout.addWidget(left_title)
+        _lchdr.addWidget(left_title)
+        _lchdr.addStretch(1)
+        # side_panels_collapse_v2: boton para colapsar el panel.
+        # Icono vectorial del tema para que la flecha se vea
+        # nitida con cualquier estilo (Breeze, Fusion, etc.).
+        from PyQt6.QtWidgets import QStyle as _QStyle_lc
+        self.btn_collapse_left = QToolButton()
+        self.btn_collapse_left.setIcon(
+            self.style().standardIcon(
+                _QStyle_lc.StandardPixmap.SP_ArrowLeft))
+        self.btn_collapse_left.setIconSize(QSize(14, 14))
+        self.btn_collapse_left.setFixedSize(22, 22)
+        self.btn_collapse_left.setAutoRaise(True)
+        self.btn_collapse_left.setStyleSheet(
+            "QToolButton { padding: 0; border: none; }")
+        self.btn_collapse_left.setToolTip(
+            self.tr("Ocultar el panel de maquinas virtuales"))
+        self.btn_collapse_left.clicked.connect(
+            self._toggle_left_panel_collapsed)
+        _lchdr.addWidget(self.btn_collapse_left)
+        left_layout.addLayout(_lchdr)
 
         # Buscador de VMs (antes vivía en el toolbar de Configuración
         # y solo se veía en esa pestaña). Ahora siempre visible.
@@ -2246,7 +3077,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
 
         control_row = QHBoxLayout()
-        self.btn_vm_start = QPushButton(self.tr("▶ Iniciar"))
+        # desktop_mode_demo_v1: botón Iniciar como QToolButton con
+        # menú (clic normal = Iniciar; flecha = Iniciar / Modo Demo).
+        self.btn_vm_start = QToolButton()
+        self.btn_vm_start.setText(self.tr("▶ Iniciar"))
+        self.btn_vm_start.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.btn_vm_start.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.btn_vm_pause = QToolButton()
         self.btn_vm_pause.setText(self.tr("⏸ Pausar"))
         self.btn_vm_pause.setToolTip(self.tr(
@@ -2319,17 +3155,87 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.action_vm_resume.setToolTip(self.tr(
             "Reanuda la ejecución de la VM pausada."
         ))
-        self.action_vm_pause_save = QAction(self.tr("📸 Tomar Snapshot"), self)
+        # pause_snapshot_relabel_v1: renombrado para que la utilidad sea
+        # evidente (antes decía "Tomar Snapshot" y confundía con la
+        # pestaña Snapshots, que es otro flujo).
+        self.action_vm_pause_save = QAction(
+            self.tr("\U0001f4be Guardar estado y pausar"), self
+        )
         self.action_vm_pause_save.setToolTip(self.tr(
-            "Guarda la RAM y el estado de los dispositivos a disco (como un\n"
-            "snapshot) y luego pausa la VM. Tarda más pero sobrevive a reinicios.\n"
-            "El snapshot aparecerá en la pestaña Snapshots y su captura de\n"
-            "pantalla en el panel 'Último snapshot'."
+            "Guarda el estado actual (RAM + dispositivos) en un snapshot\n"
+            "y deja la VM pausada. Útil antes de hacer algo arriesgado\n"
+            "dentro del guest: si algo va mal, apaga la VM y restaura\n"
+            "este snapshot desde la pestaña Snapshots.\n\n"
+            "Después de guardar, usa \u25b6 Reanudar para seguir donde\n"
+            "estabas.\n\n"
+            "Nota: es un snapshot completo (RAM incluida). En VMs con\n"
+            "VirGL, VFIO o clon enlazado, la app hará fallback al modo\n"
+            "solo-disco automáticamente."
         ))
         # Orden de inserción: Pausar → Reanudar → Tomar Snapshot.
         for _a in (self.action_vm_pause, self.action_vm_resume, self.action_vm_pause_save):
             self.menu_vm_pause.addAction(_a)
         self.btn_vm_pause.setMenu(self.menu_vm_pause)
+
+        # desktop_mode_demo_v1: menú de Iniciar.
+        self.menu_vm_start = QMenu(self.btn_vm_start)
+        self.action_vm_start_normal = QAction(self.tr("\u25b6 Iniciar"), self)
+        self.action_vm_start_normal.setToolTip(self.tr(
+            "Arranca la VM normalmente. Los cambios se guardan al disco."
+        ))
+        self.action_vm_start_demo = QAction(
+            self.tr("\U0001f9ea Iniciar Modo Demo"), self
+        )
+        self.action_vm_start_demo.setToolTip(self.tr(
+            "Arranca la VM sin guardar cambios al disco: al apagar, todo\n"
+            "vuelve a como estaba antes del arranque.\n\n"
+            "Útil para probar cosas sin ensuciar la VM.\n\n"
+            "Nota: si has cambiado la configuración de la VM, esos cambios\n"
+            "se descartan también al apagar (el modo demo es volátil)."
+        ))
+        self.menu_vm_start.addAction(self.action_vm_start_normal)
+        self.menu_vm_start.addAction(self.action_vm_start_demo)
+        # desktop_mode_menu_v1: la accion "Iniciar en Desktop Mode" se
+        # vuelve a mostrar en el menu Iniciar. La cadena ahora es
+        # Xorg+matchbox (marcador desktop_mode_xorg_vt_v12), funcional
+        # en cualquier distro con Xorg. La comprobacion de
+        # disponibilidad la hace _update_desktop_mode_button_state().
+        self.action_vm_start_desktop = QAction(
+            self.tr("\U0001F5A5\uFE0F Iniciar en Desktop Mode"), self
+        )
+        self.action_vm_start_desktop.setVisible(True)
+
+        # desktop_mode_menu_v2: anadir la accion Desktop Mode al menu
+        # Iniciar. Antes solo se creaba y se ocultaba; nunca estaba en
+        # el menu. La comprobacion de disponibilidad la hace
+        # _update_desktop_mode_button_state() en cada refresco.
+        # simple_kiosk_v1: la accion Desktop Mode ya NO se muestra
+        # en el menu Iniciar. Vive en Configuracion Host como
+        # 'Modo kiosco (experimental)'.
+        self.action_vm_start_desktop.triggered.connect(
+            self.start_desktop_mode
+        )
+
+        # Nueva accion: arrancar QEMU con la ventana a pantalla completa
+        # en el escritorio del host. Sin cage, sin VT, sin wrapper.
+        self.action_vm_start_fullscreen = QAction(
+            self.tr("\U0001F5A5\uFE0F Iniciar en pantalla completa"), self
+        )
+        self.action_vm_start_fullscreen.setToolTip(self.tr(
+            "Arranca la VM con la ventana de QEMU maximizada en el\n"
+            "escritorio del host. Solo si la VM está apagada.\n"
+            "\n"
+            "Para salir de pantalla completa usa el atajo configurado\n"
+            "en el propio visor de QEMU (normalmente Ctrl+Alt+F o\n"
+            "Alt+F4 para cerrar la ventana)."
+        ))
+        self.menu_vm_start.addAction(self.action_vm_start_fullscreen)
+        self.btn_vm_start.setMenu(self.menu_vm_start)
+        self.action_vm_start_normal.triggered.connect(self.control_start_vm)
+        self.action_vm_start_demo.triggered.connect(self.control_start_vm_demo)
+        self.action_vm_start_fullscreen.triggered.connect(
+            self.start_fullscreen_mode
+        )
 
         for b, tip, color, hover in (
             (self.btn_vm_start, self.tr("Iniciar VM"), "#2e7d32", "#1b5e20"),
@@ -2389,6 +3295,43 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.manager_vm_state = QLabel(self.tr("● Nueva VM"))
         self.manager_vm_state.setStyleSheet("font-weight:bold; color:#757575;")
         details_layout.addWidget(self.manager_vm_state)
+
+        # vm_optimizer_v1_vm: indicador del perfil aplicado.
+        # Se oculta cuando la VM no tiene perfil aplicado.
+        self.manager_profile_label = QLabel("")
+        self.manager_profile_label.setStyleSheet(
+            "font-size:11px; color:#666; padding:2px 0;"
+        )
+        self.manager_profile_label.setVisible(False)
+        details_layout.addWidget(self.manager_profile_label)
+
+        # vm_open_state_checks_v1: banner de avisos al abrir la VM
+        # (limites de bus, discos huerfanos, UEFI sin OVMF). Lo
+        # construye el mixin y se inserta aqui en el layout del
+        # Resumen, debajo del label del perfil.
+        try:
+            _issues_banner = self._build_vm_issues_banner()
+            details_layout.addWidget(_issues_banner)
+        except Exception as _ib_err:
+            try:
+                print(f"[AVISO] No se pudo crear el banner de "
+                      f"avisos: {_ib_err}")
+            except Exception:
+                pass
+
+        # vm_open_state_checks_v1: banner de avisos al abrir la VM
+        # (limites de bus, discos huerfanos, UEFI sin OVMF). Lo
+        # construye el mixin y se inserta aqui en el layout del
+        # Resumen, debajo del label del perfil.
+        try:
+            _issues_banner = self._build_vm_issues_banner()
+            details_layout.addWidget(_issues_banner)
+        except Exception as _ib_err:
+            try:
+                print(f"[AVISO] No se pudo crear el banner de "
+                      f"avisos: {_ib_err}")
+            except Exception:
+                pass
 
         # Aviso de notas de la VM. Se muestra solo si la VM tiene notas
         # guardadas en extra["notes"] (ver _update_manager_details); en
@@ -2612,17 +3555,6 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.snapshot_space_label.setStyleSheet("padding:4px;")
         snap_layout.addWidget(self.snapshot_space_label)
 
-        self.snapshot_progress_label = QLabel(self.tr("Sin operación de snapshot"))
-        self.snapshot_progress_label.setStyleSheet("padding:2px; font-weight:bold;")
-        # Barra inline deshabilitada: el diálogo de progreso del
-        # snapshot la sustituye. Se conserva el widget oculto por
-        # compatibilidad con código que todavía lo referencia.
-        self.snapshot_progress_label.setVisible(False)
-        self.snapshot_progress_bar = QProgressBar()
-        self.snapshot_progress_bar.setRange(0, 100)
-        self.snapshot_progress_bar.setValue(0)
-        self.snapshot_progress_bar.setTextVisible(True)
-        self.snapshot_progress_bar.setVisible(False)
 
         self.snapshot_list_widget = QTreeWidget()
         self.snapshot_list_widget.setHeaderLabels([
@@ -2631,6 +3563,13 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.snapshot_list_widget.setRootIsDecorated(False)
         self.snapshot_list_widget.setAlternatingRowColors(True)
         self.snapshot_list_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # snapshot_list_init_size_v1: sin mínimo, la lista arrancaba
+        # comprimida en el primer render de la pestaña (el
+        # QStackedWidget no había "realizado" todavía la página del
+        # organigrama, que tiene mín. 260). Al cambiar de vista, el
+        # stack recalculaba y la lista aparecía grande. Le damos el
+        # mismo mínimo que al organigrama para que arranque ya bien.
+        self.snapshot_list_widget.setMinimumHeight(260)
         self.snapshot_list_widget.itemSelectionChanged.connect(self._update_snapshot_preview)
 
         # Selector de vista: radio buttons (uno siempre activo).
@@ -2656,6 +3595,71 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.snap_view_stack.addWidget(self.snapshot_graph_view)
         self.snap_view_stack.setCurrentIndex(0)
         snap_layout.addWidget(self.snap_view_stack, 1)
+
+        # snapshots_graph_zoom_buttons_v1: botones de zoom para el
+        # organigrama. Solo se muestran cuando la vista de Organigrama
+        # está activa. Se añaden a toggle_row (después del stretch) para
+        # que queden alineados a la derecha.
+        try:
+            self.btn_snap_graph_zoom_out = QPushButton("\U0001f50d\u2212")
+            self.btn_snap_graph_zoom_out.setFixedWidth(60)
+            self.btn_snap_graph_zoom_out.setMinimumHeight(28)
+            self.btn_snap_graph_zoom_out.setToolTip(self.tr(
+                "Alejar el organigrama."
+            ))
+            self.btn_snap_graph_zoom_in = QPushButton("\U0001f50d+")
+            self.btn_snap_graph_zoom_in.setFixedWidth(60)
+            self.btn_snap_graph_zoom_in.setMinimumHeight(28)
+            self.btn_snap_graph_zoom_in.setToolTip(self.tr(
+                "Acercar el organigrama."
+            ))
+            self.btn_snap_graph_fit = QPushButton(self.tr("\u229e Ajustar"))
+            self.btn_snap_graph_fit.setMinimumHeight(28)
+            self.btn_snap_graph_fit.setToolTip(self.tr(
+                "Ajustar el organigrama al tamaño de la ventana."
+            ))
+            self.btn_snap_graph_real = QPushButton(self.tr("1:1"))
+            self.btn_snap_graph_real.setFixedWidth(48)
+            self.btn_snap_graph_real.setMinimumHeight(28)
+            self.btn_snap_graph_real.setToolTip(self.tr(
+                "Volver al zoom 100%%."
+            ))
+            self.btn_snap_graph_zoom_out.clicked.connect(
+                lambda _c=False: self.snapshot_graph_view.zoom_out()
+            )
+            self.btn_snap_graph_zoom_in.clicked.connect(
+                lambda _c=False: self.snapshot_graph_view.zoom_in()
+            )
+            self.btn_snap_graph_fit.clicked.connect(
+                lambda _c=False: self.snapshot_graph_view.fit_all()
+            )
+            self.btn_snap_graph_real.clicked.connect(
+                lambda _c=False: self.snapshot_graph_view.reset_zoom()
+            )
+
+            def _toggle_graph_zoom_buttons(on):
+                for _b in (self.btn_snap_graph_zoom_out,
+                           self.btn_snap_graph_zoom_in,
+                           self.btn_snap_graph_fit,
+                           self.btn_snap_graph_real):
+                    _b.setVisible(bool(on))
+
+            for _b in (self.btn_snap_graph_zoom_out,
+                       self.btn_snap_graph_zoom_in,
+                       self.btn_snap_graph_fit,
+                       self.btn_snap_graph_real):
+                _b.setVisible(False)   # arranca en vista Lista
+                toggle_row.addWidget(_b)
+
+            self.radio_snap_view_graph.toggled.connect(
+                _toggle_graph_zoom_buttons
+            )
+        except Exception as _zg_err:
+            try:
+                print("[AVISO] No se pudieron añadir los botones de zoom "
+                      "del organigrama: " + str(_zg_err))
+            except Exception:
+                pass
         # Contenedor del preview con zoom + scroll.
         self.snapshot_preview_container = QWidget()
         preview_layout = QVBoxLayout(self.snapshot_preview_container)
@@ -2743,7 +3747,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         for lab in (self.sf_dep_virtiofsd,self.sf_dep_9p,self.sf_dep_smb):
             lab.setMinimumWidth(180); dep_status_row.addWidget(lab)
         sf_dep_layout.addLayout(dep_status_row)
-        sf_dep_note=QLabel(self.tr("9p forma parte de QEMU y normalmente no requiere instalar un paquete adicional en el host. VirtioFS necesita virtiofsd y SMB necesita Samba/smbd."))
+        sf_dep_note=QLabel(self.tr(
+            "Para qué sirve: compartir carpetas entre el host y el guest. "
+            "VirtioFS es el más rápido (Linux); 9p es el respaldo "
+            "(viene con QEMU); SMB es para Windows/macOS (necesita "
+            "Samba/smbd). VirtioFS necesita virtiofsd."
+        ))
         sf_dep_note.setWordWrap(True); sf_dep_note.setStyleSheet("color:#666;"); sf_dep_layout.addWidget(sf_dep_note)
         sf_dep_buttons=QHBoxLayout()
         self.btn_sf_check_deps=QPushButton(self.tr("🔄 Comprobar"))
@@ -2856,44 +3865,67 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.label_passthrough_snapshot_notice.setVisible(False)
         pt_layout.addWidget(self.label_passthrough_snapshot_notice)
 
-        vfio_group = QGroupBox(self.tr("Diagnóstico PCI / VFIO"))
-        vfio_lay = QVBoxLayout(vfio_group)
-        self.vfio_diag_label = QLabel(self.tr("Comprobando Intel VT-d / IOMMU..."))
-        self.vfio_diag_label.setWordWrap(True)
-        self.vfio_diag_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        vfio_lay.addWidget(self.vfio_diag_label)
-        vfio_btns = QHBoxLayout()
-        self.btn_vfio_refresh = QPushButton(self.tr("🔄 Comprobar IOMMU / VFIO"))
-        self.btn_vfio_refresh.clicked.connect(self.refresh_vfio_diagnostics)
-        self.btn_vfio_details = QPushButton(self.tr("ℹ Ver diagnóstico detallado"))
-        self.btn_vfio_details.clicked.connect(self.vfio_diagnostic_details)
-        self.btn_vfio_prepare = QPushButton(self.tr("🛠 Preparar intel_iommu=on"))
-        self.btn_vfio_prepare.clicked.connect(self.prepare_iommu_from_ui)
-        self.btn_vfio_firmware = QPushButton(self.tr("⚙ Abrir UEFI/BIOS"))
-        self.btn_vfio_firmware.clicked.connect(self.open_firmware_setup)
-        vfio_btns.addWidget(self.btn_vfio_refresh)
-        vfio_btns.addWidget(self.btn_vfio_details)
-        vfio_btns.addWidget(self.btn_vfio_prepare)
-        vfio_btns.addWidget(self.btn_vfio_firmware)
-        vfio_btns.addStretch()
-        vfio_lay.addLayout(vfio_btns)
-        # split_vm_host_config_v1: el grupo de diagnostico VFIO se
-        # mueve a la pestana Configuracion Host. Lo guardamos como
-        # atributo y NO lo anadimos a pt_layout.
-        self._vfio_group = vfio_group
+        # vfio_host_check_v1: el bloque "Diagnóstico PCI / VFIO" se movió
+        # a Configuración Host como sección propia con iconos ✅/❌
+        # (mismo patrón que Desktop Mode). Ya no se construye aquí.
 
         # --- Permisos USB (regla udev) ---
         # Se comprueba si existe la regla que permite el passthrough USB
         # sin pedir contraseña cada vez. Si falta, se puede instalar aquí
         # mismo con un solo clic (usa pkexec).
+        udmabuf_group = QGroupBox(self.tr("Aceleración 3D (VirGL / udmabuf)"))
+        udmabuf_layout = QVBoxLayout(udmabuf_group)
+
+        udmabuf_info = QLabel(self.tr(
+            "Para qué sirve: habilitar aceleración 3D real dentro de una "
+            "VM Linux (VirGL). Necesita acceso a /dev/udmabuf, que QEMU "
+            "usa para asignar buffers de GPU. Sin esta regla, la app "
+            "degrada automáticamente a VirtIO-GPU 2D: la VM funciona, "
+            "pero sin 3D acelerado.\n\n"
+            "Solo se aplica a /dev/udmabuf; el resto del sistema no se "
+            "toca."
+        ))
+        udmabuf_info.setWordWrap(True)
+        udmabuf_info.setStyleSheet("color:#666; font-size: 11px;")
+        udmabuf_layout.addWidget(udmabuf_info)
+
+        udmabuf_row = QHBoxLayout()
+        self.udmabuf_status_label = QLabel(self.tr("Comprobando…"))
+        self.udmabuf_status_label.setStyleSheet("font-weight: bold;")
+        udmabuf_row.addWidget(self.udmabuf_status_label)
+        udmabuf_row.addStretch()
+
+        self.btn_udmabuf_check = QPushButton(self.tr("🔄 Comprobar"))
+        self.btn_udmabuf_check.clicked.connect(self.refresh_udmabuf_status)
+        udmabuf_row.addWidget(self.btn_udmabuf_check)
+
+        self.btn_udmabuf_install = QPushButton(
+            self.tr("🔧 Configurar permisos de udmabuf"))
+        self.btn_udmabuf_install.setToolTip(self.tr(
+            "Crea /etc/udev/rules.d/60-virtual-machine-udmabuf.rules con\n"
+            "la regla que permite a la sesión gráfica activa abrir\n"
+            "/dev/udmabuf. Solo se toca este archivo; el resto del sistema\n"
+            "no se modifica.\n\n"
+            "Después de aplicarla, VirGL se activa automáticamente en el\n"
+            "siguiente arranque de VM. No hace falta cerrar sesión."
+        ))
+        self.btn_udmabuf_install.clicked.connect(
+            self.install_udmabuf_permissions)
+        udmabuf_row.addWidget(self.btn_udmabuf_install)
+        udmabuf_layout.addLayout(udmabuf_row)
+        # udmabuf_ui_config_v1: bloque movido a Configuracion Host,
+        # igual que el de permisos USB.
+        self._udmabuf_group = udmabuf_group
+
         usb_perm_group = QGroupBox(self.tr("Permisos USB del host"))
         usb_perm_layout = QVBoxLayout(usb_perm_group)
 
         usb_perm_info = QLabel(self.tr(
-            "Para poder pasar memorias o discos USB a la VM sin pedir "
-            "contraseña cada vez, el sistema necesita una regla udev que "
-            "conceda acceso al usuario activo. Puedes instalarla aquí con "
-            "un clic; solo se aplica a esta categoría de dispositivos."
+            "Para qué sirve: pasar memorias o discos USB a la VM sin "
+            "pedir contraseña cada vez. Sin esta regla udev, cada "
+            "conexión USB pide autenticación con pkexec. Solo se aplica "
+            "a dispositivos USB; el resto de reglas del sistema no se "
+            "tocan."
         ))
         usb_perm_info.setWordWrap(True)
         usb_perm_info.setStyleSheet("color:#666; font-size: 11px;")
@@ -2928,6 +3960,11 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self.passthrough_tree.setColumnWidth(0, 55)
         self.passthrough_tree.setColumnWidth(1, 55)
         self.passthrough_tree.setColumnWidth(3, 170)
+        # config_host_polish_v1: sin mínimo, el doble scroll
+        # (config_scroll exterior + sección Passthrough) dejaba el
+        # árbol diminuto. Le pedimos 260 px de suelo; si el conjunto
+        # no cabe, ya aparece scroll exterior y no se rompe nada.
+        self.passthrough_tree.setMinimumHeight(260)
         pt_layout.addWidget(self.passthrough_tree, 1)
         pt_buttons = QHBoxLayout()
         self.btn_passthrough_refresh = QPushButton(self.tr("🔄 Detectar dispositivos"))
@@ -2954,6 +3991,13 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # tenerlo listo, pero tampoco bloquea nada crítico.
         try:
             self.refresh_usb_permissions_status()
+        except Exception:
+            pass
+        # udmabuf_ui_config_v1: comprobar tambien el estado de udmabuf
+        # al arrancar, para que el panel muestre la verdad desde el
+        # primer momento.
+        try:
+            self.refresh_udmabuf_status()
         except Exception:
             pass
 
@@ -3028,6 +4072,27 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         )
         config_bar_layout.addWidget(self.config_bar_label)
 
+        # vm_optimizer_v1_profile_chip: chip visible del perfil
+        # aplicado, junto al titulo de la pestana. Antes el perfil
+        # solo se veia en el Resumen (font 11px, gris): invisible.
+        # El chip tiene dos estados (ver _update_profile_indicator):
+        #   • Perfil aplicado: azul suave.
+        #   • Personalizado: ambar.
+        self.config_bar_profile_label = QLabel("")
+        self.config_bar_profile_label.setVisible(False)
+        self.config_bar_profile_label.setStyleSheet(
+            "QLabel { "
+            "  background: #e3f2fd; "
+            "  color: #0d47a1; "
+            "  border: 1px solid #90caf9; "
+            "  border-radius: 10px; "
+            "  padding: 2px 10px; "
+            "  font-weight: bold; "
+            "  font-size: 11px; "
+            "}"
+        )
+        config_bar_layout.addWidget(self.config_bar_profile_label)
+
         self.config_bar_dirty_label = QLabel("")
         self.config_bar_dirty_label.setStyleSheet(
             "color: #b36b00; font-weight: bold; font-size: 11px;"
@@ -3036,6 +4101,69 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         config_bar_layout.addWidget(self.config_bar_dirty_label)
 
         config_bar_layout.addStretch(1)
+
+        # simple_mode_expand_v1: checkbox espejo del toggle de
+        # Configuracion Host. Comparte QSettings("ui/simple_mode")
+        # y se sincroniza con el otro via _sync_simple_mode_checkboxes.
+        self.check_simple_mode_vm = QCheckBox(
+            self.tr("Modo simplificado")
+        )
+        self.check_simple_mode_vm.setToolTip(self.tr(
+            "Oculta las opciones avanzadas de Configuracion VM:\n"
+            "topologia manual de CPU, Hyper-V y virtualizacion\n"
+            "anidada, tuning de memoria, watchdog, VirtIO-RNG,\n"
+            "VirtIO-balloon, consola remota, adaptadores de\n"
+            "red, configuracion de arranque automatico y modo\n"
+            "compatibilidad de snapshots.\n"
+            "\n"
+            "Es la misma preferencia que el checkbox de\n"
+            "Configuracion Host -> Modo de uso: cambiar uno\n"
+            "cambia el otro. La configuracion guardada de las\n"
+            "VMs NO se modifica, solo la visibilidad de los\n"
+            "controles."
+        ))
+        try:
+            self.check_simple_mode_vm.blockSignals(True)
+            self.check_simple_mode_vm.setChecked(
+                self._load_simple_mode_preference())
+            self.check_simple_mode_vm.blockSignals(False)
+        except Exception:
+            pass
+        self.check_simple_mode_vm.toggled.connect(
+            self._on_simple_mode_changed)
+        config_bar_layout.addWidget(self.check_simple_mode_vm)
+
+        # vm_optimizer_v1_vm: boton "Aplicar perfil" + candado
+        # global. Se colocan junto a Guardar/Descartar.
+        self.btn_apply_profile = QPushButton(
+            self.tr("\u2699 Aplicar perfil\u2026")
+        )
+        self.btn_apply_profile.setToolTip(self.tr(
+            "Aplica los ajustes avanzados de un perfil del Modo "
+            "R\u00e1pido sobre esta VM (gr\u00e1ficos, CPU, memoria, "
+            "consola, I/O, clipboard, compat. de snapshots).\n"
+            "RAM, n\u00facleos, disco y placa NO se tocan."
+        ))
+        self.btn_apply_profile.clicked.connect(
+            self.open_vm_optimizer_dialog
+        )
+        config_bar_layout.addWidget(self.btn_apply_profile)
+
+        self.btn_profile_lock = QToolButton()
+        self.btn_profile_lock.setText("\U0001F513")  # 🔓
+        self.btn_profile_lock.setToolTip(self.tr(
+            "Candado del perfil: ABIERTO.\n"
+            "Puedes editar los ajustes avanzados. Al hacerlo, "
+            "el perfil pasar\u00e1 a 'Personalizado'."
+        ))
+        self.btn_profile_lock.setStyleSheet(
+            "QToolButton { font-size:16px; padding:2px 6px; "
+            "border:1px solid palette(mid); border-radius:5px; }"
+        )
+        self.btn_profile_lock.clicked.connect(
+            self._toggle_profile_lock
+        )
+        config_bar_layout.addWidget(self.btn_profile_lock)
 
         self.btn_config_discard = QPushButton(
             self.tr("\u21ba Descartar cambios")
@@ -3093,9 +4221,15 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             self.tr("Ajustes y diagnostico del sistema anfitrion. Nada de esta "
                     "seccion se guarda con la VM: aplica a todo el equipo.")
         ))
-        # theme_selector_v1: seccion "Apariencia" al principio de
-        # Configuracion Host, porque el tema es una preferencia
-        # global del usuario, no de una VM concreta.
+        # config_host_order_v1: secciones ordenadas por importancia.
+        #   1) Virtualizacion: sin QEMU/KVM no arranca ninguna VM.
+        #   2) Permisos USB: passthrough USB sin contrasena.
+        #   3) PCI / VFIO: passthrough de tarjetas PCI.
+        #   4) Carpetas compartidas: integracion host <-> guest.
+        #   5) Desktop Mode: arranque a pantalla completa en VT.
+        #   6-8) Apariencia, atajos, API REST: preferencias.
+
+        # --- 1) Apariencia (preferencia global del usuario) ---
         try:
             self._build_appearance_ui(_host_layout)
         except Exception as _theme_ui_err:
@@ -3104,9 +4238,86 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
                       + str(_theme_ui_err))
             except Exception:
                 pass
-        # configurable_shortcuts_v1: boton "Configurar atajos..."
-        # dentro de Configuracion Host. Es una preferencia global
-        # del usuario, igual que el tema.
+
+        # --- 2) Idioma (marcador: config_host_prefs_top_v1) ---
+        # El selector vivia en el cornerWidget del QTabWidget, donde
+        # quedaba perdido visualmente. Ahora es un grupo propio al
+        # principio de Configuracion Host, junto a Apariencia.
+        # Mismos items, mismo QSettings("ui/language"), misma senal
+        # _on_language_changed: solo cambia donde se construye.
+        try:
+            _lang_group = QGroupBox(self.tr("Idioma"))
+            _lang_lay = QFormLayout(_lang_group)
+
+            self.language_selector = QComboBox()
+            self.language_selector.setObjectName("languageSelector")
+            self.language_selector.setToolTip(
+                self.tr("Idioma de la interfaz.")
+            )
+            for _code, _name in LANGUAGE_NAMES.items():
+                _flag = language_flag(_code)
+                _label = (_flag + " " + _code.upper()) if _flag else _name
+                self.language_selector.addItem(_label, _code)
+                self.language_selector.setItemData(
+                    self.language_selector.count() - 1,
+                    _name,
+                    Qt.ItemDataRole.ToolTipRole,
+                )
+            _lang_index = self.language_selector.findData(self._ui_language)
+            self.language_selector.setCurrentIndex(max(0, _lang_index))
+            self.language_selector.setMinimumWidth(140)
+            self.language_selector.currentIndexChanged.connect(
+                self._on_language_changed
+            )
+            _lang_lay.addRow(self.tr("Idioma:"), self.language_selector)
+
+            _lang_hint = QLabel(self.tr(
+                "Al cambiar el idioma, la aplicacion ofrecera reiniciar\n"
+                "para aplicar la traduccion a todos los textos."
+            ))
+            _lang_hint.setWordWrap(True)
+            _lang_hint.setStyleSheet("color:#888; font-size:11px;")
+            _lang_lay.addRow("", _lang_hint)
+
+            _host_layout.addWidget(_lang_group)
+        except Exception as _lang_ui_err:
+            try:
+                print("[AVISO] No se pudo construir la UI de Idioma: "
+                      + str(_lang_ui_err))
+            except Exception:
+                pass
+
+        # --- 3) Modo de uso (simple_mode_v1) ---
+        try:
+            self._build_simple_mode_ui(_host_layout)
+        except Exception as _sm_ui_err:
+            try:
+                print("[AVISO] No se pudo construir la UI de Modo de uso: "
+                      + str(_sm_ui_err))
+            except Exception:
+                pass
+
+        # --- 4) Estado del host (panel unificado, config_host_mixin_v1) ---
+        try:
+            self._build_config_host_ui(_host_layout)
+        except Exception as _ch_ui_err:
+            try:
+                print("[AVISO] No se pudo construir el panel unificado "
+                      "de Configuracion Host: " + str(_ch_ui_err))
+            except Exception:
+                pass
+
+        # --- 5) Modo kiosco (experimental) ---
+        try:
+            self._build_kiosk_start_button(_host_layout)
+        except Exception as _ksk_err:
+            try:
+                print("[AVISO] No se pudo construir el boton de "
+                      "Modo kiosco: " + str(_ksk_err))
+            except Exception:
+                pass
+
+        # --- 6) Atajos de teclado (preferencia global del usuario) ---
         try:
             self._build_shortcuts_ui(_host_layout)
         except Exception as _sc_ui_err:
@@ -3115,7 +4326,8 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
                       + str(_sc_ui_err))
             except Exception:
                 pass
-        # rest_api_v1: sección "API REST local" en Configuración Host.
+
+        # --- 7) API REST local (feature avanzada opcional) ---
         try:
             self._build_api_ui(_host_layout)
         except Exception as _api_ui_err:
@@ -3124,11 +4336,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
                       + str(_api_ui_err))
             except Exception:
                 pass
-        for _attr in ("_host_deps_group", "_vfio_group",
-                      "_usb_perm_group", "_sf_dep_group"):
-            _w = getattr(self, _attr, None)
-            if _w is not None:
-                _host_layout.addWidget(_w)
+
         _host_layout.addStretch(1)
         _host_scroll = QScrollArea()
         _host_scroll.setWidgetResizable(True)
@@ -3225,20 +4433,29 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             # Va en la fila de estado, junto al checkbox que decide si
             # ese visor se abre a pantalla completa, para que las dos
             # acciones del visor EXTERNO queden visualmente juntas.
-            self.btn_console_launch_external = QPushButton(self.tr("↗ Abrir en ventana externa"))
+            # console_buttons_v2: texto más corto.
+            self.btn_console_launch_external = QPushButton(self.tr("🪟 Ventana externa"))
             self.btn_console_launch_external.setToolTip(self.tr(
                 "Lanza el visor externo del protocolo configurado en Pantalla,\n"
                 "aunque el modo sea 'embebida'. Útil para tener las dos vistas a la vez."
             ))
             self.btn_console_launch_external.clicked.connect(
-                self._launch_external_console
+                # console_viewer_choice_v1: el boton ya no lanza directo
+                # el primer visor encontrado; abre un submenu con los
+                # visores instalados y guarda el preferido.
+                lambda _checked=False, b=self.btn_console_launch_external:
+                    self._show_external_viewer_menu(b)
             )
-            console_status_row.addWidget(self.btn_console_launch_external)
 
             # Checkbox: abrir el visor EXTERNO a pantalla completa.
             # NO afecta al visor embebido: para ese está el botón
             # "Pantalla completa del visor" de la fila de abajo.
+            # console_cleanup_v1: checkbox "Externos en pantalla
+            # completa" oculto. Reportado como no funcional por el
+            # usuario; el visor externo siempre se abre en el
+            # tamaño que decida su propio WM.
             self.chk_external_fullscreen = QCheckBox(self.tr("Externos en pantalla completa"))
+            self.chk_external_fullscreen.setVisible(False)
             self.chk_external_fullscreen.setToolTip(self.tr(
                 "Cuando está marcado, los visores externos (los que abre el\n"
                 "botón 'Abrir en ventana externa' o el modo 'Ventana externa'\n"
@@ -3252,7 +4469,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             self.chk_external_fullscreen.toggled.connect(
                 self._on_external_fullscreen_toggled
             )
-            console_status_row.addWidget(self.chk_external_fullscreen)
+            # console_cleanup_v1: no se añade al layout; ver arriba.
 
             # presentation_mode_autohide_v1: envolver la fila de estado
             # en un QWidget para poder ocultarla y mostrarla en bloque
@@ -3288,13 +4505,19 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             console_toolbar.addWidget(self.btn_vm_usb_console)
 
             # Botón de refresco manual del widget VNC.
-            self.btn_vnc_refresh = QPushButton(self.tr("🔄 Reconectar"))
+            # console_buttons_v2: renombrado de "Reconectar" a
+            # "Forzar reconexión". Con vnc_desktopsize_v1 el
+            # widget ya redimensiona el framebuffer solo cuando
+            # el guest cambia de resolución, así que este botón
+            # queda como escape de emergencia (socket roto,
+            # servidor caído, etc.).
+            self.btn_vnc_refresh = QPushButton(self.tr("🔄 Forzar reconexión"))
             self.btn_vnc_refresh.setToolTip(self.tr(
-                "Reconectar el widget VNC.\n"
-                "Útil si cambiaste la resolución del guest y la imagen\n"
-                "quedó recortada o mal escalada. El cliente VNC básico\n"
-                "no puede cambiar el tamaño de su framebuffer sin\n"
-                "reconectar.\n\n"
+                "Cierra la conexión VNC y la vuelve a abrir.\n\n"
+                "Normalmente NO hace falta: si el guest cambia de\n"
+                "resolución, el widget se adapta solo (DesktopSize).\n"
+                "Úsalo solo si la imagen queda congelada o la conexión\n"
+                "se ha roto.\n\n"
                 "Atajo: Ctrl+R."
             ))
             self.btn_vnc_refresh.setMinimumWidth(130)
@@ -3354,26 +4577,45 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             # "Externos en pantalla completa" de la fila de arriba.
             # presentation_mode_v1: botón para entrar/salir del modo
             # presentación. Mismo atajo (F11).
-            self.btn_presentation = QPushButton(self.tr("🎬 Presentación"))
+            # console_buttons_v2: "Presentación" pasa a llamarse
+            # "Modo Demo". Fusiona el antiguo "Pantalla completa del
+            # visor": ahora este único botón hace las dos cosas
+            # (fullscreen + oculta paneles + salta a la Consola).
+            self.btn_presentation = QPushButton(self.tr("🎬 Modo Demo"))
             self.btn_presentation.setToolTip(self.tr(
-                "Modo presentación: oculta los paneles laterales, entra\n"
-                "en pantalla completa y salta a la Consola Gráfica.\n"
+                "Modo demo: pantalla completa, oculta los paneles\n"
+                "laterales y salta a la Consola Gráfica. Ideal para\n"
+                "proyectar o grabar la VM.\n"
                 "Requiere que la VM esté encendida.\n\n"
                 "Atajo: F11. Para salir: F11 o Escape."
             ))
             self.btn_presentation.clicked.connect(
                 self._toggle_presentation_mode
             )
+            # console_buttons_v3: "Ventana externa" movido aqui
+            # desde la fila de estado para quedar junto a "Modo Demo".
+            console_toolbar.addWidget(self.btn_console_launch_external)
             console_toolbar.addWidget(self.btn_presentation)
 
+            # console_buttons_v2: la "Pantalla completa del visor"
+            # se oculta de la barra. Su función queda cubierta por
+            # "Modo Demo" (que además oculta paneles y salta a la
+            # Consola). Se sigue creando el botón por si algún
+            # mixin lo referencia, pero no se añade al layout.
             self.btn_vnc_fullscreen = QPushButton(self.tr("⛶ Pantalla completa del visor"))
             self.btn_vnc_fullscreen.setEnabled(False)  # se activa cuando hay VM
             self.btn_vnc_fullscreen.clicked.connect(self._toggle_vnc_fullscreen)
-            console_toolbar.addWidget(self.btn_vnc_fullscreen)
+            self.btn_vnc_fullscreen.setVisible(False)
+            # console_toolbar.addWidget(self.btn_vnc_fullscreen)  # console_buttons_v2: oculto
             self._update_fullscreen_button_tooltip()
 
-            console_toolbar.addSpacing(10)
-            console_toolbar.addWidget(QLabel(self.tr("Salir con:")))
+            # console_cleanup_v1: el combo "Salir con:" y su
+            # etiqueta se ocultan. Estaban asociados al visor
+            # embebido a pantalla completa, que se fusionó con
+            # Modo Demo en console_buttons_v2. Se dejan creados
+            # por si algún mixin los referencia, pero invisibles.
+            _lbl_salir_con = QLabel(self.tr("Salir con:"))
+            _lbl_salir_con.setVisible(False)
             self.combo_fullscreen_exit = QComboBox()
             _fs_labels = [
                 ("Ctrl derecho (como VirtualBox)", "RCTRL"),
@@ -3397,7 +4639,9 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             self.combo_fullscreen_exit.currentIndexChanged.connect(
                 self._on_fullscreen_exit_shortcut_changed
             )
-            console_toolbar.addWidget(self.combo_fullscreen_exit)
+            # console_cleanup_v1: no se añade al toolbar; se deja
+            # creado por compatibilidad con mixins externos.
+            self.combo_fullscreen_exit.setVisible(False)
 
             # presentation_mode_autohide_v1: envolver la fila de botones
             # en un QWidget para poder ocultarla y mostrarla en bloque
@@ -3588,35 +4832,10 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self._help_tab_index = self.main_tabs.count() - 1
 
         self.main_tabs.setCurrentIndex(0)
-        # Selector de idioma en la esquina del conjunto de pestañas.
-        # Selector de idioma en la esquina del conjunto de pestañas.
-        # language_flags_v1_selector: cada opcion muestra la bandera
-        # del idioma (emoji regional indicator) seguida del codigo
-        # ISO en mayusculas (ES / EN). El codigo sirve de respaldo en
-        # sistemas que no renderizan banderas emoji como tales (p.ej.
-        # Windows con Segoe UI Emoji antiguo). El tooltip de cada item
-        # lleva el nombre completo del idioma.
-        self.language_selector = QComboBox(self.main_tabs)
-        self.language_selector.setObjectName("languageSelector")
-        self.language_selector.setToolTip(self.tr("Idioma de la interfaz."))
-        for _code, _name in LANGUAGE_NAMES.items():
-            _flag = language_flag(_code)
-            _label = (_flag + " " + _code.upper()) if _flag else _name
-            self.language_selector.addItem(_label, _code)
-            self.language_selector.setItemData(
-                self.language_selector.count() - 1,
-                _name,
-                Qt.ItemDataRole.ToolTipRole,
-            )
-        _lang_index = self.language_selector.findData(self._ui_language)
-        self.language_selector.setCurrentIndex(max(0, _lang_index))
-        self.language_selector.setMinimumWidth(90)
-        self.language_selector.currentIndexChanged.connect(
-            self._on_language_changed
-        )
-        self.main_tabs.setCornerWidget(
-            self.language_selector, Qt.Corner.TopRightCorner
-        )
+        # config_host_prefs_top_v1: el selector de idioma ya NO
+        # se ancla a la esquina del QTabWidget. Vive como grupo
+        # propio al principio de la pestana Configuracion Host,
+        # junto a Apariencia.
         self.main_tabs.currentChanged.connect(self._on_main_tab_changed)
         self._performance_timer = QTimer(self)
         self._performance_timer.setInterval(1000)
@@ -3653,19 +4872,23 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         _resources_header = QHBoxLayout()
         _resources_header.addStretch(1)
-        self.btn_pin_resources = QPushButton(self.tr("📌 Fijar"))
-        self.btn_pin_resources.setToolTip(self.tr(
-            "Fija este panel como columna derecha de la ventana, siempre visible.\n"
-            "Útil para monitorizar CPU/RAM mientras trabajas en otra pestaña.\n"
-            "Vuelve a pulsar para devolverlo a Resumen."
-        ))
-        self.btn_pin_resources.setMaximumWidth(140)
-        self.btn_pin_resources.clicked.connect(
-            lambda _checked=False: self._apply_resources_pinned(
-                not getattr(self, "_resources_pinned", False)
-            )
-        )
-        _resources_header.addWidget(self.btn_pin_resources)
+        # right_panel_collapse_v1: boton de colapso con icono de flecha.
+        # Sustituye al antiguo btn_pin_resources (Fijar / Devolver).
+        from PyQt6.QtWidgets import QStyle as _QStyle_rp
+        self.btn_collapse_right = QToolButton()
+        self.btn_collapse_right.setIcon(
+            self.style().standardIcon(
+                _QStyle_rp.StandardPixmap.SP_ArrowRight))
+        self.btn_collapse_right.setIconSize(QSize(14, 14))
+        self.btn_collapse_right.setFixedSize(22, 22)
+        self.btn_collapse_right.setAutoRaise(True)
+        self.btn_collapse_right.setStyleSheet(
+            "QToolButton { padding: 0; border: none; }")
+        self.btn_collapse_right.setToolTip(
+            self.tr("Ocultar el panel de recursos"))
+        self.btn_collapse_right.clicked.connect(
+            self._toggle_right_panel_collapsed)
+        _resources_header.addWidget(self.btn_collapse_right)
         resources_layout.addLayout(_resources_header)
 
         # Guardar la referencia al layout del scroll de Resumen: allí vive
@@ -3833,11 +5056,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         self._resumen_grid = QGridLayout()
         self._resumen_grid.setHorizontalSpacing(10)
         self._resumen_grid.setVerticalSpacing(10)
+        # right_panel_collapse_v1: el panel de recursos y el bloque
+        # de Informacion general ya no viven en Resumen. Se mueven
+        # como tercera columna del splitter (ver mas abajo).
         self._resumen_grid.addWidget(info_box, 0, 0)
-        self._resumen_grid.addWidget(info_general_box, 0, 1)
-        self._resumen_grid.addWidget(self._resources_panel, 1, 0)
-        self._resumen_grid.addWidget(last_snap_box, 1, 1)
-        self._resumen_grid.addWidget(suggestions_box, 2, 0, 1, 2)
+        self._resumen_grid.addWidget(last_snap_box, 0, 1)
+        self._resumen_grid.addWidget(suggestions_box, 1, 0, 1, 2)
 
         # vm_history_v1 — E3a: sección compacta de historial de uso.
         # Muestra 4 datos resumidos + botón para abrir el diálogo
@@ -3882,7 +5106,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         _hist_btn_row.addStretch(1)
         history_layout.addLayout(_hist_btn_row)
 
-        self._resumen_grid.addWidget(history_box, 3, 0, 1, 2)
+        self._resumen_grid.addWidget(history_box, 2, 0, 1, 2)
         self._history_card = history_box
         self._resumen_grid.setColumnStretch(0, 1)
         self._resumen_grid.setColumnStretch(1, 1)
@@ -3903,6 +5127,12 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         # arrastrar para recuperarlo, algo incómodo y poco evidente).
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
+        # side_panels_collapse_v10: ancho del handle fijado UNA
+        # sola vez aqui. La ruta de expandir/colapsar NO debe
+        # tocar setHandleWidth: disparaba un relayout que
+        # respetaba el setFixedWidth(0) heredado del colapso
+        # previo y dejaba el handle atascado a ancho 0.
+        splitter.setHandleWidth(10)  # side_panels_collapse_v10
         splitter.setHandleWidth(10)
         # ------------------------------------------------------------------
         # Envolver los paneles laterales en QScrollArea.
@@ -3928,20 +5158,76 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             return scroll
 
         # Extraer el ancho mínimo previo del panel izquierdo.
-        _left_min = left_panel.minimumWidth() or 160
+        _left_min = left_panel.minimumWidth() or 170
 
         # Los paneles ya no necesitan el mínimo: lo lleva el scroll externo.
         # Así el contenido puede ser más estrecho si el usuario arrastra
         # el splitter, sin forzar un ancho mínimo incómodo.
         left_panel.setMinimumWidth(0)
 
-        self._left_scroll = _wrap_in_scroll(left_panel, min_width=_left_min)
+        self._left_scroll = _wrap_in_scroll(left_panel, min_width=0)  # side_panels_collapse_v2: sin minimo, para permitir colapso
+
+        # side_panels_collapse_v2: el panel se colapsa con el boton
+        # < de la cabecera. Cuando esta colapsado, se oculta el
+        # scroll del panel y se muestra una tira fina (24 px) con >
+        # para volver a mostrarlo. Si el cursor se acerca a menos
+        # de 5 px del borde IZQUIERDO de la ventana mientras esta
+        # colapsado, el panel aparece temporalmente (auto-show);
+        # al alejarse, se colapsa otra vez.
+        self._left_collapsed = False
+        self._left_auto_shown = False
+        self._left_saved_width = 320
+        self._left_collapsed_strip = self._build_left_collapsed_strip()
+        self._left_collapsed_strip.setVisible(False)
+
+        self._left_panel_wrapper = QWidget()
+        _lw = QHBoxLayout(self._left_panel_wrapper)
+        _lw.setContentsMargins(0, 0, 0, 0)
+        _lw.setSpacing(0)
+        _lw.addWidget(self._left_scroll, 1)
+        # side_panels_collapse_v11: la tira colapsada vive DENTRO del
+        # wrapper (a su derecha, oculta por defecto). El wrapper nunca
+        # sale del splitter, asi que QSplitter nunca recrea el handle 0
+        # ni lo deja huerfano. Colapsar/expandir = alternar visibilidad
+        # de _left_scroll vs _left_collapsed_strip + setSizes del panel.
+        _lw.addWidget(self._left_collapsed_strip, 0)
 
         # Splitter de 2 paneles: [lista de VMs] [tabs].
         # El panel de recursos vive ahora dentro de la pestaña Resumen
         # (o como tercera columna si el usuario pulsa 'Fijar').
-        splitter.addWidget(self._left_scroll)
+
+        # right_panel_collapse_v1: construir el wrapper del panel
+        # derecho. Contiene el panel de recursos + el bloque de
+        # Informacion general. Cuando esta colapsado, el wrapper sale
+        # del splitter y se sustituye por una tira fina (24 px) con
+        # un boton para expandir (misma tecnica que el panel izquierdo).
+        try:
+            self._resources_panel.setMinimumWidth(0)
+        except Exception:
+            pass
+        try:
+            self._info_general_card.setMinimumWidth(0)
+        except Exception:
+            pass
+        self._right_collapsed = False
+        self._right_auto_shown = False
+        self._right_saved_width = 300
+        self._right_collapsed_strip = self._build_right_collapsed_strip()
+        self._right_collapsed_strip.setParent(None)
+
+        self._right_panel_wrapper = QWidget()
+        self._right_panel_wrapper.setMinimumWidth(0)
+        _rw = QVBoxLayout(self._right_panel_wrapper)
+        _rw.setContentsMargins(0, 0, 0, 0)
+        _rw.setSpacing(10)
+        _rw.addWidget(self._resources_panel)
+        _rw.addWidget(self._info_general_card)
+        _rw.addStretch(1)
+
+        # Splitter: [lista de VMs] [tabs] [recursos].
+        splitter.addWidget(self._left_panel_wrapper)
         splitter.addWidget(right_panel)
+        splitter.addWidget(self._right_panel_wrapper)
         # ------------------------------------------------------------------
         # Cómo se reparte el espacio al arrastrar un handle.
         # ------------------------------------------------------------------
@@ -3963,7 +5249,7 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         _policy_flex = QSizePolicy(QSizePolicy.Policy.Ignored,
                                     QSizePolicy.Policy.Expanding)
         try:
-            self._left_scroll.setSizePolicy(_policy_pref)
+            self._left_panel_wrapper.setSizePolicy(_policy_pref)
             right_panel.setSizePolicy(_policy_flex)
         except Exception:
             pass
@@ -3982,35 +5268,43 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
 
         # Tamaños iniciales razonables para una ventana de 1080px.
         # Se restauran los últimos tamaños usados si el usuario ya redimensionó.
-        saved = QSettings().value("layout/main_splitter_sizes")
+        saved = QSettings().value("layout/main_splitter_sizes_v2")
         if isinstance(saved, list) and len(saved) == 3:
             try:
                 splitter.setSizes([int(x) for x in saved])
             except (TypeError, ValueError):
-                splitter.setSizes([310, 500, 300])  # welcome_panel_310_v1
+                splitter.setSizes([320, 500, 300])  # side_panels_collapse_v1
         else:
-            splitter.setSizes([310, 500, 300])  # welcome_panel_310_v1
+            splitter.setSizes([320, 500, 300])  # side_panels_collapse_v1
 
         def _on_splitter_moved(_pos, _index):
             # Guardar tamaños en la clave correspondiente al estado
             # actual del panel de recursos (fijado o no).
             _key = ("layout/main_splitter_sizes_pinned"
                     if getattr(self, "_resources_pinned", False)
-                    else "layout/main_splitter_sizes")
+                    else "layout/main_splitter_sizes_v2")
             QSettings().setValue(_key, splitter.sizes())
 
         splitter.splitterMoved.connect(_on_splitter_moved)
         self._main_splitter = splitter
 
-        # Restaurar el estado del panel de recursos (fijado o no)
-        # ANTES de montar el container central, para que todo esté
-        # en su sitio desde el primer frame.
+
+        # right_panel_collapse_v1: restaurar el estado del panel
+        # derecho (colapsado o expandido) desde la ultima sesion.
         try:
-            _pinned_saved = bool(QSettings().value(
-                "layout/resources_pinned", False, type=bool))
-            if _pinned_saved:
-                self._resources_pinned = False  # estado base antes del toggle
-                self._apply_resources_pinned(True, save=False)
+            _right_collapsed_saved = bool(QSettings().value(
+                "layout/right_panel_collapsed", False, type=bool))
+            self._set_right_panel_collapsed(
+                _right_collapsed_saved, save=False)
+        except Exception:
+            pass
+
+        # side_panels_collapse_v1: restaurar el estado del panel
+        # izquierdo (colapsado o expandido) desde la ultima sesion.
+        try:
+            _left_collapsed_saved = bool(QSettings().value(
+                "layout/left_panel_collapsed", False, type=bool))
+            self._set_left_panel_collapsed(_left_collapsed_saved, save=False)
         except Exception:
             pass
 
@@ -4020,6 +5314,511 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
         root_layout.setSpacing(0)
         root_layout.addWidget(splitter)
         self.setCentralWidget(container)
+        # simple_mode_v1: aplicar el modo simplificado (si estaba
+        # activado en la sesion anterior). Oculta las secciones
+        # Passthrough y Comparticion del sidebar de Configuracion VM.
+        try:
+            self._apply_simple_mode(self._load_simple_mode_preference())
+        except Exception as _sm_err:
+            try:
+                print("[AVISO] No se pudo aplicar el modo simplificado: "
+                      + str(_sm_err))
+            except Exception:
+                pass
+
+
+
+    # ------------------------------------------------------------------
+    # Panel izquierdo colapsable (marcador: side_panels_collapse_v2)
+    # ------------------------------------------------------------------
+    # El boton < vive en la cabecera (junto al titulo). Al pulsarlo
+    # se oculta el panel y aparece una tira fina (24 px) con > para
+    # volver a mostrarlo. Auto-show cuando el cursor se acerca a
+    # menos de _LEFT_HOVER_HOT_ZONE px del borde izquierdo.
+
+    _LEFT_HOVER_POLL_MS = 120
+    _LEFT_HOVER_HOT_ZONE = 5
+
+    def _build_left_collapsed_strip(self):
+        """Tira fina (24 px) que aparece cuando el panel esta colapsado."""
+        strip = QWidget()
+        strip.setFixedWidth(24)
+        strip.setSizePolicy(QSizePolicy.Policy.Fixed,
+                            QSizePolicy.Policy.Expanding)
+        lay = QVBoxLayout(strip)
+        lay.setContentsMargins(0, 4, 0, 4)
+        lay.setSpacing(0)
+        from PyQt6.QtWidgets import QStyle as _QStyle_lcs
+        btn = QToolButton()
+        btn.setIcon(self.style().standardIcon(
+            _QStyle_lcs.StandardPixmap.SP_ArrowRight))
+        btn.setIconSize(QSize(14, 14))
+        btn.setFixedSize(22, 22)
+        btn.setAutoRaise(True)
+        btn.setStyleSheet("QToolButton { padding: 0; border: none; }")
+        btn.setToolTip(self.tr("Mostrar el panel de maquinas virtuales"))
+        btn.clicked.connect(self._toggle_left_panel_collapsed)
+        lay.addWidget(btn, 0,
+                      Qt.AlignmentFlag.AlignTop
+                      | Qt.AlignmentFlag.AlignHCenter)
+        lay.addStretch(1)
+        strip._btn = btn
+        return strip
+
+    def _toggle_left_panel_collapsed(self):
+        if getattr(self, "_left_collapsed", False):
+            self._set_left_panel_collapsed(False)
+        else:
+            self._set_left_panel_collapsed(True)
+
+    def _set_left_panel_collapsed(self, collapsed, save=True):
+        if collapsed and not getattr(self, "_left_collapsed", False):
+            try:
+                sp = getattr(self, "_main_splitter", None)
+                if sp is not None:
+                    _sz = sp.sizes()
+                    if _sz and _sz[0] > 80:
+                        self._left_saved_width = int(_sz[0])
+            except Exception:
+                pass
+        self._left_collapsed = bool(collapsed)
+        if self._left_collapsed:
+            self._left_auto_shown = False
+        if save:
+            try:
+                QSettings().setValue(
+                    "layout/left_panel_collapsed", self._left_collapsed
+                )
+            except Exception:
+                pass
+        self._apply_left_panel_visibility()
+        if self._left_collapsed:
+            self._start_left_hover_watch()
+        else:
+            self._stop_left_hover_watch()
+
+    def _apply_left_panel_visibility(self):
+        """Marcador: side_panels_collapse_v11.
+
+        El wrapper vive SIEMPRE en el indice 0 del splitter. Colapsar
+        o expandir = alternar la visibilidad de _left_scroll vs
+        _left_collapsed_strip (ambos dentro del wrapper) + setSizes.
+        El splitter nunca cambia de hijos, asi que el handle 0 es
+        siempre el mismo objeto y no se queda huerfano.
+
+        Reemplaza al enfoque de v6-v10, que hacia insertWidget(0, ...)
+        cada vez: en QSplitter eso crea handles nuevos y sp.handle(0)
+        puede devolver un handle que ya no es el que pinta el splitter.
+        Sintoma tipico: handle con dims correctas pero isVisible()==False.
+        """
+        collapsed = getattr(self, "_left_collapsed", False)
+        auto = getattr(self, "_left_auto_shown", False)
+        show_panel = (not collapsed) or auto
+
+        sp = getattr(self, "_main_splitter", None)
+        if sp is None:
+            return
+
+        # 1) Asegurar que el wrapper (con scroll + strip dentro) esta en
+        #    el splitter. Solo hace falta la primera vez; despues ya lo
+        #    esta siempre porque nunca lo sacamos.
+        try:
+            if sp.widget(0) is not self._left_panel_wrapper:
+                self._left_panel_wrapper.setParent(None)
+                sp.insertWidget(0, self._left_panel_wrapper)
+        except Exception as e:
+            print(f"[v11] set wrapper error: {e}")
+
+        # 2) Alternar scroll vs strip DENTRO del wrapper.
+        try:
+            if show_panel:
+                self._left_collapsed_strip.setVisible(False)
+                self._left_scroll.setVisible(True)
+            else:
+                self._left_scroll.setVisible(False)
+                self._left_collapsed_strip.setVisible(True)
+        except Exception as e:
+            print(f"[v11] toggle error: {e}")
+
+        # 3) Ajustar el tamano del panel izquierdo (indice 0).
+        try:
+            sizes = list(sp.sizes())
+            if len(sizes) >= 2:
+                total = sum(sizes)
+                if show_panel:
+                    wanted = int(getattr(self, "_left_saved_width", 0) or 0)
+                    if wanted < 200:
+                        wanted = 320
+                else:
+                    wanted = 24
+                wanted = max(24, min(wanted, max(24, total - 200)))
+                if len(sizes) == 2:
+                    sizes = [wanted, max(0, total - wanted)]
+                else:
+                    mid = sizes[1:-1]
+                    last = max(0, total - wanted - sum(mid))
+                    sizes = [wanted] + mid + [last]
+                sp.setSizes(sizes)
+        except Exception as e:
+            print(f"[v11] setSizes error: {e}")
+
+        # 4) Handle 0: siempre visible con ancho 10.
+        self._apply_left_handle_state(show_panel, sp)
+    def _apply_left_handle_state(self, show_panel, sp):
+        """Marcador: side_panels_collapse_v11.
+
+        El handle izquierdo esta SIEMPRE visible con ancho 10,
+        independientemente del estado del panel. Antes (v8-v10)
+        alternabamos visible/oculto y aparecian handles fantasma.
+        Al mantenerlo siempre visible, QSplitter lo gestiona como
+        cualquier splitter normal.
+        """
+        if sp is None:
+            return
+        try:
+            h = sp.handle(0)
+            if h is None:
+                return
+            h.setStyleSheet("")
+            h.setFixedWidth(10)
+            h.setVisible(True)
+            h.show()
+        except Exception as e:
+            print(f"[v11] handle error: {e}")
+    def _start_left_hover_watch(self):
+        from PyQt6.QtCore import QTimer
+        t = getattr(self, "_left_hover_timer", None)
+        if t is None:
+            t = QTimer(self)
+            t.setInterval(self._LEFT_HOVER_POLL_MS)
+            t.timeout.connect(self._left_hover_tick)
+            self._left_hover_timer = t
+        t.start()
+
+    def _stop_left_hover_watch(self):
+        t = getattr(self, "_left_hover_timer", None)
+        if t is not None:
+            try:
+                t.stop()
+            except Exception:
+                pass
+
+    def _left_hover_tick(self):
+        if not getattr(self, "_left_collapsed", False):
+            self._stop_left_hover_watch()
+            return
+        try:
+            from PyQt6.QtGui import QCursor
+            global_pos = QCursor.pos()
+            local = self.mapFromGlobal(global_pos)
+        except Exception:
+            return
+        if not self.rect().contains(local):
+            if getattr(self, "_left_auto_shown", False):
+                self._left_auto_shown = False
+                self._apply_left_panel_visibility()
+            return
+        if local.x() < self._LEFT_HOVER_HOT_ZONE:
+            if not getattr(self, "_left_auto_shown", False):
+                self._left_auto_shown = True
+                self._apply_left_panel_visibility()
+            return
+        if getattr(self, "_left_auto_shown", False):
+            try:
+                w = self._left_panel_wrapper
+                tl = w.mapTo(self, w.rect().topLeft())
+                br = w.mapTo(self, w.rect().bottomRight())
+                if (tl.x() <= local.x() <= br.x()
+                        and tl.y() <= local.y() <= br.y()):
+                    return
+            except Exception:
+                pass
+            self._left_auto_shown = False
+            self._apply_left_panel_visibility()
+
+
+    # ------------------------------------------------------------------
+    # Panel derecho colapsable (marcador: right_panel_collapse_v1)
+    # ------------------------------------------------------------------
+    # Misma tecnica que el panel izquierdo (v8): swap de widgets en
+    # el ultimo indice del splitter.
+    #   * Expandido: splitter[last] = wrapper (recursos + info general).
+    #   * Colapsado: splitter[last] = tira fina (24 px) con <.
+    # Auto-show: cursor a menos de 5 px del borde DERECHO de la
+    # ventana mientras esta colapsado -> aparece temporalmente.
+
+    _RIGHT_HOVER_POLL_MS = 120
+    _RIGHT_HOVER_HOT_ZONE = 5
+
+    def _build_right_collapsed_strip(self):
+        """Tira fina (24 px) que aparece cuando el panel derecho esta colapsado."""
+        strip = QWidget()
+        strip.setFixedWidth(24)
+        strip.setSizePolicy(QSizePolicy.Policy.Fixed,
+                            QSizePolicy.Policy.Expanding)
+        lay = QVBoxLayout(strip)
+        lay.setContentsMargins(0, 4, 0, 4)
+        lay.setSpacing(0)
+        from PyQt6.QtWidgets import QStyle as _QStyle_rcs
+        btn = QToolButton()
+        btn.setIcon(self.style().standardIcon(
+            _QStyle_rcs.StandardPixmap.SP_ArrowLeft))
+        btn.setIconSize(QSize(14, 14))
+        btn.setFixedSize(22, 22)
+        btn.setAutoRaise(True)
+        btn.setStyleSheet("QToolButton { padding: 0; border: none; }")
+        btn.setToolTip(self.tr("Mostrar el panel de recursos"))
+        btn.clicked.connect(self._toggle_right_panel_collapsed)
+        lay.addWidget(btn, 0,
+                      Qt.AlignmentFlag.AlignTop
+                      | Qt.AlignmentFlag.AlignHCenter)
+        lay.addStretch(1)
+        strip._btn = btn
+        return strip
+
+    def _toggle_right_panel_collapsed(self):
+        if getattr(self, "_right_collapsed", False):
+            self._set_right_panel_collapsed(False)
+        else:
+            self._set_right_panel_collapsed(True)
+
+    def _set_right_panel_collapsed(self, collapsed, save=True):
+        if collapsed and not getattr(self, "_right_collapsed", False):
+            try:
+                sp = getattr(self, "_main_splitter", None)
+                if sp is not None:
+                    _sz = sp.sizes()
+                    if _sz and _sz[-1] > 80:
+                        self._right_saved_width = int(_sz[-1])
+            except Exception:
+                pass
+        self._right_collapsed = bool(collapsed)
+        if self._right_collapsed:
+            self._right_auto_shown = False
+        if save:
+            try:
+                QSettings().setValue(
+                    "layout/right_panel_collapsed", self._right_collapsed
+                )
+            except Exception:
+                pass
+        # Ajustar el icono del boton de la cabecera.
+        try:
+            btn = getattr(self, "btn_collapse_right", None)
+            if btn is not None:
+                from PyQt6.QtWidgets import QStyle as _QStyle_ic
+                if self._right_collapsed:
+                    btn.setIcon(self.style().standardIcon(
+                        _QStyle_ic.StandardPixmap.SP_ArrowLeft))
+                    btn.setToolTip(
+                        self.tr("Mostrar el panel de recursos"))
+                else:
+                    btn.setIcon(self.style().standardIcon(
+                        _QStyle_ic.StandardPixmap.SP_ArrowRight))
+                    btn.setToolTip(
+                        self.tr("Ocultar el panel de recursos"))
+        except Exception:
+            pass
+        self._apply_right_panel_visibility()
+        if self._right_collapsed:
+            self._start_right_hover_watch()
+        else:
+            self._stop_right_hover_watch()
+        # right_panel_collapse_v1_timer: al expandir, forzar un
+        # update inmediato para que los graficos aparezcan con datos.
+        if not self._right_collapsed:
+            try:
+                if hasattr(self, "_ensure_performance_monitoring"):
+                    self._ensure_performance_monitoring()
+                if (hasattr(self, "_performance_timer")
+                        and self._performance_timer.isActive()
+                        and hasattr(self, "_update_realtime_performance")):
+                    self._update_realtime_performance()
+            except Exception:
+                pass
+
+    def _apply_right_panel_visibility(self):
+        """Muestra u oculta el panel derecho segun el estado actual.
+
+        Marcador: right_panel_collapse_v1.
+        """
+        collapsed = getattr(self, "_right_collapsed", False)
+        auto = getattr(self, "_right_auto_shown", False)
+        show_panel = (not collapsed) or auto
+
+        sp = getattr(self, "_main_splitter", None)
+        if sp is None:
+            return
+        if sp.count() < 2:
+            return
+
+        try:
+            last = sp.count() - 1
+            cur = sp.widget(last)
+            if show_panel:
+                if cur is not self._right_panel_wrapper:
+                    self._right_panel_wrapper.setParent(None)
+                    sp.addWidget(self._right_panel_wrapper)
+                    self._right_collapsed_strip.setParent(None)
+                self._right_panel_wrapper.setVisible(True)
+                self._right_collapsed_strip.setVisible(False)
+                # right_panel_collapse_v1_autoshow_fix: si el panel
+                # se esta mostrando por auto-show (o se acaba de
+                # expandir), arrancar el timer y forzar un update
+                # inmediato para que los graficos no aparezcan vacios.
+                try:
+                    if hasattr(self, "_ensure_performance_monitoring"):
+                        self._ensure_performance_monitoring()
+                    if (hasattr(self, "_performance_timer")
+                            and self._performance_timer.isActive()
+                            and hasattr(self, "_update_realtime_performance")):
+                        self._update_realtime_performance()
+                except Exception:
+                    pass
+            else:
+                if cur is not self._right_collapsed_strip:
+                    self._right_collapsed_strip.setParent(None)
+                    sp.addWidget(self._right_collapsed_strip)
+                    self._right_panel_wrapper.setParent(None)
+                self._right_collapsed_strip.setVisible(True)
+        except Exception as e:
+            print(f"[right_panel] swap error: {e}")
+
+        # setSizes: repartir el espacio.
+        try:
+            sizes = list(sp.sizes())
+            if len(sizes) < 2:
+                return
+            total = sum(sizes)
+            if show_panel:
+                wanted = int(getattr(self, "_right_saved_width", 0) or 0)
+                if wanted < 200:
+                    wanted = 300
+            else:
+                wanted = 24
+            wanted = max(24, min(wanted, max(24, total - 200)))
+            rest = total - wanted
+            others = sizes[:-1]
+            others_sum = sum(others) or 1
+            new_others = []
+            acc = 0
+            for i, v in enumerate(others):
+                if i == len(others) - 1:
+                    new_others.append(max(0, rest - acc))
+                else:
+                    nv = int(round(v * rest / others_sum))
+                    new_others.append(nv)
+                    acc += nv
+            sizes = new_others + [wanted]
+            sp.setSizes(sizes)
+        except Exception as e:
+            print(f"[right_panel] setSizes error: {e}")
+
+        self._apply_right_handle_state(show_panel, sp)
+        try:
+            from PyQt6.QtCore import QTimer as _QT2
+            _QT2.singleShot(
+                0, lambda: self._apply_right_handle_state(show_panel, sp))
+        except Exception:
+            pass
+
+    def _apply_right_handle_state(self, show_panel, sp):
+        """Aplica el estado del handle final del splitter.
+
+        Marcador: right_panel_collapse_v1 (con relayout forzado v9).
+
+        Aunque este metodo no llama setHandleWidth (para no alterar el
+        handle izquierdo), si forzamos un relayout explicito al final
+        para que el reset de las restricciones del handle derecho se
+        refleje de inmediato, igual que en el lado izquierdo.
+        """
+        if sp is None:
+            return
+        try:
+            last = sp.count() - 1
+            if last < 1:
+                return
+            h = sp.handle(last - 1)
+            if h is None:
+                return
+            if show_panel:
+                h.setStyleSheet("")
+                h.setMinimumWidth(10)
+                h.setMaximumWidth(16777215)
+                h.setVisible(True)
+                h.show()
+            else:
+                h.setStyleSheet(
+                    "QSplitterHandle {"
+                    "  background: transparent;"
+                    "  border: none;"
+                    "  image: none;"
+                    "  width: 0px;"
+                    "  min-width: 0px;"
+                    "  max-width: 0px;"
+                    "}"
+                )
+                h.setFixedWidth(0)
+                h.setVisible(False)
+                h.hide()
+            try:
+                sp.updateGeometry()
+                sp.setSizes(sp.sizes())
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[right_panel] handle error: {e}")
+    def _start_right_hover_watch(self):
+        from PyQt6.QtCore import QTimer
+        t = getattr(self, "_right_hover_timer", None)
+        if t is None:
+            t = QTimer(self)
+            t.setInterval(self._RIGHT_HOVER_POLL_MS)
+            t.timeout.connect(self._right_hover_tick)
+            self._right_hover_timer = t
+        t.start()
+
+    def _stop_right_hover_watch(self):
+        t = getattr(self, "_right_hover_timer", None)
+        if t is not None:
+            try:
+                t.stop()
+            except Exception:
+                pass
+
+    def _right_hover_tick(self):
+        if not getattr(self, "_right_collapsed", False):
+            self._stop_right_hover_watch()
+            return
+        try:
+            from PyQt6.QtGui import QCursor
+            global_pos = QCursor.pos()
+            local = self.mapFromGlobal(global_pos)
+        except Exception:
+            return
+        if not self.rect().contains(local):
+            if getattr(self, "_right_auto_shown", False):
+                self._right_auto_shown = False
+                self._apply_right_panel_visibility()
+            return
+        w = self.width()
+        if local.x() > w - self._RIGHT_HOVER_HOT_ZONE:
+            if not getattr(self, "_right_auto_shown", False):
+                self._right_auto_shown = True
+                self._apply_right_panel_visibility()
+            return
+        if getattr(self, "_right_auto_shown", False):
+            try:
+                wgt = self._right_panel_wrapper
+                tl = wgt.mapTo(self, wgt.rect().topLeft())
+                br = wgt.mapTo(self, wgt.rect().bottomRight())
+                if (tl.x() <= local.x() <= br.x()
+                        and tl.y() <= local.y() <= br.y()):
+                    return
+            except Exception:
+                pass
+            self._right_auto_shown = False
+            self._apply_right_panel_visibility()
 
 
     def _on_language_changed(self, _index):
@@ -4259,6 +6058,18 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             except Exception:
                 pass
 
+        # vm_optimizer_v1_vm: conectar las senales de los widgets
+        # avanzados al slot que marca el perfil como 'Personalizado'
+        # cuando el candado esta abierto.
+        try:
+            self._wire_advanced_widgets_signals()
+        except Exception as _vwo_err:
+            try:
+                print(f"[AVISO] No se pudieron conectar las señales "
+                      f"avanzadas del perfil: {_vwo_err}")
+            except Exception:
+                pass
+
         # version_stack_index_v2: sincronizar el stack de versiones
         # con el data del combo de plataforma. Al arrancar, la
         # señal currentIndexChanged no se dispara (el combo ya
@@ -4453,6 +6264,125 @@ class VirtualMachineManagerApp(SnapshotsMixin, NetworkConfigMixin, PerformanceMi
             pass
         super().closeEvent(event)
 
+    # ------------------------------------------------------------------
+    # Modo kiosco (marcador: simple_kiosk_v1)
+    # ------------------------------------------------------------------
+    # Sustituye al boton "Iniciar en Desktop Mode" que vivia en el
+    # menu Iniciar y en el menu contextual. Desktop Mode es una
+    # feature de nicho que requiere configuracion del host (wrapper
+    # sudo, xinit, matchbox, grupo tty, /etc/X11/Xwrapper.config).
+    # No debe estar al mismo nivel que "Iniciar" o "Modo Demo".
+    #
+    # Se expone desde Configuracion Host, junto al panel de
+    # comprobacion de requisitos de Desktop Mode.
+
+    def _build_kiosk_start_button(self, parent_layout):
+        """Anade el grupo "Modo kiosco (experimental)" a Config Host."""
+        group = QGroupBox(self.tr("Modo kiosco (experimental)"))
+        lay = QVBoxLayout(group)
+
+        info = QLabel(self.tr(
+            "Arranca la VM en una VT dedicada (TTY propio), sin el\n"
+            "escritorio del host alrededor. Pensado para usos dedicados:\n"
+            "kiosco, arcade, HTPC, sala de maquinas.\n"
+            "\n"
+            "NO es lo mismo que 'Pantalla Completa' (que muestra la VM\n"
+            "en una ventana maximizada dentro del escritorio).\n"
+            "\n"
+            "Requiere configuracion previa del host: wrapper sudo,\n"
+            "xinit, matchbox, usuario en el grupo 'tty' y\n"
+            "/etc/X11/Xwrapper.config. El panel 'Desktop Mode' de\n"
+            "arriba verifica cada requisito y permite repararlos."
+        ))
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#666; font-size:11px;")
+        lay.addWidget(info)
+
+        row = QHBoxLayout()
+        self.btn_start_kiosk = QPushButton(
+            self.tr("Iniciar VM actual en Modo kiosco")
+        )
+        self.btn_start_kiosk.setToolTip(self.tr(
+            "Arranca la VM seleccionada en una VT dedicada.\n"
+            "\n"
+            "Para salir del Modo kiosco, apaga la VM: la VT vuelve\n"
+            "al escritorio del host.\n"
+            "\n"
+            "Solo aplica a la VM actualmente seleccionada."
+        ))
+        self.btn_start_kiosk.setMinimumHeight(32)
+        self.btn_start_kiosk.clicked.connect(self._on_start_kiosk_clicked)
+        row.addWidget(self.btn_start_kiosk)
+        row.addStretch(1)
+        lay.addLayout(row)
+
+        parent_layout.addWidget(group)
+        return group
+
+    def _on_start_kiosk_clicked(self):
+        # fix_kiosk_dialog_count_v2: contamos los requisitos
+        # reales en lugar de hardcodear un numero.
+        try:
+            from config_host_deps import REQUIREMENTS
+            n_kiosk = sum(1 for r in REQUIREMENTS if r['category'] == 'kiosco')
+        except Exception:
+            n_kiosk = 8
+
+        """Boton 'Iniciar VM actual en Modo kiosco'."""
+        if not self._vm_is_selected():
+            QMessageBox.information(
+                self, self.tr("Modo kiosco"),
+                self.tr("Selecciona primero una maquina virtual en la lista."),
+            )
+            return
+        _vm_name = os.path.basename(self.current_vm_dir)
+        try:
+            _state = self._runtime_state(_vm_name)
+        except Exception:
+            _state = "stopped"
+        if _state != "stopped":
+            QMessageBox.information(
+                self, self.tr("Modo kiosco"),
+                self.tr(
+                    "La VM '{0}' no esta apagada. Apagala antes de\n"
+                    "arrancarla en Modo kiosco."
+                ).format(_vm_name),
+            )
+            return
+
+        try:
+            _avail = bool(self._desktop_mode_is_available())
+        except Exception:
+            _avail = False
+        if not _avail:
+            _resp = QMessageBox.warning(
+                self, self.tr("Modo kiosco (experimental)"),
+                self.tr(
+                    "El Modo kiosco necesita configuracion previa del host\n"
+                    "(wrapper sudo, xinit, matchbox, grupo 'tty', etc.).\n"
+                    "\n"
+                    "El panel 'Desktop Mode' de arriba muestra los {n_kiosk}\n"
+                    "requisitos con botones 'Comprobar' / 'Reparar todo'.\n"
+                    "\n"
+                    "Quieres intentar arrancar de todas formas?"
+                ).format(n_kiosk=n_kiosk),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if _resp != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            self.start_desktop_mode()
+        except Exception as _e:
+            QMessageBox.warning(
+                self, self.tr("Modo kiosco"),
+                self.tr(
+                    "No se pudo arrancar la VM en Modo kiosco.\n\n{0}"
+                ).format(_e),
+            )
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setOrganizationName("MaquinaVirtual")
@@ -4524,8 +6454,99 @@ if __name__ == "__main__":
     sys.exit(app.exec())
 
 
+# vfio_host_check_v1_vm_applied
+
 # media_library_host_mount_v1_closeEvent
 
 # vm_config_save_cancel_v1_dirty_2b1
 
 # vm_config_save_cancel_v1_actions
+
+# config_host_order_v1_applied
+
+# config_host_polish_v1_applied
+
+# shrinkable_config_stack_v1_applied
+
+# manual_config_stack_v1_applied
+
+# config_sidebar_height_v1_applied
+
+# config_sidebar_height_v2_applied
+
+# remove_boot_button_v1_applied
+
+# snapshot_list_init_size_v1_applied
+
+# snapshots_graph_zoom_buttons_v1_applied
+
+# snapshots_graph_zoom_buttons_v2_applied
+
+
+# disk_bus_column_v1
+
+
+# side_panels_collapse_v1_applied
+
+
+# side_panels_collapse_v2_applied
+
+
+# side_panels_collapse_v3_applied
+
+
+# side_panels_collapse_v4_applied
+
+
+# side_panels_collapse_v6_applied
+
+
+# side_panels_collapse_v7_applied
+
+
+# side_panels_collapse_v8_applied
+
+
+# right_panel_collapse_v1_applied
+
+
+# right_panel_collapse_v1_autoshow_fix_applied
+
+
+# vnc_desktopsize_v1_buttons_applied
+
+
+# console_cleanup_v1_vm_applied
+
+
+# side_panels_collapse_v9_applied
+
+
+# side_panels_collapse_v10_applied
+
+
+# side_panels_collapse_v11_applied
+
+
+# config_host_mixin_v1
+
+# config_host_prefs_top_v1_applied
+
+# virtio_rng_v1_vm
+
+# autostart_host_boot_v1_vm
+
+# autostart_viewer_v1_vm
+
+# virtio_watchdog_v1_applied
+# virtio_balloon_v1_applied
+
+# cpu_topology_v1_applied
+
+# cpu_features_v1_applied
+
+# memory_tuning_v1_applied
+
+# simple_mode_expand_v1_applied_vm
+
+# fix_kiosk_format_v1

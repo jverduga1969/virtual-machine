@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 import media_library as _ml
+from dialogs import DiskIoAdvancedWidget
 
 
 _MEDIA_USER_ROLE = 260
@@ -319,7 +320,7 @@ class MediaLibraryMixin:
         # "attr" para que podamos guardar una referencia al boton y
         # habilitarlo/deshabilitarlo segun el estado del disco.
         for label, slot, tip, attr in (
-            (self.tr("↗ Agrandar"), self.enlarge_media_entry,
+            (self.tr("✏ Modificar"), self.enlarge_media_entry,
              self.tr("Aumentar el tamaño virtual de un disco QCOW2/RAW de la\n"
                      "biblioteca. Requiere que ninguna VM lo esté usando en\n"
                      "ese momento. El disco solo puede crecer."),
@@ -533,6 +534,8 @@ class MediaLibraryMixin:
         for e in entries:
             eid = str(e.get("id") or "")
             name = str(e.get("name") or e.get("filename") or "?")
+            if self._media_io_is_non_default(e):
+                name = name + "  *"
             os_txt = str(e.get("os_type") or "").capitalize()
             ver = str(e.get("version") or "")
             arch_txt = str(e.get("arch") or "")
@@ -596,7 +599,11 @@ class MediaLibraryMixin:
                 row.setData(6, Qt.ItemDataRole.UserRole, _virt)
             except Exception:
                 pass
-            row.setToolTip(0, str(e.get("path") or ""))
+            _tip0 = str(e.get("path") or "")
+            _io_tip = self._media_io_tooltip_text(e)
+            if _io_tip:
+                _tip0 = (_tip0 + "\n\n" if _tip0 else "") + _io_tip
+            row.setToolTip(0, _tip0)
             row.setToolTip(5, "Espacio real ocupado en el host.")
             row.setToolTip(6, "Tamaño virtual (lo que ve el sistema invitado).")
             row.setToolTip(7, ("\n".join(used_by) if used_by
@@ -1060,7 +1067,7 @@ class MediaLibraryMixin:
         cur_txt = _fmt(_cur) if _cur else "—"
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(self.tr("↗ Agrandar disco"))
+        dlg.setWindowTitle(self.tr("✏ Modificar disco"))
         dlg.resize(520, 260)
         lay = QVBoxLayout(dlg)
         form = QFormLayout()
@@ -1080,6 +1087,11 @@ class MediaLibraryMixin:
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#666; font-size:11px;")
         lay.addWidget(hint)
+
+        # disk_io_tuning_v1: seccion plegable Avanzado.
+        io_widget = DiskIoAdvancedWidget(dlg)
+        io_widget.set_values(e)
+        lay.addWidget(io_widget)
 
         def _on_accept():
             txt = size_edit.text().strip()
@@ -1119,27 +1131,47 @@ class MediaLibraryMixin:
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         new_txt = size_edit.text().strip()
-        if not new_txt or new_txt == cur_qemu:
+        _io_new = io_widget.values()
+        _io_old = {k: str(e.get(k) or "auto").lower()
+                   for k in self._MEDIA_IO_FIELDS}
+        _io_changed = (_io_new != _io_old)
+        _size_changed = bool(new_txt) and new_txt != cur_qemu
+        if not _size_changed and not _io_changed:
             return
-        try:
-            subprocess.run(
-                ["qemu-img", "resize", path, new_txt],
-                check=True, capture_output=True, text=True, timeout=600,
-            )
-        except Exception as ex:
-            QMessageBox.critical(self, self.tr("Agrandar"),
-                self.tr("No se pudo agrandar el disco.\n\n{0}").format(ex))
-            return
+        if _size_changed:
+            try:
+                subprocess.run(
+                    ["qemu-img", "resize", path, new_txt],
+                    check=True, capture_output=True, text=True, timeout=600,
+                )
+            except Exception as ex:
+                QMessageBox.critical(self, self.tr("Modificar disco"),
+                    self.tr("No se pudo agrandar el disco.\n\n{0}").format(ex))
+                return
+        if _io_changed:
+            try:
+                lib.update(eid, **_io_new)
+            except Exception as ex:
+                QMessageBox.critical(self, self.tr("Modificar disco"),
+                    self.tr("No se pudieron guardar los ajustes de I/O.\n\n{0}").format(ex))
+                return
         try:
             lib.update_virtual_size(eid)
         except Exception:
             pass
         self.refresh_media_library_table()
+        _msgs = []
+        if _size_changed:
+            _msgs.append(self.tr(
+                "Se agrandó correctamente a {0}.\n\n"
+                "Recuerda ampliar también la partición dentro del "
+                "sistema invitado.").format(new_txt))
+        if _io_changed:
+            _msgs.append(self.tr(
+                "Se actualizaron los ajustes de I/O del disco."))
         QMessageBox.information(
-            self, self.tr("Disco agrandado"),
-            self.tr("Se agrandó correctamente a {0}.\n\n"
-                    "Recuerda ampliar también la partición dentro del "
-                    "sistema invitado.").format(new_txt)
+            self, self.tr("Dispositivo actualizado"),
+            "\n\n".join(_msgs)
         )
 
     def compact_media_entry(self):
@@ -1405,6 +1437,35 @@ class MediaLibraryMixin:
     # ------------------------------------------------------------------
     # Editar / eliminar / abrir carpeta
     # ------------------------------------------------------------------
+
+    _MEDIA_IO_FIELDS = (
+        "disk_cache", "disk_io", "disk_discard",
+        "disk_detect_zeroes", "disk_aio",
+    )
+
+    def _media_io_is_non_default(self, entry):
+        if not isinstance(entry, dict):
+            return False
+        for k in self._MEDIA_IO_FIELDS:
+            v = str(entry.get(k) or "auto").lower()
+            if v != "auto":
+                return True
+        return False
+
+    def _media_io_tooltip_text(self, entry):
+        if not self._media_io_is_non_default(entry):
+            return ""
+        _labels = (("disk_cache", "cache"),
+                   ("disk_io", "io"),
+                   ("disk_discard", "discard"),
+                   ("disk_detect_zeroes", "detect-zeroes"),
+                   ("disk_aio", "aio"))
+        _tips = []
+        for k, lbl in _labels:
+            v = str(entry.get(k) or "auto").lower()
+            if v != "auto":
+                _tips.append(f"{lbl}={v}")
+        return "Ajustes de I/O (preset): " + ", ".join(_tips)
 
     def _on_media_table_double_click(self, item, _col):
         self.edit_media_metadata()
@@ -2448,3 +2509,7 @@ class MediaLibraryMixin:
 
 
 # media_library_create_disk_v1_prealloc_mixin
+
+# disk_io_tuning_v1_media_library
+
+# disk_io_tuning_v1_media_library_rev3

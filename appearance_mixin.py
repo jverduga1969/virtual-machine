@@ -28,7 +28,7 @@ import os
 from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFormLayout, QGroupBox, QLabel,
+    QApplication, QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel,
     QMessageBox,
 )
 
@@ -302,6 +302,10 @@ class AppearanceMixin:
             return
 
         # Guardar estado actual.
+        # presentation_mode_panels_v1: se anaden left_collapsed y
+        # right_collapsed para poder restaurar el estado previo de los
+        # paneles al salir (si el usuario ya los tenia colapsados,
+        # no expandirlos).
         state = {}
         try:
             state["geometry"] = self.geometry()
@@ -313,19 +317,80 @@ class AppearanceMixin:
                 getattr(self, "_left_scroll", None)
                 and self._left_scroll.isVisible()
             )
+            state["left_collapsed"] = bool(getattr(self, "_left_collapsed", False))
+            state["right_collapsed"] = bool(getattr(self, "_right_collapsed", False))
         except Exception:
             pass
         self._presentation_state = state
         self._presentation_mode_active = True
 
-        # Ocultar panel izquierdo.
+        # presentation_mode_panels_v1: colapsar AMBOS paneles laterales
+        # usando el sistema ya probado (swap al strip de 24 px +
+        # setSizes + ocultar handle del splitter).
+        #
+        # NO usar setVisible(False) sobre _left_scroll ni sobre
+        # _resources_panel: esos widgets viven DENTRO de los wrappers
+        # que estan en el QSplitter, y el wrapper sigue ocupando su
+        # hueco + pintando su handle. Ese era el bug original: banda
+        # negra a la izquierda con el handle visible a traves, y panel
+        # de recursos sin ocultar.
         try:
-            if getattr(self, "_left_scroll", None) is not None:
-                self._left_scroll.setVisible(False)
+            if hasattr(self, "_set_left_panel_collapsed"):
+                self._set_left_panel_collapsed(True, save=False)
         except Exception:
             pass
 
-        # Desfijar panel de recursos si estaba fijado.
+        try:
+            if hasattr(self, "_set_right_panel_collapsed"):
+                self._set_right_panel_collapsed(True, save=False)
+        except Exception:
+            pass
+
+
+        # presentation_mode_fullbleed_v1: poner a 0 los margenes del
+        # central widget y del console_page, y las tiras de colapso a
+        # 0 px de ancho. Todo esto se restaura en _exit.
+        self._presentation_saved_bleed = []
+        try:
+            _c = self.centralWidget()
+            if _c is not None and _c.layout() is not None:
+                _m = _c.layout().contentsMargins()
+                self._presentation_saved_bleed.append(
+                    (_c.layout(), _m.left(), _m.top(),
+                     _m.right(), _m.bottom())
+                )
+                _c.layout().setContentsMargins(0, 0, 0, 0)
+        except Exception:
+            pass
+        try:
+            _cp = getattr(self, "console_page", None)
+            if _cp is not None and _cp.layout() is not None:
+                _m = _cp.layout().contentsMargins()
+                self._presentation_saved_bleed.append(
+                    (_cp.layout(), _m.left(), _m.top(),
+                     _m.right(), _m.bottom())
+                )
+                _cp.layout().setContentsMargins(0, 0, 0, 0)
+        except Exception:
+            pass
+        # presentation_mode_panels_v2: en vez de setFixedWidth(0)
+        # (que desincronizaba la geometria del wrapper con la del
+        # handle del splitter), ocultamos la tira sin tocar su ancho.
+        # Con v11 la tira vive DENTRO del wrapper; su ancho original
+        # (24) se conserva intacto y al salir basta con volver a
+        # mostrarla.
+        for _attr in ("_left_collapsed_strip", "_right_collapsed_strip"):
+            _strip = getattr(self, _attr, None)
+            if _strip is not None:
+                try:
+                    _strip.setVisible(False)
+                except Exception:
+                    pass
+
+        # Desfijar panel de recursos si estaba fijado (por si el usuario
+        # lo habia movido a la columna derecha del splitter). Al
+        # colapsar el panel derecho ya queda oculto; este desfijado es
+        # defensivo para que el estado interno quede coherente.
         if state.get("resources_pinned"):
             try:
                 self._apply_resources_pinned(False, save=False)
@@ -359,13 +424,12 @@ class AppearanceMixin:
 
         try:
             self.log_message(
-                "==> Modo presentación ACTIVADO. "
+                "==> Modo Demo ACTIVADO. "
                 "Pulsa F11 o Escape para salir. "
                 "Mueve el ratón a la parte superior para ver las barras."
             )
         except Exception:
             pass
-
     def _exit_presentation_mode(self):
         if not getattr(self, "_presentation_mode_active", False):
             return
@@ -395,10 +459,47 @@ class AppearanceMixin:
         except Exception:
             pass
 
-        # Mostrar panel izquierdo.
+        # presentation_mode_panels_v1: restaurar el estado previo de
+        # AMBOS paneles laterales (colapsados o expandidos tal como
+        # estaban antes de entrar al modo demo). Mismo sistema que al
+        # entrar: swap de widget en el splitter + setSizes + handle.
         try:
-            if getattr(self, "_left_scroll", None) is not None:
-                self._left_scroll.setVisible(True)
+            prev_left = bool(state.get("left_collapsed", False))
+            if hasattr(self, "_set_left_panel_collapsed"):
+                self._set_left_panel_collapsed(prev_left, save=False)
+        except Exception:
+            pass
+
+        try:
+            prev_right = bool(state.get("right_collapsed", False))
+            if hasattr(self, "_set_right_panel_collapsed"):
+                self._set_right_panel_collapsed(prev_right, save=False)
+        except Exception:
+            pass
+
+
+        # presentation_mode_fullbleed_v1: restaurar margenes.
+        for _entry in getattr(self, "_presentation_saved_bleed", []) or []:
+            try:
+                _lay, _l, _t, _r, _b = _entry
+                _lay.setContentsMargins(_l, _t, _r, _b)
+            except Exception:
+                pass
+        self._presentation_saved_bleed = []
+        # presentation_mode_panels_v2: ya NO restauramos setFixedWidth(24)
+        # porque al entrar no tocamos el ancho, solo la visibilidad.
+        # El ancho original (24) sigue intacto en la tira.
+
+        # presentation_mode_panels_v2: forzar un reaplicado diferido de
+        # la visibilidad de ambos paneles. QSplitter puede haber
+        # recreado handles internos durante el fullscreen del Modo
+        # Demo; este reaplicado (idempotente) garantiza que el handle 0
+        # quede con la geometria correcta y el panel izquierdo sea
+        # arrastrable de nuevo.
+        try:
+            from PyQt6.QtCore import QTimer as _QTimer
+            _QTimer.singleShot(0, self._presentation_reaplly_panels)
+            _QTimer.singleShot(120, self._presentation_reaplly_panels)
         except Exception:
             pass
 
@@ -428,7 +529,28 @@ class AppearanceMixin:
         self._update_presentation_button()
 
         try:
-            self.log_message("==> Modo presentación desactivado.")
+            self.log_message("==> Modo Demo desactivado.")
+        except Exception:
+            pass
+    def _presentation_reaplly_panels(self):
+        """Reaplicado idempotente del estado de ambos paneles.
+
+        Marcador: presentation_mode_panels_v2.
+
+        Se llama diferido (QTimer.singleShot) tras salir del Modo
+        Demo, cuando el WM ya ha restaurado el tamano de la ventana
+        y QSplitter ha terminado sus re-layouts internos. Vuelve a
+        fijar la visibilidad y el handle de cada panel segun el
+        estado actual (self._left_collapsed / self._right_collapsed).
+        """
+        try:
+            if hasattr(self, "_apply_left_panel_visibility"):
+                self._apply_left_panel_visibility()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_apply_right_panel_visibility"):
+                self._apply_right_panel_visibility()
         except Exception:
             pass
 
@@ -444,16 +566,17 @@ class AppearanceMixin:
             return
         try:
             if getattr(self, "_presentation_mode_active", False):
-                btn.setText(self.tr("🎬 Salir de presentación"))
+                btn.setText(self.tr("🎬 Salir de Modo Demo"))
                 btn.setToolTip(self.tr(
-                    "Salir del modo presentación y restaurar la vista normal.\n"
+                    "Salir del Modo Demo y restaurar la vista normal.\n"
                     "También puedes pulsar F11 o Escape."
                 ))
             else:
-                btn.setText(self.tr("🎬 Presentación"))
+                btn.setText(self.tr("🎬 Modo Demo"))
                 btn.setToolTip(self.tr(
-                    "Modo presentación: oculta los paneles laterales, entra\n"
-                    "en pantalla completa y salta a la Consola Gráfica.\n"
+                    "Modo demo: pantalla completa, oculta los paneles\n"
+                    "laterales y salta a la Consola Gráfica. Ideal para\n"
+                    "proyectar o grabar la VM.\n"
                     "Requiere que la VM esté encendida.\n\n"
                     "Atajo: F11. Para salir: F11 o Escape."
                 ))
@@ -476,7 +599,10 @@ class AppearanceMixin:
     # recibir eventos que no siempre llegan. Consultar QCursor.pos() cada
     # 120 ms es barato y funciona siempre, capture quien capture el ratón.
 
-    _PRESENTATION_HOT_ZONE = 8   # px desde el borde superior
+    # presentation_mode_top_hotzone_v1: 3 px. Antes 8; se
+    # probo a bajarlo aun mas, pero por debajo de 3 px el
+    # usuario tenia que apuntar casi pixel-perfect al borde.
+    _PRESENTATION_HOT_ZONE = 3   # px desde el borde superior
     _PRESENTATION_POLL_MS = 120  # frecuencia del watcher
 
     def _presentation_show_chrome(self):
@@ -629,12 +755,11 @@ class AppearanceMixin:
         # 3) Barras ocultas: usar la altura recordada del chrome como
         #    hot zone extendida. Si el usuario sube a donde estaban
         #    las barras, se vuelven a mostrar.
-        threshold = max(
-            self._PRESENTATION_HOT_ZONE,
-            int(getattr(self, "_presentation_last_chrome_height",
-                        self._PRESENTATION_HOT_ZONE))
-        )
-        if local.y() < threshold:
+        # presentation_mode_top_hotzone_v1: hot zone estricta de
+        # 3 px. Antes se hacia max(hot_zone, altura_recordada_del_
+        # chrome), que ampliaba la zona hasta ~100 px y obligaba a
+        # subir demasiado el cursor. Ahora es solo el borde.
+        if local.y() < self._PRESENTATION_HOT_ZONE:
             self._presentation_show_chrome()
             return
         # Nada que hacer: siguen ocultas.
@@ -683,3 +808,240 @@ class AppearanceMixin:
         # Margen horizontal: no hace falta, dejamos exacto.
         # Margen vertical inferior: 8 px para tolerancia.
         return (x_min <= local.x() <= x_max) and (y_min <= local.y() <= y_max + 8)
+
+
+    # ------------------------------------------------------------------
+    # Modo simplificado (marcador: simple_mode_v1)
+    # ------------------------------------------------------------------
+    # Cuando esta activo, Configuracion VM oculta las secciones mas
+    # avanzadas. El objetivo es que un usuario basico no se pierda
+    # entre opciones que solo aplican a hardware especifico.
+    #
+    # La preferencia se guarda en QSettings("ui/simple_mode") y se
+    # aplica en caliente: al marcar/desmarcar el checkbox no hay
+    # que reiniciar la app.
+
+    def _load_simple_mode_preference(self):
+        try:
+            return bool(QSettings().value("ui/simple_mode", False))
+        except Exception:
+            return False
+
+    def _save_simple_mode_preference(self, enabled):
+        try:
+            QSettings().setValue("ui/simple_mode", bool(enabled))
+        except Exception:
+            pass
+
+    def _build_simple_mode_ui(self, parent_layout):
+        """Construye el grupo 'Modo de uso' con el checkbox.
+
+        Marcador: simple_mode_v1.
+        """
+        group = QGroupBox(self.tr("Modo de uso"))
+        lay = QFormLayout(group)
+
+        self.check_simple_mode = QCheckBox(
+            self.tr("Ocultar opciones avanzadas")
+        )
+        self.check_simple_mode.setToolTip(self.tr(
+            "Cuando esta activo, Configuracion VM oculta las secciones\n"
+            "mas avanzadas de la pestana:\n"
+            "  - Passthrough PCI / USB (VFIO / IOMMU).\n"
+            "  - Carpetas compartidas (VirtioFS / 9p / SMB).\n"
+            "\n"
+            "Util si no vas a tocar hardware fisico y prefieres una\n"
+            "interfaz mas limpia. La configuracion guardada de las VMs\n"
+            "NO se toca: solo se ocultan los controles. Al desmarcar,\n"
+            "vuelven a aparecer tal como estaban."
+        ))
+        # Bloquear senales durante el estado inicial: aplicar el modo
+        # se hace UNA vez, explicitamente, al final de
+        # _build_main_container.
+        self.check_simple_mode.blockSignals(True)
+        self.check_simple_mode.setChecked(self._load_simple_mode_preference())
+        self.check_simple_mode.blockSignals(False)
+        self.check_simple_mode.toggled.connect(self._on_simple_mode_changed)
+        lay.addRow("", self.check_simple_mode)
+
+        hint = QLabel(self.tr(
+            "Solo afecta a la visibilidad de los controles.\n"
+            "Ninguna configuracion existente se modifica."
+        ))
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#888; font-size:11px;")
+        lay.addRow("", hint)
+
+        parent_layout.addWidget(group)
+        return group
+
+    def _on_simple_mode_changed(self, checked):
+        checked = bool(checked)
+        self._save_simple_mode_preference(checked)
+        self._apply_simple_mode(checked)
+        # simple_mode_expand_v1: sincronizar los dos checkboxes
+        # (Host y Configuracion VM) sin re-disparar esta funcion.
+        self._sync_simple_mode_checkboxes(checked)
+        try:
+            self.log_message(
+                "==> Modo simplificado "
+                + ("activado: opciones avanzadas ocultas."
+                   if checked
+                   else "desactivado: todas las opciones visibles.")
+            )
+        except Exception:
+            pass
+
+    def _sync_simple_mode_checkboxes(self, enabled):
+        """Mantiene en sincronia los dos checkboxes del modo
+        simplificado. Marcador: simple_mode_expand_v1.
+
+        Los dos comparten QSettings("ui/simple_mode"). Al cambiar
+        uno, _on_simple_mode_changed llama aqui para reflejar el
+        nuevo estado en el otro sin volver a disparar la senal.
+        """
+        enabled = bool(enabled)
+        for attr in ("check_simple_mode", "check_simple_mode_vm"):
+            w = getattr(self, attr, None)
+            if w is None:
+                continue
+            try:
+                w.blockSignals(True)
+                w.setChecked(enabled)
+                w.blockSignals(False)
+            except Exception:
+                pass
+
+    # simple_mode_expand_v1: lista centralizada de widgets avanzados
+    # que se ocultan con el modo simplificado. Agrupados por seccion
+    # para que sea facil anadir mas en el futuro.
+    _SIMPLE_MODE_HIDDEN_WIDGETS = (
+        # --- Sistema (Opciones avanzadas) ---
+        "check_autostart_on_boot",
+        "check_autostart_on_boot_viewer",
+        "check_snapshot_compat",
+        # --- Procesador ---
+        "check_cpu_topology_manual",
+        "_cpu_topo_widget",
+        "_cf_sep",
+        "check_nested_virt",
+        "check_hyperv_enlight",
+        # --- Memoria ---
+        "_mt_sep",
+        "check_mem_hugepages",
+        "label_mem_hugepages_status",
+        "check_mem_prealloc",
+        "check_mem_memfd_lock",
+        # --- Dispositivos ---
+        "check_serial_to_file",
+        "check_virtio_rng",
+        "check_virtio_watchdog",
+        "_wd_action_row_widget",
+        "check_virtio_balloon",
+        "_devices_advanced_note",
+        # --- Pantalla ---
+        "_console_group",
+        "label_snapshot_compat_notice",
+        # --- Red ---
+        "check_no_network",
+    )
+
+    def _apply_simple_mode(self, enabled):
+        """Aplica/desaplica la visibilidad de las opciones avanzadas.
+
+        Marcador: simple_mode_v1 (base) + simple_mode_expand_v1
+        (lista ampliada). Idempotente.
+
+        Ademas del sidebar (Passthrough / Comparticion), oculta
+        todos los widgets de _SIMPLE_MODE_HIDDEN_WIDGETS. Los
+        widgets que no existan en una version concreta se ignoran
+        silenciosamente (getattr -> None).
+        """
+        enabled = bool(enabled)
+        sidebar = getattr(self, "config_sidebar", None)
+
+        # --- 1) Sidebar: Passthrough y Comparticion ---
+        rows = []
+        if sidebar is not None:
+            for attr in ("_passthrough_sidebar_row",
+                         "_comparticion_sidebar_row"):
+                try:
+                    idx = getattr(self, attr, None)
+                    if idx is not None and 0 <= idx < sidebar.count():
+                        rows.append(idx)
+                except Exception:
+                    pass
+
+            for idx in rows:
+                try:
+                    it = sidebar.item(idx)
+                    if it is not None:
+                        it.setHidden(enabled)
+                except Exception:
+                    pass
+
+            # Si el usuario estaba en una seccion oculta, saltar a
+            # la primera (Sistema), que siempre esta visible.
+            try:
+                if enabled:
+                    cur = sidebar.currentRow()
+                    if cur in rows:
+                        sidebar.setCurrentRow(0)
+            except Exception:
+                pass
+
+        # --- 2) Widgets avanzados de las paginas ---
+        # El label "Opciones avanzadas" (Sistema) se queda visible
+        # a proposito: contiene el checkbox basico
+        # 'check_autostart_on_launch' que no se oculta.
+        for attr in self._SIMPLE_MODE_HIDDEN_WIDGETS:
+            w = getattr(self, attr, None)
+            if w is None:
+                continue
+            try:
+                w.setVisible(not enabled)
+            except Exception:
+                pass
+
+        # --- 3) Reajustar el sidebar tras ocultar filas ---
+        if sidebar is not None:
+            try:
+                from PyQt6.QtCore import QTimer as _QTimer_sm
+                _QTimer_sm.singleShot(30, lambda: self._adjust_sidebar_height_after_simple_mode())
+            except Exception:
+                pass
+
+    def _adjust_sidebar_height_after_simple_mode(self):
+        """Reajusta la altura del sidebar tras cambiar el modo
+        simplificado (filas ocultas -> el minimo cambia).
+
+        Marcador: simple_mode_expand_v1.
+        """
+        sb = getattr(self, "config_sidebar", None)
+        if sb is None:
+            return
+        try:
+            _n = sb.count()
+            if _n <= 0:
+                return
+            _row_h = sb.sizeHintForRow(0)
+            if _row_h < 30:
+                _row_h = 44
+            _sp = max(0, sb.spacing())
+            _visible = sum(
+                1 for i in range(_n)
+                if not (sb.item(i) and sb.item(i).isHidden())
+            )
+            _min_h = _visible * (_row_h + 2 * _sp) + 24
+            sb.setMinimumHeight(_min_h)
+            sb.updateGeometry()
+        except Exception:
+            pass
+
+
+# vnc_desktopsize_v1_appearance_applied
+
+
+# presentation_mode_panels_v2_applied
+
+# simple_mode_expand_v1_applied

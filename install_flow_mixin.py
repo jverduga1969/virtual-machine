@@ -23,6 +23,100 @@ from host_deps import ensure_virtualization_dependencies, ensure_osx_kvm_present
 from workers import InstallWorker
 
 
+def _patch_worker_for_fullscreen(worker):
+    """Monkey-patch por INSTANCIA: anade full-screen=on al -display.
+
+    Marcador: desktop_mode_to_fullscreen_v1
+
+    QEMU abre su ventana GTK/SDL. Con -display gtk,full-screen=on el
+    gestor de ventanas del host la pone a pantalla completa. No se
+    toca workers.py: el patch vive solo en esta instancia del worker.
+    """
+    _orig = worker._graphics_args
+
+    # desktop_mode_cleanup_v2: la funcion NO recibe self. Monkey-patcheamos
+    # sobre la instancia, asi que _orig ya es un bound method del worker.
+    # Recibir self y llamar _orig(self) pasaba el worker dos veces y QEMU
+    # fallaba con "takes 1 positional argument but 2 were given".
+    def _graphics_args_fullscreen():
+        args, note = _orig()
+        if "-display gtk" in args:
+            args = args.replace(
+                "-display gtk",
+                "-display gtk,full-screen=on,zoom-to-fit=on",
+                1,
+            )
+        elif "-display sdl" in args:
+            args = args.replace(
+                "-display sdl",
+                "-display sdl,full-screen=on",
+                1,
+            )
+        else:
+            # Sin -display explicito: forzamos GTK con fullscreen.
+            args = ("-display gtk,full-screen=on,zoom-to-fit=on "
+                    + args).strip()
+        return args, note + " [pantalla completa]"
+
+    worker._graphics_args = _graphics_args_fullscreen
+
+
+def _patch_worker_for_snapshot(worker):
+    """Monkey-patch por INSTANCIA: inyecta -snapshot en run_temp.sh.
+
+    Marcador: desktop_mode_demo_v1
+
+    InstallWorker._run_impl() escribe run_temp.sh y LUEGO llama a
+    _build_launch_command(exec_path). En ese hueco insertamos -snapshot
+    en la línea de qemu-system-x86_64. No se modifica workers.py.
+
+    Se aplica por instancia (no a la clase) para que solo afecte a este
+    arranque concreto: el siguiente arranque normal no lleva -snapshot.
+    """
+    import re as _re
+    _orig = worker._build_launch_command
+
+    def _build_launch_command_snapshot(exec_path):
+        try:
+            with open(exec_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            new_content, n = _re.subn(
+                r"(?m)^(\s*qemu-system-x86_64\s+)",
+                r"\1-snapshot ",
+                content,
+                count=1,
+            )
+            if n == 0:
+                try:
+                    worker.log_signal.emit(
+                        "[AVISO] Modo Demo: no se encontró la línea "
+                        "'qemu-system-x86_64' en run_temp.sh. "
+                        "Se arrancará SIN -snapshot."
+                    )
+                except Exception:
+                    pass
+            else:
+                with open(exec_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                try:
+                    worker.log_signal.emit(
+                        "==> Modo Demo: -snapshot inyectado en run_temp.sh. "
+                        "Los cambios se descartarán al apagar."
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            try:
+                worker.log_signal.emit(
+                    f"[AVISO] Modo Demo: no se pudo parchear run_temp.sh: {e}"
+                )
+            except Exception:
+                pass
+        return _orig(exec_path)
+
+    worker._build_launch_command = _build_launch_command_snapshot
+
+
 class InstallFlowMixin:
 
     def _download_file_to(self, url, filename):
@@ -442,7 +536,17 @@ class InstallFlowMixin:
         secure_boot = self.check_secure_boot.isChecked()
         tpm = self.check_tpm.isChecked()
         boot_order = self._current_boot_order_tokens() if self.current_vm_dir else ["cdrom", "disk", "network"]
-        boot_device = "cdrom" if boot_order and boot_order[0] == "cdrom" else ("network" if boot_order and boot_order[0] == "network" else "disk")
+        # boot_order_canonical_v1: derivar boot_device por PREFIJO.
+        # Antes se comparaba contra los literales "cdrom"/"network",
+        # pero los tokens reales son "cdrom:<id>" / "disk:<id>": la
+        # comparacion fallaba y boot_device caia SIEMPRE a "disk".
+        _first_tok = str(boot_order[0]) if boot_order else ""
+        if _first_tok.startswith("cdrom"):
+            boot_device = "cdrom"
+        elif _first_tok == "network":
+            boot_device = "network"
+        else:
+            boot_device = "disk"
         network_devices = self._network_devices() if hasattr(self, "network_devices_list") and self.network_devices_list.count() else []
         if hasattr(self, "check_no_network") and self.check_no_network.isChecked():
             network_devices = []
@@ -459,6 +563,17 @@ class InstallFlowMixin:
         passthrough_devices = list(getattr(self, "_passthrough_saved", []))
         audio_device = self.combo_audio.currentData()
         graphics_mode = self.combo_graphics.currentData()
+        # fullscreen_2d_v2: en modo "pantalla completa" forzar VirtIO-GPU
+        # 2D. La razon: graphics_mode="auto" resuelve a VirGL cuando el
+        # host lo soporta, y VirGL exige /dev/udmabuf accesible. En hosts
+        # donde udmabuf no esta disponible (Debian/Ubuntu/Mint por
+        # defecto) QEMU aborta con:
+        #   warning: open /dev/udmabuf: Permission denied
+        #   need rutabaga or udmabuf for blob resources
+        # Forzar "virtio" no tiene coste visible: pantalla completa no
+        # necesita 3D acelerado para ser pantalla completa.
+        if getattr(self, "_pending_fullscreen", False):
+            graphics_mode = "virtio"
         graphics_vram = self.combo_graphics_vram.currentData()
         if os_type == "macos":
             # macOS/OSX-KVM utiliza siempre UEFI + OpenCore.
@@ -700,6 +815,28 @@ class InstallFlowMixin:
         # Persistir la preferencia de consola VNC embebida para esta VM.
         if hasattr(self, "check_vnc_embedded"):
             extra_params["vnc_embedded"] = self.check_vnc_embedded.isChecked()
+        # desktop_mode_to_fullscreen_v1: si el usuario pidio "Iniciar en
+        # pantalla completa", forzar consola nativa (QEMU abre su propia
+        # ventana GTK/SDL). Sin esto, el modo VNC embebido devolveria
+        # -display none y no habria ventana que maximizar.
+        if getattr(self, "_pending_fullscreen", False):
+            extra_params["console_mode"] = "native"
+            extra_params["console_protocol"] = "vnc"
+            extra_params["vnc_embedded"] = False
+            # fullscreen_force_2d_v1: forzar VirtIO-GPU 2D. Con
+            # graphics_mode="auto" el host puede resolver a VirGL, que
+            # necesita /dev/udmabuf. Si udmabuf no es accesible, QEMU
+            # falla con "need rutabaga or udmabuf for blob resources".
+            # VirtIO-GPU 2D no necesita udmabuf y arranca siempre.
+            extra_params["graphics_mode"] = "virtio"
+            try:
+                self.log_message(
+                    "==> Pantalla completa: la ventana de QEMU se abrira "
+                    "maximizada en el escritorio del host "
+                    "(graficos 2D, sin VirGL)."
+                )
+            except Exception:
+                pass
         profile_version=self.combo_macos_ver.currentText() if os_type=="macos" else (self.combo_win_ver.currentText() if os_type=="windows" else self.combo_lin_distro.currentText())
         extra_params["os_profile"]=get_os_profile(os_type,profile_version,profile_version if os_type=="linux" else "")
         if os_type == "macos":
@@ -805,8 +942,23 @@ class InstallFlowMixin:
             # propia si se eligió 'Ninguna').
             own_iso = self._own_lin_iso_path() if hasattr(self, "_own_lin_iso_path") else ""
             _devices_for_principal = extra_params.get("storage_devices", []) or []
-            principal_cdrom.apply_choice(_devices_for_principal, "linux", lin_choice,
-                                         profile=distro, own_iso=own_iso, new_vm=is_new_vm)
+            # quick_create_v1_materialize_principal_guard: si la
+            # unidad Principal ya tiene contenido (path o source),
+            # respetarla. Este es el caso de una VM creada por el
+            # wizard del Modo Rapido, que ya aplico su eleccion y
+            # no debe ser sobrescrita por el valor (posiblemente
+            # vacio) del combo "Version ISO".
+            _principal = principal_cdrom.find_principal(_devices_for_principal)
+            _principal_ready = (
+                _principal is not None
+                and (bool(_principal.get("path"))
+                     or bool(_principal.get("source")))
+            )
+            if not _principal_ready:
+                principal_cdrom.apply_choice(
+                    _devices_for_principal, "linux", lin_choice,
+                    profile=distro, own_iso=own_iso, new_vm=is_new_vm,
+                )
             extra_params["storage_devices"] = _devices_for_principal
 
         if is_new_vm and os_type in ("linux", "android"):
@@ -884,6 +1036,44 @@ class InstallFlowMixin:
         self.worker.log_signal.connect(self.log_message)
         self.worker.progress_signal.connect(self._update_installer_progress)
         self.worker.finished_signal.connect(self.on_worker_finished)
+        # desktop_mode_demo_v1: si venimos de "Iniciar Modo Demo",
+        # monkey-patchear ESTE worker (por instancia) para que inyecte
+        # -snapshot en run_temp.sh. No se toca workers.py.
+        try:
+            if getattr(self, "_pending_snapshot", False):
+                _patch_worker_for_snapshot(self.worker)
+                self.log_message(
+                    "==> Modo Demo: worker preparado para descartar cambios al apagar."
+                )
+        except Exception as _snap_err:
+            try:
+                self.log_message(
+                    f"[AVISO] Modo Demo: no se pudo preparar -snapshot: {_snap_err}"
+                )
+            except Exception:
+                pass
+        finally:
+            # Resetear el flag para el próximo arranque.
+            self._pending_snapshot = False
+        # desktop_mode_to_fullscreen_v1: si venimos de "Iniciar en
+        # pantalla completa", aplicar el patch que anade full-screen=on
+        # al -display de QEMU. Solo esta instancia del worker.
+        try:
+            if getattr(self, "_pending_fullscreen", False):
+                _patch_worker_for_fullscreen(self.worker)
+                self.log_message(
+                    "==> Pantalla completa: patch aplicado al worker."
+                )
+        except Exception as _fs_err:
+            try:
+                self.log_message(
+                    f"[AVISO] Pantalla completa: no se pudo preparar el "
+                    f"patch: {_fs_err}"
+                )
+            except Exception:
+                pass
+        finally:
+            self._pending_fullscreen = False
         # El diálogo de descarga se crea de forma perezosa.
         # Si no hay una descarga real pendiente, NO se muestra ninguna ventana
         # de "Preparando la descarga" al iniciar una VM.

@@ -102,35 +102,11 @@ class PassthroughMixin:
                 "message": self.tr("Se añadió intel_iommu=on y se regeneró GRUB.")}
 
     def prepare_iommu_from_ui(self):
-        d=self._intel_vtd_diagnostic()
-        if d.get("intel_iommu_on") and d.get("active"):
-            QMessageBox.information(self,self.tr("IOMMU / VT-d"),self.tr("El IOMMU ya aparece activo. No es necesario modificar el arranque."))
-            return
-        if not d.get("intel_cpu"):
-            QMessageBox.warning(self,self.tr("IOMMU / VT-d"),self.tr("No se identificó un CPU Intel."))
-            return
-        manager,path=self._detect_boot_manager()
-        ans=QMessageBox.question(
-            self, self.tr("Preparar Intel IOMMU"),
-            self.tr(
-                "Se añadirá intel_iommu=on a la configuración del gestor de arranque.\n\n"
-                "Se hará una copia de seguridad antes de modificarla y se solicitará autorización administrativa.\n\n"
-                "Esto NO activa VT-d dentro de la BIOS/UEFI; esa parte debes habilitarla en el firmware.\n\n"
-                "Gestor detectado: {0}\nArchivo: {1}\n\n¿Continuar?"
-            ).format(manager, path or self.tr("no identificado")),
-            QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        if ans!=QMessageBox.StandardButton.Yes:
-            return
-        try:
-            result=self._prepare_intel_iommu()
-            self.refresh_vfio_diagnostics()
-            QMessageBox.information(
-                self, self.tr("IOMMU / VT-d"),
-                result.get("message", self.tr("Configuración actualizada."))
-                + self.tr("\n\nReinicia el equipo para que el parámetro tenga efecto."))
-        except Exception as e:
-            self._show_selectable_error(self.tr("No se pudo preparar IOMMU"),str(e))
+        """Compatibilidad: ahora delega en repair_vfio_host.
+
+        Mantenido por si algún mixin externo sigue llamándolo.
+        """
+        self.repair_vfio_host()
 
     def open_firmware_setup(self):
         ans=QMessageBox.question(
@@ -256,35 +232,17 @@ class PassthroughMixin:
         return out
 
     def refresh_vfio_diagnostics(self):
-        if not hasattr(self, "vfio_diag_label"):
-            return
-        d=self._intel_vtd_diagnostic()
-        if d["state"]==self.tr("Activo"):
-            status=self.tr("✅ Intel VT-d / IOMMU activo")
-        elif d["dmar"]:
-            status=self.tr("⚠ VT-d detectado por firmware, pero no hay grupos IOMMU utilizables")
-        else:
-            status=self.tr("❌ Intel VT-d / IOMMU no detectado")
-        cmd=d["cmdline"] or self.tr("(sin datos)")
-        ready=len([x for x in self._detect_pci_devices() if x.get("vfio_ready")])
-        text=self.tr(
-            "<b>{0}</b><br>"
-            "Firmware/ACPI DMAR: {1}<br>"
-            "Grupos IOMMU: {2} &nbsp;|&nbsp; PCI listos para VFIO: {3}<br>"
-            "Gestor de arranque: {4}<br>"
-            "Parámetros kernel: <code>{5}</code>"
-        ).format(
-            status, d['firmware'], len(d['groups']), ready,
-            d.get('boot_manager', self.tr('Desconocido')),
-            cmd,
-        )
-        if not d["intel_cpu"]:
-            text += self.tr("<br>⚠ El CPU no se identificó como Intel; comprobar diagnóstico AMD/IOMMU.")
-        elif d.get("dmar") and not d.get("intel_iommu_on"):
-            text += self.tr("<br>Recomendación: usar <b>Preparar intel_iommu=on</b> y reiniciar. Si tras reiniciar no hay grupos, revisar VT-d en BIOS/UEFI.")
-        elif not d["active"]:
-            text += self.tr("<br>Recomendación: habilitar Intel VT-d en BIOS/UEFI y después activar <code>intel_iommu=on</code> en el arranque.")
-        self.vfio_diag_label.setText(text)
+        """Compatibilidad: ahora delega en refresh_vfio_host_status.
+
+        Se mantiene el nombre porque refresh_passthrough_tree() y otros
+        puntos lo llaman. La vista HTML antigua (vfio_diag_label) ya no
+        existe; el estado se muestra en la sección Configuración Host
+        con iconos ✅/❌ (marcador vfio_host_check_v1).
+        """
+        try:
+            self.refresh_vfio_host_status(silent=True)
+        except Exception:
+            pass
 
     def _vfio_diagnostic_text(self):
         d=self._intel_vtd_diagnostic()
@@ -624,6 +582,24 @@ class PassthroughMixin:
     # añadirlo a ningún grupo ni cerrar sesión. Es el mecanismo estándar
     # que ya usan pulse/pipewire para tarjetas de sonido, webcams, etc.
 
+    # ==================================================================
+    # Aceleracion 3D (VirGL) — udmabuf
+    # Marcador: udmabuf_ui_config_v1
+    # ==================================================================
+    _UDMABUF_UDEV_RULE_PATH = "/etc/udev/rules.d/60-virtual-machine-udmabuf.rules"
+    _UDMABUF_UDEV_RULE_CONTENT = (
+        "# udmabuf_ui_config_v1: acceso a /dev/udmabuf para la sesion\n"
+        "# grafica activa. Sin esta regla, QEMU con VirGL (virtio-vga-gl,\n"
+        "# blob=true) aborta al intentar usar blob resources:\n"
+        "#   warning: open /dev/udmabuf: Permission denied\n"
+        "#   need rutabaga or udmabuf for blob resources\n"
+        "#\n"
+        "# TAG+=\"uaccess\" hace que logind conceda la ACL al usuario de\n"
+        "# la sesion grafica activa automaticamente (igual que los USB),\n"
+        "# sin necesidad de anadir el usuario a un grupo ni cerrar sesion.\n"
+        "KERNEL==\"udmabuf\", TAG+=\"uaccess\"\n"
+    )
+
     _USB_UDEV_RULE_PATH = "/etc/udev/rules.d/50-vm-manager-usb.rules"
     _USB_UDEV_RULE_CONTENT = (
         "# Virtual.Machine — permite passthrough USB al usuario activo.\n"
@@ -631,6 +607,182 @@ class PassthroughMixin:
         "# Solo se aplica a dispositivos USB; el resto de reglas no se toca.\n"
         "SUBSYSTEM==\"usb\", ACTION==\"add\", TAG+=\"uaccess\"\n"
     )
+
+    def _udmabuf_perm_state(self):
+        """Devuelve (instalada: bool, detalle: str).
+
+        instalada=True si:
+          - Existe el archivo de reglas en /etc/udev/rules.d/
+          - Y su contenido contiene la regla esperada.
+        """
+        path = self._UDMABUF_UDEV_RULE_PATH
+        if not os.path.isfile(path):
+            return False, "no instalada"
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        except OSError as e:
+            return False, self.tr("no se pudo leer ({0})").format(e)
+        if 'KERNEL=="udmabuf"' in content and "uaccess" in content:
+            return True, "instalada"
+        return False, "archivo presente pero sin la regla esperada"
+
+    def _udmabuf_is_accessible(self):
+        """True/False/None segun el estado de /dev/udmabuf.
+
+        True  -> existe y el usuario actual puede leerlo y escribirlo.
+        False -> existe pero no es accesible.
+        None  -> no existe (se creara al primer uso de VirGL).
+        """
+        p = "/dev/udmabuf"
+        if not os.path.exists(p):
+            return None
+        return bool(os.access(p, os.R_OK | os.W_OK))
+
+    def refresh_udmabuf_status(self):
+        """Actualiza el estado visible del panel de udmabuf."""
+        if not hasattr(self, "udmabuf_status_label"):
+            return
+        try:
+            installed, detail = self._udmabuf_perm_state()
+        except Exception as e:
+            installed, detail = False, self.tr(
+                "error al comprobar: {0}").format(e)
+        accessible = self._udmabuf_is_accessible()
+
+        if accessible is True:
+            self.udmabuf_status_label.setText(self.tr(
+                "✅ udmabuf: accesible. VirGL (3D) disponible."
+            ))
+            self.udmabuf_status_label.setStyleSheet(
+                "font-weight: bold; color: #2e7d32;"
+            )
+            if hasattr(self, "btn_udmabuf_install"):
+                self.btn_udmabuf_install.setEnabled(False)
+                self.btn_udmabuf_install.setToolTip(self.tr(
+                    "udmabuf ya es accesible; no hace falta configurar nada."
+                ))
+        elif accessible is False:
+            self.udmabuf_status_label.setText(self.tr(
+                "⚠ udmabuf: existe pero no es accesible. Sin él, VirGL "
+                "cae a VirtIO-GPU 2D."
+            ))
+            self.udmabuf_status_label.setStyleSheet(
+                "font-weight: bold; color: #c62828;"
+            )
+            if hasattr(self, "btn_udmabuf_install"):
+                self.btn_udmabuf_install.setEnabled(True)
+        else:  # None -> /dev/udmabuf no existe todavia
+            if installed:
+                self.udmabuf_status_label.setText(self.tr(
+                    "✅ Regla instalada. /dev/udmabuf aún no existe; se "
+                    "creará al arrancar la próxima VM con VirGL."
+                ))
+                self.udmabuf_status_label.setStyleSheet(
+                    "font-weight: bold; color: #2e7d32;"
+                )
+                if hasattr(self, "btn_udmabuf_install"):
+                    self.btn_udmabuf_install.setEnabled(False)
+            else:
+                self.udmabuf_status_label.setText(self.tr(
+                    "⚠ udmabuf: {0}. Sin él, VirGL caerá a VirtIO-GPU 2D."
+                ).format(detail))
+                self.udmabuf_status_label.setStyleSheet(
+                    "font-weight: bold; color: #c62828;"
+                )
+                if hasattr(self, "btn_udmabuf_install"):
+                    self.btn_udmabuf_install.setEnabled(True)
+
+    def install_udmabuf_permissions(self):
+        """Instala la regla udev con pkexec. Idempotente."""
+        if shutil.which("pkexec") is None:
+            QMessageBox.critical(
+                self, self.tr("Aceleración 3D"),
+                self.tr(
+                    "No se encontró 'pkexec'. Instálalo (paquete 'polkit') "
+                    "para que la aplicación pueda solicitar permisos "
+                    "administrativos de forma gráfica."
+                ),
+            )
+            return
+        if shutil.which("udevadm") is None:
+            QMessageBox.critical(
+                self, self.tr("Aceleración 3D"),
+                self.tr(
+                    "No se encontró 'udevadm'. Este sistema parece no usar "
+                    "udev. Aplica la regla manualmente según tu distribución."
+                ),
+            )
+            return
+
+        resp = QMessageBox.question(
+            self, self.tr("Configurar permisos de udmabuf"),
+            "Se creará (o actualizará) el archivo:\n\n"
+            f"    {self._UDMABUF_UDEV_RULE_PATH}\n\n"
+            "con la regla que concede acceso a /dev/udmabuf a la sesión "
+            "gráfica activa (TAG+=\"uaccess\"). Esta regla:\n\n"
+            "  • Solo afecta a /dev/udmabuf.\n"
+            "  • No cambia permisos de discos, red ni otros subsistemas.\n"
+            "  • No requiere añadir al usuario a ningún grupo.\n"
+            "  • No requiere cerrar sesión: se aplica al instante.\n\n"
+            "Se pedirá autorización administrativa con pkexec.\n\n¿Continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        script = (
+            "set -e\n"
+            "mkdir -p /etc/udev/rules.d\n"
+            f"cat > {self._UDMABUF_UDEV_RULE_PATH} <<'VM_MANAGER_UDMABUF_EOF'\n"
+            + self._UDMABUF_UDEV_RULE_CONTENT
+            + "VM_MANAGER_UDMABUF_EOF\n"
+            f"chmod 644 {self._UDMABUF_UDEV_RULE_PATH}\n"
+            "udevadm control --reload-rules\n"
+            "udevadm trigger --name-match=udmabuf\n"
+        )
+
+        self.log_message("==> Instalando regla udev para /dev/udmabuf…")
+        try:
+            result = subprocess.run(
+                ["pkexec", "sh", "-c", script],
+                capture_output=True, text=True, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(
+                self, self.tr("Aceleración 3D"),
+                self.tr("La operación tardó demasiado. Vuelve a intentarlo."),
+            )
+            return
+        except Exception as e:
+            QMessageBox.critical(
+                self, self.tr("Aceleración 3D"),
+                f"No se pudo ejecutar pkexec:\n\n{e}",
+            )
+            return
+
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip() or "cancelado"
+            QMessageBox.warning(
+                self, self.tr("Aceleración 3D"),
+                f"No se pudo instalar la regla udev.\n\n{detail}",
+            )
+            self.log_message(f"[AVISO] udmabuf: {detail}")
+            self.refresh_udmabuf_status()
+            return
+
+        self.log_message("==> Regla udev de udmabuf instalada correctamente.")
+        self.refresh_udmabuf_status()
+        QMessageBox.information(
+            self, self.tr("Aceleración 3D"),
+            "Regla udev instalada correctamente.\n\n"
+            "En el próximo arranque de una VM Linux, la app detectará "
+            "/dev/udmabuf como accesible y usará VirGL (3D) "
+            "automáticamente.\n\n"
+            "No hace falta cerrar sesión: TAG+=\"uaccess\" se aplica "
+            "al usuario de la sesión gráfica activa al instante.",
+        )
 
     def _usb_perm_state(self):
         """Devuelve (instalada: bool, detalle: str).
@@ -1554,6 +1706,332 @@ class PassthroughMixin:
             self._show_selectable_error(self.tr("Error al desconectar USB"),f"No se pudo desconectar el USB en caliente.\n\n{e}")
 
 
+    # ==================================================================
+    # Sección "PCI / VFIO: requisitos y estado" en Configuración Host.
+    # Marcador: vfio_host_check_v1
+    # Patrón copiado de desktop_mode_host_check_v1: iconos ✅/❌ por
+    # requisito + botón "Reparar todo" con una sola autenticación.
+    # ==================================================================
+
+    def _build_vfio_host_ui(self, parent_layout):
+        """Construye la sección y la añade a `parent_layout`."""
+        from PyQt6.QtWidgets import (
+            QGroupBox, QGridLayout, QHBoxLayout, QVBoxLayout, QLabel,
+            QPushButton,
+        )
+        from PyQt6.QtCore import QTimer
+
+        group = QGroupBox(self.tr("PCI / VFIO: requisitos y estado"))
+        outer = QVBoxLayout(group)
+        outer.setSpacing(6)
+
+        desc = QLabel(self.tr(
+            "Para qué sirve: pasar tarjetas PCI (GPU, NIC, controladoras "
+            "USB, etc.) a una VM mediante VFIO. Requiere IOMMU activo en "
+            "el firmware y grupos IOMMU visibles; la app puede preparar "
+            "intel_iommu=on en GRUB con un solo clic."
+        ))
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #666; font-size: 11px;")
+        outer.addWidget(desc)
+
+        self._vfio_check_labels = {}
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(4)
+        _checks = [
+            ("intel_cpu",  self.tr("CPU Intel detectado")),
+            ("dmar",       self.tr("Firmware ACPI DMAR (VT-d)")),
+            ("iommu_on",   self.tr("intel_iommu=on en el kernel")),
+            ("groups",     self.tr("Grupos IOMMU visibles")),
+            ("vfio_ready", self.tr("Dispositivos PCI listos para VFIO")),
+        ]
+        for i, (key, label) in enumerate(_checks):
+            icon = QLabel("\u2753")
+            icon.setMinimumWidth(22)
+            text = QLabel(label)
+            text.setWordWrap(True)
+            grid.addWidget(icon, i, 0)
+            grid.addWidget(text, i, 1)
+            self._vfio_check_labels[key] = icon
+        # host_check_layout_v1: stretch en una columna vacía para que
+        # el texto quede pegado al icono en vez de repartirse por
+        # todo el ancho disponible del QGroupBox.
+        grid.setColumnStretch(2, 1)
+        outer.addLayout(grid)
+
+        env_row = QHBoxLayout()
+        env_row.addWidget(QLabel(self.tr("<b>Distribución:</b>")))
+        self._vfio_distro_label = QLabel("\u2014")
+        env_row.addWidget(self._vfio_distro_label)
+        env_row.addSpacing(20)
+        env_row.addWidget(QLabel(self.tr("<b>Gestor de arranque:</b>")))
+        self._vfio_boot_label = QLabel("\u2014")
+        env_row.addWidget(self._vfio_boot_label)
+        env_row.addSpacing(20)
+        env_row.addWidget(QLabel(self.tr("<b>Configuración:</b>")))
+        self._vfio_boot_path_label = QLabel("\u2014")
+        env_row.addWidget(self._vfio_boot_path_label)
+        env_row.addStretch(1)
+        outer.addLayout(env_row)
+
+        btn_row = QHBoxLayout()
+        self.btn_vfio_refresh = QPushButton(self.tr("\U0001F504 Comprobar"))
+        self.btn_vfio_refresh.setToolTip(self.tr(
+            "Vuelve a comprobar el estado del IOMMU/VFIO en este equipo."
+        ))
+        self.btn_vfio_refresh.clicked.connect(
+            lambda _c=False: self.refresh_vfio_host_status()
+        )
+        btn_row.addWidget(self.btn_vfio_refresh)
+
+        self.btn_vfio_prepare = QPushButton(
+            self.tr("\U0001F6E0\uFE0F Reparar todo"))
+        self.btn_vfio_prepare.setToolTip(self.tr(
+            "Añade intel_iommu=on al gestor de arranque (GRUB)\n"
+            "si falta, con copia de seguridad y regeneración de grub.cfg.\n"
+            "El resto de requisitos (VT-d en BIOS, grupos IOMMU) no se\n"
+            "pueden arreglar desde software."
+        ))
+        self.btn_vfio_prepare.clicked.connect(
+            lambda _c=False: self.repair_vfio_host()
+        )
+        btn_row.addWidget(self.btn_vfio_prepare)
+
+        self.btn_vfio_details = QPushButton(
+            self.tr("\u2139 Ver diagnóstico detallado"))
+        self.btn_vfio_details.clicked.connect(self.vfio_diagnostic_details)
+        btn_row.addWidget(self.btn_vfio_details)
+
+        self.btn_vfio_firmware = QPushButton(self.tr("\u2699 Abrir UEFI/BIOS"))
+        self.btn_vfio_firmware.setToolTip(self.tr(
+            "Reinicia al firmware para activar VT-d / IOMMU.\n"
+            "Solo funciona si el firmware expone la entrada directa."
+        ))
+        self.btn_vfio_firmware.clicked.connect(self.open_firmware_setup)
+        btn_row.addWidget(self.btn_vfio_firmware)
+
+        btn_row.addStretch(1)
+        outer.addLayout(btn_row)
+
+        self._vfio_result_label = QLabel("")
+        self._vfio_result_label.setWordWrap(True)
+        self._vfio_result_label.setVisible(False)
+        outer.addWidget(self._vfio_result_label)
+
+        parent_layout.addWidget(group)
+
+        try:
+            QTimer.singleShot(400, self.refresh_vfio_host_status)
+        except Exception:
+            pass
+
+    def refresh_vfio_host_status(self, silent=False):
+        """Re-detecta el estado y actualiza los iconos / etiquetas.
+
+        Marcador: vfio_host_check_v1.
+        """
+        try:
+            d = self._intel_vtd_diagnostic()
+            devices = self._detect_pci_devices()
+        except Exception as e:
+            try:
+                self.log_message(
+                    "[AVISO] Error detectando IOMMU/VFIO: " + str(e))
+            except Exception:
+                pass
+            return
+
+        vfio_ready_count = len([x for x in devices if x.get("vfio_ready")])
+        total_pci = len([x for x in devices if x.get("kind") == "pci"])
+
+        def _set(key, ok, tooltip=""):
+            lbl = getattr(self, "_vfio_check_labels", {}).get(key)
+            if lbl is None:
+                return
+            lbl.setText("\u2705" if ok else "\u274C")
+            lbl.setToolTip(tooltip or "")
+
+        _set("intel_cpu", d.get("intel_cpu"),
+             "GenuineIntel detectado" if d.get("intel_cpu")
+             else "No se detectó CPU Intel (puede ser AMD o VM)")
+        _set("dmar", d.get("dmar"),
+             "ACPI DMAR presente (VT-d expuesto por firmware)"
+             if d.get("dmar")
+             else "Sin evidencia de ACPI DMAR en el kernel actual")
+        _set("iommu_on", d.get("intel_iommu_on"),
+             "Parámetro presente en /proc/cmdline"
+             if d.get("intel_iommu_on")
+             else "Falta en el cmdline actual")
+        has_groups = bool(d.get("groups"))
+        _set("groups", has_groups,
+             f"{len(d.get('groups') or [])} grupos IOMMU"
+             if has_groups
+             else "Sin grupos IOMMU visibles (/sys/kernel/iommu_groups)")
+        _set("vfio_ready", vfio_ready_count > 0,
+             f"{vfio_ready_count} de {total_pci} dispositivos PCI listos para VFIO"
+             if total_pci
+             else "Sin dispositivos PCI detectados (¿falta lspci?)")
+
+        # Fila de entorno.
+        try:
+            from host_deps import detect_linux_package_manager
+            _mgr, _info = detect_linux_package_manager()
+            distro = (_info or {}).get("PRETTY_NAME") \
+                or (_info or {}).get("ID") or "Linux"
+        except Exception:
+            distro = "Linux"
+        for _attr, _value in (
+            ("_vfio_distro_label", distro),
+            ("_vfio_boot_label",
+             d.get("boot_manager") or self.tr("Desconocido")),
+            ("_vfio_boot_path_label",
+             d.get("boot_path") or self.tr("no identificada")),
+        ):
+            try:
+                getattr(self, _attr).setText(_value)
+            except Exception:
+                pass
+
+        # Habilitar "Reparar todo" solo si tiene sentido.
+        try:
+            need_prepare = (
+                d.get("intel_cpu") and not d.get("intel_iommu_on")
+                and d.get("boot_manager") == "GRUB"
+            )
+            self.btn_vfio_prepare.setEnabled(bool(need_prepare))
+            if not need_prepare:
+                if not d.get("intel_cpu"):
+                    self.btn_vfio_prepare.setToolTip(
+                        "Requiere CPU Intel. En AMD añade manualmente\n"
+                        "'amd_iommu=on iommu=pt' al arranque."
+                    )
+                elif d.get("intel_iommu_on"):
+                    self.btn_vfio_prepare.setToolTip(
+                        "intel_iommu=on ya está presente en el arranque."
+                    )
+                elif d.get("boot_manager") != "GRUB":
+                    self.btn_vfio_prepare.setToolTip(
+                        "Preparación automática solo implementada para GRUB.\n"
+                        f"Gestor detectado: "
+                        f"{d.get('boot_manager') or 'desconocido'}."
+                    )
+        except Exception:
+            pass
+
+        if not silent:
+            try:
+                self.log_message(
+                    "==> IOMMU/VFIO: estado comprobado. "
+                    + (f"{vfio_ready_count} dispositivos PCI listos para VFIO."
+                       if vfio_ready_count else
+                       "Ningún dispositivo PCI listo para VFIO todavía.")
+                )
+            except Exception:
+                pass
+
+    def repair_vfio_host(self):
+        """Prepara intel_iommu=on. Marcador: vfio_host_check_v1."""
+        from PyQt6.QtWidgets import QMessageBox, QApplication
+        from PyQt6.QtCore import Qt
+
+        try:
+            d = self._intel_vtd_diagnostic()
+        except Exception as e:
+            QMessageBox.warning(
+                self, self.tr("Reparar PCI / VFIO"),
+                self.tr("No se pudo leer el estado actual:\n\n{0}").format(e),
+            )
+            return
+
+        if not d.get("intel_cpu"):
+            QMessageBox.warning(
+                self, self.tr("Reparar PCI / VFIO"),
+                self.tr(
+                    "El procesador no se identificó como Intel. La preparación\n"
+                    "automática de intel_iommu=on no aplica. En AMD añade\n"
+                    "'amd_iommu=on iommu=pt' manualmente al arranque."
+                ),
+            )
+            return
+
+        if d.get("intel_iommu_on"):
+            QMessageBox.information(
+                self, self.tr("Reparar PCI / VFIO"),
+                self.tr(
+                    "intel_iommu=on ya está presente en el arranque.\n"
+                    "Si no hay grupos IOMMU visibles, revisa VT-d en BIOS/UEFI."
+                ),
+            )
+            return
+
+        if d.get("boot_manager") != "GRUB":
+            QMessageBox.warning(
+                self, self.tr("Reparar PCI / VFIO"),
+                self.tr(
+                    "La preparación automática solo está implementada para\n"
+                    "GRUB. Gestor detectado: {0}.\n\n"
+                    "Añade 'intel_iommu=on' manualmente al arranque."
+                ).format(d.get("boot_manager") or "desconocido"),
+            )
+            return
+
+        reply = QMessageBox.question(
+            self, self.tr("Reparar PCI / VFIO"),
+            self.tr(
+                "Se va a añadir 'intel_iommu=on' a /etc/default/grub y\n"
+                "regenerar grub.cfg. Se hará copia de seguridad del archivo\n"
+                "y se pedirá autenticación con pkexec.\n\n"
+                "Esto NO activa VT-d en BIOS/UEFI: eso se hace en el firmware.\n\n"
+                "¿Continuar?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            result = self._prepare_intel_iommu()
+            changed = bool(result.get("changed"))
+            msg = result.get("message", self.tr("Configuración actualizada."))
+            try:
+                self._vfio_result_label.setText(
+                    ("\u2705 " if changed else "\u2139\uFE0F ") + msg
+                    + self.tr("\n\nReinicia el equipo para que el parámetro "
+                              "tenga efecto.")
+                )
+                self._vfio_result_label.setStyleSheet(
+                    "font-size: 11px; "
+                    + ("color:#2e7d32;" if changed else "color:#666;")
+                )
+                self._vfio_result_label.setVisible(True)
+            except Exception:
+                pass
+            QMessageBox.information(
+                self, self.tr("PCI / VFIO"),
+                msg + self.tr("\n\nReinicia el equipo para aplicar el cambio."),
+            )
+        except Exception as e:
+            try:
+                self._vfio_result_label.setText("\u26A0 " + str(e))
+                self._vfio_result_label.setStyleSheet(
+                    "font-size: 11px; color:#b36b00;")
+                self._vfio_result_label.setVisible(True)
+            except Exception:
+                pass
+            self._show_selectable_error(
+                self.tr("No se pudo preparar IOMMU"), str(e))
+        finally:
+            QApplication.restoreOverrideCursor()
+            try:
+                self.refresh_vfio_host_status(silent=True)
+            except Exception:
+                pass
+
+
+# vfio_host_check_v1_applied
 # i18n_tanda3_passthrough_v1a
 
 # i18n_tanda3_passthrough_v2a
@@ -1561,3 +2039,5 @@ class PassthroughMixin:
 # i18n_tanda3_passthrough_v2b
 
 # vm_config_save_cancel_v1_dirty_2b1
+
+# host_check_layout_v1_applied

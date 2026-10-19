@@ -51,7 +51,11 @@ KNOWN_VERSIONS = [
 """
 
 SUPPORTED_ENCODINGS = [
-    c.ENC_RAW
+    c.ENC_RAW,
+    # vnc_desktopsize_v1: pseudo-encoding que el servidor usa
+    # para notificar cambios de resolucion del framebuffer sin
+    # que el cliente tenga que reconectar.
+    c.ENC_DESKTOPSIZE,
 ]
 
 MAX_BUFF_SIZE: int = 10*1024*1024 # 10MB
@@ -82,6 +86,14 @@ class RFBClient:
         self.sharedConn = sharedConnection
         self._requestFrameBufferUpdate = keepRequesting
         self._incrementalFrameBufferUpdate = requestIncremental
+
+        # vnc_desktopsize_v2: cuando el servidor notifica un cambio de
+        # resolucion via la pseudo-encoding DesktopSize, el protocolo
+        # RFB exige que el cliente pida un framebuffer update NO
+        # incremental a continuacion. Sin esto, QEMU se queda
+        # esperando y no envia el siguiente frame (el widget se ve
+        # congelado en el ultimo frame recibido).
+        self._forceNonIncremental = False
 
         self._mainLoop: Thread = None
 
@@ -126,12 +138,29 @@ class RFBClient:
         # o un hostname/IP para TCP/IP. QEMU en Linux usa sockets Unix para
         # VNC cuando arranca con -vnc unix:/ruta/al/socket, que es más seguro
         # que un puerto TCP expuesto.
-        if isinstance(self.host, str) and self.host.startswith("/"):
-            self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.connection.connect(self.host)
-        else:
-            self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.connection.connect((self.host, self.port))
+        #
+        # vnc_desktopsize_v6: capturar FileNotFoundError y
+        # ConnectionRefusedError aqui. Antes salia un traceback feo
+        # en el hilo cuando la VM se apagaba y el socket desaparecia.
+        try:
+            if isinstance(self.host, str) and self.host.startswith("/"):
+                self.connection = socket.socket(
+                    socket.AF_UNIX, socket.SOCK_STREAM)
+                self.connection.connect(self.host)
+            else:
+                self.connection = socket.socket(
+                    socket.AF_INET, socket.SOCK_STREAM)
+                self.connection.connect((self.host, self.port))
+        except FileNotFoundError:
+            self.log.info(
+                f"Socket VNC no existe ({self.host}); VM apagada?")
+            self._dead = True
+            return
+        except ConnectionRefusedError:
+            self.log.info(
+                f"Conexion VNC rechazada ({self.host}:{self.port})")
+            self._dead = True
+            return
         self._handleInitial()
 
     def __close(self):
@@ -288,10 +317,19 @@ class RFBClient:
                 try:
                     dType = self.__recv(1)
 
-                    # when self.connection.close() is being called
-                    # dType will be empty with length of 0
+                    # vnc_desktopsize_v5: si recv devuelve vacio,
+                    # el socket esta cerrado (peer cerro la conexion
+                    # o lo cerramos nosotros). Antes haciamos
+                    # 'continue', lo que provocaba un busy-loop al
+                    # 100% CPU cuando el peer cerraba limpiamente.
+                    # Ahora salimos del loop: el hilo termina y el
+                    # health tick del widget se encarga de reconectar
+                    # si procede.
                     if len(dType) == 0:
-                        continue
+                        if not self._stop:
+                            self.log.info(
+                                "Socket VNC cerrado por el peer")
+                        break
 
                     start = time.time()
                     self._handleConnection(dType)
@@ -308,8 +346,16 @@ class RFBClient:
 
                 #print("AAA")
                 if self._requestFrameBufferUpdate:
-                    self.framebufferUpdateRequest(
-                        incremental=self._incrementalFrameBufferUpdate)
+                    # vnc_desktopsize_v2: si el ultimo frame traia un
+                    # DesktopSize, forzar el proximo request a
+                    # NO-incremental. El servidor (QEMU) solo manda el
+                    # frame completo despues de un DesktopSize cuando
+                    # el cliente lo pide explicitamente.
+                    _inc = self._incrementalFrameBufferUpdate
+                    if getattr(self, "_forceNonIncremental", False):
+                        _inc = False
+                        self._forceNonIncremental = False
+                    self.framebufferUpdateRequest(incremental=_inc)
                 #print("BBB")
 
             self.log.debug("loop exit")
@@ -323,7 +369,10 @@ class RFBClient:
             # silencio, sin tumbar el proceso.
             self._dead = True
             return
-        except Exception:
+        except Exception as _outer_e:
+            # vnc_desktopsize_v6: loguear el motivo real.
+            self.log.warning(
+                f"RFB loop termino: {type(_outer_e).__name__}: {_outer_e}")
             self._dead = True
             return
 
@@ -366,7 +415,55 @@ class RFBClient:
         self.onFramebufferUpdateFinished()
 
     def _handleRectangle(self, data: bytes):
-        xPos, yPos, width, height, encoding = s.unpack("!HHHHI", data)
+        # vnc_desktopsize_v7: encoding como SIGNED int. Las pseudo-encodings de RFB
+        # (DesktopSize = -223, Cursor = -239, etc.) son negativas. Si se
+        # deserializan con "I" (unsigned), llegan como 4294967073 y la
+        # comparacion con las constantes negativas falla.
+        xPos, yPos, width, height, encoding = s.unpack("!HHHHi", data)
+
+        # vnc_desktopsize_v3: deteccion implicita de cambio de
+        # resolucion. Si el rectangulo excede el framebuffer que
+        # tenemos, el servidor crecio sin avisarnos (bien porque no
+        # manda la pseudo-encoding DesktopSize, bien porque la manda
+        # pero se perdio). Tratamos el rect como si fuera la nueva
+        # resolucion y recreamos el backbuffer.
+        if encoding != c.ENC_DESKTOPSIZE:
+            _needed_w = xPos + width
+            _needed_h = yPos + height
+            if _needed_w > self.vncWidth or _needed_h > self.vncHeight:
+                _new_w = max(self.vncWidth, _needed_w)
+                _new_h = max(self.vncHeight, _needed_h)
+                self.log.info(
+                    f"Rect {xPos}+{width}x{yPos}+{height} excede "
+                    f"framebuffer {self.vncWidth}x{self.vncHeight}; "
+                    f"recreando a {_new_w}x{_new_h}"
+                )
+                self.vncWidth = _new_w
+                self.vncHeight = _new_h
+                try:
+                    self.onDesktopResize(_new_w, _new_h)
+                except Exception as _e:
+                    self.log.warning(f"onDesktopResize fallo: {_e}")
+
+        # vnc_desktopsize_v1: pseudo-encoding. xPos/yPos se
+        # ignoran; width/height llevan la nueva resolucion del
+        # framebuffer del servidor. NO hay pixel data detras de
+        # esta pseudo-rectangulo: el servidor mandara a
+        # continuacion un framebuffer update con el contenido
+        # nuevo. Se notifica al widget via onDesktopResize(),
+        # que ya sabe recrear su backbuffer al tamano correcto.
+        if encoding == c.ENC_DESKTOPSIZE:
+            self.log.info(f"DesktopSize: {width}x{height}")
+            self.vncWidth = width
+            self.vncHeight = height
+            # vnc_desktopsize_v2: obligar al siguiente request a ser
+            # NO incremental. Sin esto, QEMU no envia el frame nuevo.
+            self._forceNonIncremental = True
+            try:
+                self.onDesktopResize(width, height)
+            except Exception as _e:
+                self.log.warning(f"onDesktopResize fallo: {_e}")
+            return
 
         rect = RFBRectangle(xPos, yPos, width, height)
         self.log.debug(f"RECT: {rect}")
@@ -449,6 +546,13 @@ class RFBClient:
     # ------------------------------------------------------------------
 
     def startConnection(self):
+        # vnc_desktopsize_v4: resetear _stop. Sin esto, tras un
+        # reconnect() (que llama a closeConnection y deja _stop=True),
+        # el nuevo hilo saldria inmediatamente al comprobar la
+        # condicion del main loop. Es la causa de que "Forzar
+        # reconexión" a veces no funcionase a la primera.
+        self._stop = False
+        self._dead = False
         self._mainLoop = Thread(target=self.__start)
         self._mainLoop.start()
     
@@ -462,6 +566,12 @@ class RFBClient:
     def reconnect(self):
         self.closeConnection()
         self.startConnection()
+
+    def is_alive(self) -> bool:
+        """vnc_desktopsize_v4: True si el hilo RFB esta corriendo."""
+        if self._mainLoop is None:
+            return False
+        return self._mainLoop.is_alive()
 
     def closeConnection(self):
         self._stop = True
@@ -505,6 +615,14 @@ class RFBClient:
         or fillRectangle() are finished.
         """
 
+    def onDesktopResize(self, width: int, height: int):
+        """
+        vnc_desktopsize_v1: el servidor notifico un cambio de
+        resolucion del framebuffer (DesktopSize pseudo-encoding).
+        Las subclases que quieran redimensionar su buffer deben
+        sobrescribir este metodo. La base no hace nada.
+        """
+
     def onBell(self):
         """
         a bell, yes that's right a BELL
@@ -527,4 +645,58 @@ class RFBClient:
 
         you can try to reconnect here with reconnect()
         """
+        # vnc_desktopsize_v8: distinguir errores benignos de cierre.
+        # Cuando el widget se destruye (cambio de pestana, cambio
+        # de VM, cierre), PyQt borra el objeto C++ subyacente. Si el
+        # hilo RFB todavia esta vivo y toca el widget, lanza
+        # RuntimeError. Eso NO es un error real: es un cierre que no
+        # esperabamos. Lo logueamos como INFO y no disparamos
+        # reconexion.
+        msg = f"{type(error).__name__}: {error}"
+        if (isinstance(error, RuntimeError)
+                and "has been deleted" in str(error)):
+            self.log.info(f"Widget destruido; cerrando RFB ({msg})")
+            self._stop = True
+            self._dead = True
+            return
+        # console_cleanup_v1: desconexiones del peer (VM apagada,
+        # socket cerrado, red cortada) son cierres limpios, no
+        # errores. Log INFO, no ERROR, y sin disparar reconexión.
+        if isinstance(error, (ConnectionError, ConnectionResetError,
+                              ConnectionAbortedError, BrokenPipeError)):
+            self.log.info(f"Conexion VNC cerrada por el peer ({msg})")
+            self._stop = True
+            self._dead = True
+            return
+        # vnc_desktopsize_v6: loguear la causa antes de propagar.
+        # Sin esto, el hilo RFB moria silenciosamente y era muy
+        # dificil diagnosticar por que.
+        self.log.error(f"RFB fatal error: {msg}")
         raise error
+
+
+# vnc_desktopsize_v1_rfb_applied
+
+
+# vnc_desktopsize_v2_applied
+
+
+# vnc_desktopsize_v3_rfb_applied
+
+
+# vnc_desktopsize_v4_rfb_applied
+
+
+# vnc_desktopsize_v5_rfb_applied
+
+
+# vnc_desktopsize_v6_rfb_applied
+
+
+# vnc_desktopsize_v7_applied
+
+
+# vnc_desktopsize_v8_rfb_applied
+
+
+# console_cleanup_v1_rfb_applied

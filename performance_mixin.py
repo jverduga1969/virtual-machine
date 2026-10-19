@@ -19,152 +19,22 @@ class PerformanceMixin:
     # Panel de recursos: fijar como columna o devolver a Resumen
     # ==================================================================
     def _apply_resources_pinned(self, pinned, save=True):
-        """Alterna el bloque "Uso de recursos + Información general".
+        """DEPRECATED. Fachada de _set_right_panel_collapsed.
 
-        pinned=False → vuelven a la grilla de Resumen:
-                         (1,0) Uso de recursos  (0,1) Info general
-        pinned=True  → se van juntos a la columna derecha del splitter
-                         en un contenedor propio.
+        Marcador: right_panel_collapse_v1.
 
-        El botón 📌 Fijar / ↩ Devolver viaja con el bloque Uso de recursos
-        (está en su cabecera), así que siempre está donde se necesita.
+        El panel derecho ya no alterna entre Resumen y el splitter.
+        Se conserva como fachada para no romper llamadas existentes
+        (appearance_mixin durante modo presentacion).
+          pinned=True  -> panel visible  -> collapsed=False
+          pinned=False -> panel oculto   -> collapsed=True
         """
-        from PyQt6.QtCore import QSettings
-        grid = getattr(self, "_resumen_grid", None)
-        resources = getattr(self, "_resources_panel", None)
-        info_card = getattr(self, "_info_general_card", None)
-        splitter = getattr(self, "_main_splitter", None)
-        if grid is None or resources is None or info_card is None or splitter is None:
-            return
-
-        pinned = bool(pinned)
-        prev_pinned = bool(getattr(self, "_resources_pinned", False))
-
-        # Guardar tamaños del estado anterior.
-        if save:
+        if hasattr(self, "_set_right_panel_collapsed"):
             try:
-                sizes = splitter.sizes()
-                key_old = ("layout/main_splitter_sizes_pinned"
-                           if prev_pinned
-                           else "layout/main_splitter_sizes")
-                QSettings().setValue(key_old, sizes)
+                self._set_right_panel_collapsed(
+                    not bool(pinned), save=save)
             except Exception:
                 pass
-
-        # Actualizar el texto del botón.
-        btn = getattr(self, "btn_pin_resources", None)
-        if btn is not None:
-            try:
-                if pinned:
-                    btn.setText("↩ Devolver")
-                    btn.setToolTip(
-                        "Devuelve este bloque a la pestaña Resumen."
-                    )
-                else:
-                    btn.setText("📌 Fijar")
-                    btn.setToolTip(
-                        "Fija este bloque como columna derecha de la ventana,\n"
-                        "siempre visible. Útil para monitorizar CPU/RAM y el\n"
-                        "estado de la VM mientras trabajas en otra pestaña.\n"
-                        "Vuelve a pulsar para devolverlo a Resumen."
-                    )
-            except Exception:
-                pass
-
-        # Detach de la ubicación actual.
-        try:
-            grid.removeWidget(resources)
-        except Exception:
-            pass
-        try:
-            grid.removeWidget(info_card)
-        except Exception:
-            pass
-        try:
-            splitter.removeWidget(resources)
-        except Exception:
-            pass
-        try:
-            resources.setParent(None)
-        except Exception:
-            pass
-        try:
-            info_card.setParent(None)
-        except Exception:
-            pass
-
-        if pinned:
-            # Contenedor temporal para el bloque fijado.
-            if getattr(self, "_pinned_container", None) is None:
-                self._pinned_container = QWidget()
-                self._pinned_container.setMinimumWidth(220)
-                self._pinned_container_layout = QVBoxLayout(self._pinned_container)
-                self._pinned_container_layout.setContentsMargins(8, 8, 8, 8)
-                self._pinned_container_layout.setSpacing(10)
-            else:
-                lay = getattr(self, "_pinned_container_layout", None)
-                if lay is not None:
-                    while lay.count():
-                        item = lay.takeAt(0)
-                        w = item.widget()
-                        if w is not None:
-                            w.setParent(None)
-            self._pinned_container_layout.addWidget(resources)
-            self._pinned_container_layout.addWidget(info_card)
-            self._pinned_container_layout.addStretch(1)
-            try:
-                splitter.addWidget(self._pinned_container)
-            except Exception:
-                pass
-            try:
-                splitter.setCollapsible(splitter.count() - 1, False)
-            except Exception:
-                pass
-            saved = QSettings().value("layout/main_splitter_sizes_pinned")
-            if isinstance(saved, list) and len(saved) == 3:
-                try:
-                    splitter.setSizes([int(x) for x in saved])
-                except (TypeError, ValueError):
-                    splitter.setSizes([210, 600, 300])
-            else:
-                splitter.setSizes([210, 600, 300])
-        else:
-            # Devolver a la grilla.
-            try:
-                grid.addWidget(info_card, 0, 1)
-                grid.addWidget(resources, 1, 0)
-                grid.setColumnStretch(0, 1)
-                grid.setColumnStretch(1, 1)
-            except Exception:
-                pass
-            # Quitar el contenedor del splitter si existía.
-            cont = getattr(self, "_pinned_container", None)
-            if cont is not None:
-                try:
-                    splitter.removeWidget(cont)
-                except Exception:
-                    pass
-                try:
-                    cont.setParent(None)
-                except Exception:
-                    pass
-            saved = QSettings().value("layout/main_splitter_sizes")
-            if isinstance(saved, list) and len(saved) >= 2:
-                try:
-                    splitter.setSizes([int(saved[0]), int(saved[1])])
-                except (TypeError, ValueError):
-                    splitter.setSizes([210, 900])
-            else:
-                splitter.setSizes([210, 900])
-
-        self._resources_pinned = pinned
-        if save:
-            try:
-                QSettings().setValue("layout/resources_pinned", pinned)
-            except Exception:
-                pass
-
-
 
     def _on_main_tab_changed(self, index):
         # Pestaña Snapshots: refrescar la página al entrar.
@@ -289,6 +159,14 @@ class PerformanceMixin:
         return True
 
     def _update_realtime_performance(self):
+        # right_panel_collapse_v1_autoshow_fix: calcular si el panel
+        # esta visible. Con auto-show, _right_collapsed sigue siendo
+        # True pero el panel SI se ve, asi que hay que calcular.
+        # Solo saltamos el calculo cuando el panel esta colapsado Y
+        # NO auto-mostrado.
+        if (getattr(self, "_right_collapsed", False)
+                and not getattr(self, "_right_auto_shown", False)):
+            return
         if not self._vm_is_selected():
             self._performance_timer.stop()
             return
@@ -684,3 +562,15 @@ class PerformanceMixin:
             lines.append(f"RAM disponible en host: {int(mem)/1024/1024:.2f} GiB")
         except Exception: pass
         QMessageBox.information(self,"📈 Rendimiento","\\n".join(lines))
+
+
+# side_panels_collapse_v2_applied_pm
+
+
+# side_panels_collapse_v3_applied_pm
+
+
+# right_panel_collapse_v1_applied_pm
+
+
+# right_panel_collapse_v1_autoshow_fix_applied_pm

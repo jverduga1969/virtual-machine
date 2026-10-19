@@ -11,6 +11,7 @@ import time
 from PyQt6.QtCore import (
     QSize,
     Qt,
+    QTimer,
     pyqtSignal
 )
 from PyQt6.QtGui import (
@@ -51,6 +52,126 @@ class QVNCWidget(QWidget, RFBClient):
 
         self.mouseButtonMask = 0
 
+        # vnc_desktopsize_v4: health check + keepalive cada 300 ms.
+        #
+        # Health check: si el hilo RFB murio (deadlock, conexion rota,
+        # etc.), se relanza automaticamente. Antes habia que pulsar
+        # "Forzar reconexion" a mano cada vez que el hilo moria.
+        #
+        # Keepalive: QEMU solo responde a requests NO-incrementales.
+        # Los incrementales que envia el main loop tras cada frame se
+        # quedan sin respuesta, dejando el widget congelado en el
+        # ultimo frame. Con un keepalive de 300ms aseguramos que el
+        # frame se refresca 3 veces por segundo, suficiente para ver
+        # la progresion de arranque fluida.
+        self._vnc_keepalive_timer = QTimer(self)
+        # vnc_desktopsize_v5: 500ms en vez de 300ms. Menos carga y
+        # menos parpadeo por exceso de full refreshes.
+        self._vnc_keepalive_timer.setInterval(500)
+        self._vnc_keepalive_timer.timeout.connect(self._vnc_health_tick)
+        self._vnc_keepalive_timer.start()
+        self._vnc_last_reconnect = 0.0
+        self._vnc_reconnecting = False
+
+    def _vnc_health_tick(self):
+        """vnc_desktopsize_v4: health check + keepalive.
+
+        1. Si el hilo RFB murio, relanzar la conexion.
+        2. Si esta vivo y conectado, pedir un full refresh para
+           asegurar que el frame no se quede congelado por falta de
+           respuestas incrementales de QEMU.
+        """
+        # vnc_desktopsize_v8: si el widget ya fue destruido (PyQt
+        # mantiene el objeto Python pero el C++ subyacente puede
+        # estar borrado), parar el timer y salir. Sin esto, cualquier
+        # acceso (self.update, emit, etc.) lanza RuntimeError.
+        try:
+            from PyQt6 import sip as _sip
+            if _sip.isdeleted(self):
+                log.info("Widget destruido; parando keepalive")
+                try:
+                    self._vnc_keepalive_timer.stop()
+                except Exception:
+                    pass
+                return
+        except ImportError:
+            # PyQt6 sin sip expuesto; continuar sin la comprobacion.
+            pass
+        except Exception:
+            pass
+
+        import time as _t
+        # vnc_desktopsize_v5: guard contra reconexiones superpuestas.
+        # Si ya estamos reconectando, no hacer nada. Ademas, el
+        # FileNotFoundError que salia al final del log (socket Unix
+        # ya no existe porque la VM se apago) se captura y no deja
+        # el flag colgado.
+        if getattr(self, "_vnc_reconnecting", False):
+            return
+        # 1) Health check.
+        try:
+            if hasattr(self, "is_alive") and not self.is_alive():
+                now = _t.monotonic()
+                # Guardar contra tormentas: no reconectar mas de una
+                # vez por segundo.
+                if now - getattr(self, "_vnc_last_reconnect", 0.0) > 1.0:
+                    self._vnc_last_reconnect = now
+                    self._vnc_reconnecting = True
+                    log.warning("RFB thread muerto; reconectando")
+                    try:
+                        self.reconnect()
+                    except FileNotFoundError:
+                        # Socket ya no existe (VM apagada). Silencioso:
+                        # no es un error, el widget simplemente ya no
+                        # tiene a donde conectarse.
+                        log.info("Socket VNC no existe (¿VM apagada?)")
+                    except Exception as e:
+                        log.error(f"reconnect fallo: {e}")
+                    finally:
+                        self._vnc_reconnecting = False
+                return
+        except Exception:
+            pass
+        # 2) Keepalive: pedir full refresh.
+        if not getattr(self, "_connected", False):
+            return
+        try:
+            self.framebufferUpdateRequest(incremental=False)
+        except Exception:
+            pass
+
+    def _vnc_force_full_refresh(self):
+        """vnc_desktopsize_v3 (compat): pide un framebuffer update
+        completo. Se conserva por si algun codigo externo lo invoca.
+        """
+        if not getattr(self, "_connected", False):
+            return
+        try:
+            self.framebufferUpdateRequest(incremental=False)
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        """vnc_desktopsize_v8: cierre ordenado del widget.
+
+        Para el keepalive y cierra la conexion antes de que PyQt
+        destruya el objeto C++. Sin esto, el hilo RFB puede seguir
+        vivo un instante y llamar a metodos del widget ya borrado,
+        lanzando RuntimeError.
+        """
+        try:
+            self._vnc_keepalive_timer.stop()
+        except Exception:
+            pass
+        try:
+            self.closeConnection()
+        except Exception:
+            pass
+        try:
+            super().closeEvent(event)
+        except Exception:
+            pass
+
     def start(self):
         self.startConnection()
 
@@ -63,40 +184,59 @@ class QVNCWidget(QWidget, RFBClient):
         self.setPixelFormat(RFBPixelformat.getRGB32())
         self.PIX_FORMAT = QImage.Format.Format_RGB32
 
-        #self.setPixelFormat(RFBPixelformat.getRGB24())
-        #self.PIX_FORMAT = QImage.Format.Format_RGB888
-
-        #self.setPixelFormat(RFBPixelformat.getRGB16())
-        #self.PIX_FORMAT = QImage.Format.Format_RGB16
-
-        self.backbuffer = QImage(self.vncWidth, self.vncHeight, self.PIX_FORMAT)
+        # vnc_desktopsize_v6: NO tocar el backbuffer aqui. Recrearlo
+        # (o rellenarlo de negro) causaba un flash visible durante
+        # el handshake. Lo dejamos con el contenido anterior y lo
+        # recreamos de forma lazy en el primer onRectangleUpdate con
+        # el tamano nuevo (ver ahi abajo). El usuario ve la imagen
+        # anterior estirada hasta que llegue el primer frame nuevo.
         self.onInitialResize.emit(QSize(self.vncWidth, self.vncHeight))
 
     def onDesktopResize(self, width: int, height: int):
         """Llamado cuando el servidor VNC notifica un cambio de resolución.
 
-        Recrea el backbuffer al nuevo tamaño para que los frames siguientes
-        encajen. Sin esto, un cambio de resolución dentro de la VM (p. ej.
-        al cambiar a pantalla completa) cortaría la imagen.
+        vnc_desktopsize_v6: solo actualizamos las dimensiones. El
+        backbuffer se recrea de forma lazy en el proximo
+        onRectangleUpdate, rellenandolo con el frame anterior
+        escalado como placeholder. Antes se recreaba aqui y se veia
+        negro un instante durante cada cambio de resolucion.
         """
         log.info(f"Desktop resize: {width}x{height}")
         self.vncWidth = width
         self.vncHeight = height
-        self.backbuffer = QImage(self.vncWidth, self.vncHeight, self.PIX_FORMAT)
         self.onInitialResize.emit(QSize(self.vncWidth, self.vncHeight))
-        self.update()
+        # NO recrear backbuffer, NO self.update() (el proximo rect
+        # que llegue hara todo).
 
     def onRectangleUpdate(self,
             x: int, y: int, width: int, height: int, data: bytes):
 
+        # vnc_desktopsize_v6: recreacion lazy del backbuffer.
+        #   * Si es None: crear uno nuevo negro (primera conexion).
+        #   * Si tiene dimensiones distintas a las actuales: crear
+        #     uno del tamano nuevo, pero rellenandolo con el frame
+        #     anterior escalado como placeholder. Asi no hay flash
+        #     negro mientras llegan todos los rects del frame
+        #     completo (que es lo que se veia antes).
         if self.backbuffer is None:
-            log.warning("backbuffer is None")
-            return
-        else:
-            log.debug("drawing backbuffer")
+            self.backbuffer = QImage(
+                self.vncWidth, self.vncHeight, self.PIX_FORMAT)
+            self.backbuffer.fill(0)
+        elif (self.backbuffer.width() != self.vncWidth
+              or self.backbuffer.height() != self.vncHeight):
+            _old = self.backbuffer
+            _scaled = _old.scaled(
+                self.vncWidth, self.vncHeight,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.FastTransformation,
+            )
+            self.backbuffer = QImage(
+                self.vncWidth, self.vncHeight, self.PIX_FORMAT)
+            _p = QPainter(self.backbuffer)
+            _p.drawImage(0, 0, _scaled)
+            _p.end()
 
-        #with open(f"{width}x{height}.data", "wb") as f:
-        #    f.write(data)
+        log.debug("drawing backbuffer")
 
         t1 = time.time()
 
@@ -269,3 +409,17 @@ class QVNCWidget(QWidget, RFBClient):
             return
         self.keyEvent(self._qt_key_to_keysym(ev), down=0)
 
+
+# vnc_desktopsize_v3_qvnc_applied
+
+
+# vnc_desktopsize_v4_qvnc_applied
+
+
+# vnc_desktopsize_v5_qvnc_applied
+
+
+# vnc_desktopsize_v6_qvnc_applied
+
+
+# vnc_desktopsize_v8_qvnc_applied

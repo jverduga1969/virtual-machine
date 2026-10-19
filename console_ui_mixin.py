@@ -19,10 +19,12 @@ from PyQt6.QtWidgets import QMessageBox
 
 from console_backend import (
     PROTOCOL_VNC, PROTOCOL_SPICE,
-    MODE_EMBEDDED,
+    MODE_EMBEDDED, MODE_HYBRID,
     DEFAULT_PROTOCOL, DEFAULT_MODE,
     describe_requirements,
     find_viewer, console_uri,
+    list_installed_vnc_viewers, list_installed_spice_viewers,
+    find_viewer_by_name,
     socket_path as _cb_socket_path,
 )
 
@@ -260,14 +262,155 @@ class ConsoleUiMixin:
         with open(cfg_path, "w", encoding="utf-8") as f:
             c.write(f)
 
-    def _launch_external_console(self):
-        """Lanza el visor externo del protocolo actual (aunque el modo sea embedded)."""
+    # ------------------------------------------------------------------
+    # Eleccion de visor externo (marcador: console_viewer_choice_v1)
+    # ------------------------------------------------------------------
+    # El boton "Ventana externa" abre un submenu con los visores
+    # instalados para el protocolo activo. Al elegir uno, se guarda
+    # como preferido (QSettings) y se lanza.
+    #
+    # Reglas de protocolo:
+    #   * Modo Hibrida -> SPICE (el VNC ya esta embebido; lo util
+    #     externamente es el SPICE que tambien esta expuesto).
+    #   * Cualquier otro modo -> el protocolo del combo.
+
+    def _resolve_external_protocol_for_button(self):
+        proto = DEFAULT_PROTOCOL
+        mode = DEFAULT_MODE
+        try:
+            proto, mode = self._current_console_choice()
+        except Exception:
+            pass
+        if mode == MODE_HYBRID:
+            return PROTOCOL_SPICE
+        return proto
+
+    def _preferred_external_viewer_name(self, protocol):
+        """Nombre del visor preferido guardado (o None)."""
+        from PyQt6.QtCore import QSettings
+        key = ("console/external_viewer_vnc"
+               if protocol == PROTOCOL_VNC
+               else "console/external_viewer_spice")
+        try:
+            v = QSettings().value(key, "", type=str)
+            v = (v or "").strip()
+            return v or None
+        except Exception:
+            return None
+
+    def _save_preferred_external_viewer(self, protocol, name):
+        from PyQt6.QtCore import QSettings
+        key = ("console/external_viewer_vnc"
+               if protocol == PROTOCOL_VNC
+               else "console/external_viewer_spice")
+        try:
+            QSettings().setValue(key, name or "")
+        except Exception:
+            pass
+
+    def _effective_preferred_name(self, protocol):
+        """Nombre del visor que se usara si no se pasa uno.
+
+        Es el preferido guardado, o el primero instalado si el
+        preferido ya no esta disponible (o no hay preferencia).
+        """
+        installed = (list_installed_vnc_viewers()
+                     if protocol == PROTOCOL_VNC
+                     else list_installed_spice_viewers())
+        names = [n for n, _p, _t in installed]
+        if not names:
+            return None
+        saved = self._preferred_external_viewer_name(protocol)
+        if saved and saved in names:
+            return saved
+        return names[0]
+
+    def _show_external_viewer_menu(self, button):
+        """Muestra el submenu de visores bajo el boton.
+
+        Marcador: console_viewer_choice_v1.
+        """
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtGui import QAction
+        from PyQt6.QtWidgets import QMenu
+
+        protocol = self._resolve_external_protocol_for_button()
+        if protocol == PROTOCOL_VNC:
+            installed = list_installed_vnc_viewers()
+            proto_label = "VNC"
+        else:
+            installed = list_installed_spice_viewers()
+            proto_label = "SPICE"
+
+        preferred = self._effective_preferred_name(protocol)
+
+        menu = QMenu(self)
+
+        if not installed:
+            hint = menu.addAction(
+                self.tr("No hay visores {0} instalados.").format(proto_label)
+            )
+            hint.setEnabled(False)
+        else:
+            header = menu.addAction(
+                self.tr("Abrir con visor {0}:").format(proto_label)
+            )
+            header.setEnabled(False)
+            menu.addSeparator()
+            for name, path, _template in installed:
+                act = QAction(name, menu)
+                act.setCheckable(True)
+                act.setChecked(name == preferred)
+                act.setToolTip(path)
+                act.triggered.connect(
+                    lambda _checked=False, n=name, p=protocol:
+                        self._on_external_viewer_chosen(p, n)
+                )
+                menu.addAction(act)
+
+        # console_viewer_choice_v1_rev3: se elimino la entrada
+        # "Abrir con preferido". Hacer click en un visor de la lista
+        # ya lo fija como preferido Y lo lanza, asi que una accion
+        # aparte solo duplicaba el mismo comportamiento.
+
+        try:
+            pos = button.mapToGlobal(QPoint(0, button.height()))
+            menu.exec(pos)
+        except Exception:
+            pass
+
+    def _on_external_viewer_chosen(self, protocol, viewer_name):
+        """Guarda el visor como preferido y lanza con el.
+
+        Marcador: console_viewer_choice_v1.
+        """
+        self._save_preferred_external_viewer(protocol, viewer_name)
+        self._launch_external_console(protocol=protocol,
+                                      viewer_name=viewer_name)
+
+    def _launch_external_console(self, protocol=None, viewer_name=None):
+        """Lanza el visor externo del protocolo/visor indicados.
+
+        Sin argumentos usa el protocolo resuelto por el modo y el visor
+        preferido guardado (o el primero instalado).
+        """
         if not self._vm_is_selected():
-            QMessageBox.information(self, self.tr("Consola externa"),
-                                    self.tr("Selecciona primero una máquina virtual."))
+            QMessageBox.information(
+                self, self.tr("Consola externa"),
+                self.tr("Selecciona primero una máquina virtual."))
             return
-        protocol, _mode = self._current_console_choice()
-        viewer, template = find_viewer(protocol)
+
+        if protocol is None:
+            protocol = self._resolve_external_protocol_for_button()
+
+        if viewer_name is None:
+            viewer_name = self._effective_preferred_name(protocol)
+
+        if viewer_name:
+            viewer, template = find_viewer_by_name(protocol, viewer_name)
+        else:
+            viewer, template = find_viewer(protocol)
+
         if not viewer:
             QMessageBox.warning(
                 self, self.tr("Consola externa"),

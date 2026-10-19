@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 import vm_config
 import vm_paths  # portable_paths_v1
 from vm_config import load_vm_config, save_vm_config
-from dialogs import DiskCreationDialog
+from dialogs import DiskCreationDialog, DiskIoAdvancedWidget
 from workers import _qemu_safe_identifier
 
 
@@ -173,7 +173,21 @@ class StorageMixin:
             return
 
         # Una sola ventana para todos los datos del nuevo disco.
-        dialog = DiskCreationDialog(self, "sata")
+        # disk_bus_storage_devices_v1: pasar current_devices para que el
+        # diálogo pueda validar límites de bus antes de aceptar.
+        try:
+            _current = self._storage_devices_all(vm_dir)
+        except Exception:
+            _current = []
+        _os_type = "linux"
+        try:
+            if hasattr(self, "combo_main_os"):
+                _os_type = self.combo_main_os.currentData() or "linux"
+        except Exception:
+            pass
+        dialog = DiskCreationDialog(self, "sata",
+                                     os_type=_os_type,
+                                     current_devices=_current)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         values = dialog.values()
@@ -219,7 +233,23 @@ class StorageMixin:
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
             self.log_message(f"==> Dispositivo {devtype.upper()} creado: {os.path.basename(path)} ({size}, {disk_type}, {fmt.upper()})")
-            self._register_storage_device(os.path.basename(path), path, devtype)
+            _bus_hint = str((values or {}).get("bus_hint") or "auto").lower()
+            # disk_io_tuning_v1: persistir los ajustes avanzados.
+            _io_attrs = {
+                k: str((values or {}).get(k) or "auto").lower()
+                for k in ("disk_cache", "disk_io", "disk_discard",
+                          "disk_detect_zeroes", "disk_aio")
+            }
+            self._register_storage_device(
+                os.path.basename(path), path, devtype,
+                bus_hint=_bus_hint,
+                extra_attrs=_io_attrs,
+            )
+            if devtype in ("sata", "nvme"):
+                self.log_message(
+                    f"==> Bus elegido: {_bus_hint} "
+                    f"(resuelto por workers según SO/hint)."
+                )
             # Crear un dispositivo de almacenamiento siempre actualiza también el orden de arranque.
             self.refresh_boot_order_choices()
             QMessageBox.information(
@@ -560,11 +590,13 @@ class StorageMixin:
                             "Elimina este y crea otro si necesitas otro tamaño."
                         ))
                     else:
-                        modify_btn.setText(self.tr("↗ Expandir"))
+                        modify_btn.setText(self.tr("✏ Modificar"))
                         modify_btn.setEnabled(True)
                         modify_btn.setToolTip(self.tr(
-                            "Aumentar el tamaño virtual de este disco.\n"
-                            "El disco solo puede CRECER."
+                            "Modificar este disco: aumentar su tamaño virtual\n"
+                            "y/o ajustar los parametros avanzados de I/O."
+                            "\n\n"
+                            "El tamaño del disco solo puede CRECER."
                         ))
                 else:
                     modify_btn.setText(self.tr("✏ Modificar"))
@@ -704,22 +736,48 @@ class StorageMixin:
         # real: la VM termina con dos "hd_mint.qcow2" en el árbol, uno sin
         # tamaño. No se tocan los CD/DVD vacíos (path="" sin source) ni los
         # placeholders de descarga (source="installer"/"recovery").
+        # storage_paths_resolve_v1: resolver el path contra vm_dir
+        # ANTES de comprobar si existe. Sin esto, un path relativo
+        # ("vm_disk.qcow2") se resuelve contra el CWD del proceso
+        # y se descarta como huérfano aunque el archivo exista en
+        # la carpeta de la VM. El paso previo de
+        # resolve_storage_devices queda como via rapida, pero el
+        # prune ya no depende de que ese paso se haya ejecutado:
+        # resuelve siempre por su cuenta.
+        #
+        # storage_paths_resolve_v1_autorepair: si el path guardado
+        # no coincide con el resuelto (por ejemplo CWD-absoluto
+        # heredado de una version anterior) pero el archivo SI
+        # existe resuelto, la entrada se conserva y se reescribe
+        # con el path correcto en vez de descartarse.
         pruned = []
         for d in devices:
             if not isinstance(d, dict):
                 pruned.append(d)
                 continue
             p = str(d.get("path") or "")
-            if p and not os.path.exists(p) and not d.get("source"):
+            if not p or d.get("source"):
+                # Sin path o placeholder de descarga (source=): no
+                # hay archivo que comprobar. Se conserva tal cual.
+                pruned.append(d)
+                continue
+            try:
+                p_abs = vm_paths.to_absolute(vm_dir, p)
+            except Exception:
+                p_abs = p
+            if not p_abs or not os.path.exists(p_abs):
                 try:
                     self.log_message(
                         f"[AVISO] storage_devices: se descarta entrada huérfana "
-                        f"'{d.get('name','?')}' (path inexistente: {p})."
+                        f"'{d.get('name','?')}' (path inexistente: {p_abs})."
                     )
                 except Exception:
                     pass
                 changed = True
                 continue
+            if p_abs != p:
+                d["path"] = p_abs
+                changed = True
             pruned.append(d)
         devices = pruned
 
@@ -828,16 +886,39 @@ class StorageMixin:
             elif t in available and t not in normalized:
                 normalized.append(t)
 
-        # Conserva el orden guardado y agrega al final cualquier dispositivo nuevo.
+        # boot_order_canonical_v1: los dispositivos NUEVOS se insertan
+        # en su posicion canonica (CD/DVD primero, discos antes de
+        # Red), no al final. Antes se anadian al final, asi que una VM
+        # cuyo orden guardado era ["network"] terminaba con Red primero
+        # aunque ya tuviera un CD/DVD y un disco registrados.
         order = [t for t in normalized if t in available]
+        _new_cd = [t for t in available
+                   if t.startswith("cdrom:") and t not in order]
+        _new_disk = [t for t in available
+                     if t.startswith("disk:") and t not in order]
+        if _new_cd:
+            order = _new_cd + order
+        if _new_disk:
+            if "network" in order:
+                _idx = order.index("network")
+                order = order[:_idx] + _new_disk + order[_idx:]
+            else:
+                order += _new_disk
         order += [t for t in available if t not in order]
-        # Siempre debe existir Red/PXE como último recurso.
+        # Siempre debe existir Red/PXE como ultimo recurso.
         if "network" not in order:
             order.append("network")
 
-        # Persiste la versión canónica cuando ha cambiado. Esto evita que el orden
-        # quede solo en la memoria de la interfaz y se pierda al reiniciar el programa.
-        if order != saved and getattr(self, "current_vm_dir", None):
+        # boot_order_canonical_v1: no persistir cuando aun no hay
+        # dispositivos reales (available es solo ["network"]). En ese
+        # estado intermedio — VM recien creada, storage_devices todavia
+        # sin escribir — el orden guardado del .ini no debe sobrescribirse
+        # con un ["network"] falso. Sin este guard, _ensure_storage_target_vm
+        # machacaba el default ["cdrom","disk","network"] antes de que el
+        # disco y el CD llegaran a storage_devices.
+        _has_storage = bool(cd_tokens or disk_tokens)
+        if (order != saved and _has_storage
+                and getattr(self, "current_vm_dir", None)):
             try:
                 self._save_boot_order(order)
             except Exception:
@@ -866,13 +947,37 @@ class StorageMixin:
             ident=token.split(":",1)[1]
             dev=next((d for d in self._storage_devices_all(self.current_vm_dir) if d.get("id")==ident or os.path.basename(d.get("path",""))==ident), None)
             name=(dev.get("name") if dev else ident) or ident
-            low=name.lower()
             typ=dev.get("device") if dev else "sata"
-            if typ == "nvme":
-                return "NVMe — " + name
             if typ == "floppy":
                 return "Floppy — " + name
-            return "SATA — " + name
+            # disk_bus_bughunt_v1 (B): resolver el bus real (SATA/NVMe/
+            # VirtIO-BLK/VirtIO-SCSI) con disk_bus para que la etiqueta
+            # del boot order no mienta cuando device="sata" pero
+            # bus_hint="nvme" (o virtio-*).
+            try:
+                from disk_bus import resolve_disk_bus_for_device
+                _cfg = self._load_vm_config_cached(self.current_vm_dir)
+                _os = str(_cfg.get("os_type") or "linux").lower()
+                _wv = str((_cfg.get("extra") or {}).get("win_ver") or "")
+                _chip = str(_cfg.get("chipset") or "pc").lower()
+                _q35 = ("q35" in _chip)
+                _bus = resolve_disk_bus_for_device(
+                    dev or {}, os_type=_os, win_ver=_wv,
+                    chipset_is_q35=_q35,
+                )
+                _label = {
+                    "sata_ahci": "SATA",
+                    "ide": "IDE",
+                    "nvme": "NVMe",
+                    "virtio-blk": "VirtIO-BLK",
+                    "virtio-scsi": "VirtIO-SCSI",
+                    "floppy": "Floppy",
+                }.get(_bus, "SATA")
+                return _label + " — " + name
+            except Exception:
+                if typ == "nvme":
+                    return "NVMe — " + name
+                return "SATA — " + name
         return token
 
     def _storage_entries_with_types(self, vm_dir=None):
@@ -977,17 +1082,106 @@ class StorageMixin:
         return "—"
 
 
+    def _disk_bus_label_for_item(self, dev):
+        """Etiqueta de bus QEMU real de una entrada storage_devices.
+
+        Marcador: disk_bus_column_v1. Delega en disk_bus para que la
+        etiqueta sea EXACTAMENTE el bus que workers.py emite a QEMU.
+        """
+        if not isinstance(dev, dict):
+            return "—"
+        _dtype = str(dev.get("device") or "sata").lower()
+        if _dtype == "cdrom":
+            try:
+                _cfg = self._load_vm_config_cached(self.current_vm_dir)
+                _chip = str(_cfg.get("chipset") or "pc").lower()
+                return "AHCI" if "q35" in _chip else "IDE"
+            except Exception:
+                return "AHCI"
+        if _dtype == "floppy":
+            return "FDC"
+        try:
+            from disk_bus import (resolve_disk_bus_for_device,
+                                    bus_label as _bus_label)
+            _cfg = self._load_vm_config_cached(self.current_vm_dir)
+            _os = str(_cfg.get("os_type") or "linux").lower()
+            _wv = str((_cfg.get("extra") or {}).get("win_ver") or "")
+            _chip = str(_cfg.get("chipset") or "pc").lower()
+            _q35 = ("q35" in _chip)
+            _bus = resolve_disk_bus_for_device(
+                dev, os_type=_os, win_ver=_wv, chipset_is_q35=_q35,
+            )
+            return _bus_label(_bus)
+        except Exception:
+            return "SATA"
+
+    # ------------------------------------------------------------------
+    # Helpers de los ajustes avanzados de disco (disk_io_tuning_v1)
+    # ------------------------------------------------------------------
+
+    _DISK_IO_FIELDS = (
+        "disk_cache", "disk_io", "disk_discard",
+        "disk_detect_zeroes", "disk_aio",
+    )
+
+    def _disk_io_is_non_default(self, dev):
+        """True si el disco tiene algun ajuste distinto de "auto".
+
+        Marcador: disk_io_tuning_v1.
+        """
+        if not isinstance(dev, dict):
+            return False
+        for k in self._DISK_IO_FIELDS:
+            v = str(dev.get(k) or "auto").lower()
+            if v != "auto":
+                return True
+        return False
+
+    def _disk_display_name_with_io(self, dev, name):
+        """Nombre a mostrar en el arbol; asterisco si hay ajustes.
+
+        Marcador: disk_io_tuning_v1.
+        """
+        if self._disk_io_is_non_default(dev):
+            return f"{name}  *"
+        return name
+
+    def _apply_disk_io_tooltip(self, item, dev):
+        """Tooltip con el detalle de los ajustes no-default.
+
+        Marcador: disk_io_tuning_v1.
+        """
+        if not self._disk_io_is_non_default(dev):
+            return
+        _labels = (("disk_cache", "cache"),
+                   ("disk_io", "io"),
+                   ("disk_discard", "discard"),
+                   ("disk_detect_zeroes", "detect-zeroes"),
+                   ("disk_aio", "aio"))
+        _tips = []
+        for k, lbl in _labels:
+            v = str(dev.get(k) or "auto").lower()
+            if v != "auto":
+                _tips.append(f"{lbl}={v}")
+        try:
+            item.setToolTip(0, "Opciones no-default: " + ", ".join(_tips))
+        except Exception:
+            pass
+
     def refresh_storage_ui(self):
         if hasattr(self, "storage_tree"):
             self.storage_tree.clear()
             # UI simplificada: SATA y NVMe comparten un solo grupo
             # visual ("Disco Duro"). El bus real lo decide workers.py
             # según el SO invitado.
+            # disk_bus_column_v1: 4 columnas
+            # [Dispositivo, Bus, Tipo/archivo, Tamaño]. Los grupos
+            # (contenedores) llevan el bus vacío en la 2ª columna.
             groups = {
-                "sata": QTreeWidgetItem([self.tr("💽 Disco Duro"), self.tr("Disco")]),
+                "sata": QTreeWidgetItem([self.tr("💽 Disco Duro"), "", self.tr("Disco"), ""]),
                 "nvme": None,  # se muestra dentro del grupo "sata"
-                "floppy": QTreeWidgetItem([self.tr("💾 Disquetera"), self.tr("FDC")]),
-                "cdrom": QTreeWidgetItem([self.tr("📀 Unidades ópticas"), self.tr("CD/DVD")]),
+                "floppy": QTreeWidgetItem([self.tr("💾 Disquetera"), "", self.tr("FDC"), ""]),
+                "cdrom": QTreeWidgetItem([self.tr("📀 Unidades ópticas"), "", self.tr("CD/DVD"), ""]),
             }
             for d in self._storage_devices_all(self.current_vm_dir):
                 typ=d.get("device","sata"); name=d.get("name") or os.path.basename(d.get("path","")) or typ.upper()
@@ -1005,14 +1199,20 @@ class StorageMixin:
                         detail_label = path or self.tr("Sin medio")
                     label=f"{name} — {media_label}"
                     size_col = self._device_size_label(d)
-                    item=QTreeWidgetItem([label, detail_label, size_col])
+                    _bus_col = self._disk_bus_label_for_item(d)
+                    item=QTreeWidgetItem([label, _bus_col, detail_label, size_col])
                     item.setData(0, Qt.ItemDataRole.UserRole, {"kind":"cdrom","id":d.get("id"),"path":path,"source":source})
                     groups["cdrom"].addChild(item)
                 elif typ in groups or typ == "nvme":
                     group_key = "sata" if typ == "nvme" else typ
                     size_col = self._device_size_label(d)
-                    item=QTreeWidgetItem([name, path, size_col])
+                    _bus_col = self._disk_bus_label_for_item(d)
+                    # disk_io_tuning_v1: asterisco + tooltip si
+                    # hay ajustes avanzados no-default.
+                    _disp = self._disk_display_name_with_io(d, name)
+                    item=QTreeWidgetItem([_disp, _bus_col, path, size_col])
                     item.setData(0, Qt.ItemDataRole.UserRole, {"kind":"disk","id":d.get("id"),"path":path,"device":typ})
+                    self._apply_disk_io_tooltip(item, d)
                     groups[group_key].addChild(item)
             for key in ("sata","nvme","floppy","cdrom"):
                 root=groups.get(key)
@@ -1059,11 +1259,27 @@ class StorageMixin:
         self._boot_order_from_list()
 
     def remove_storage_device(self):
-        if not hasattr(self, "storage_list"): return
-        item=self.storage_list.currentItem()
-        if not item: return
-        token=item.data(Qt.ItemDataRole.UserRole)
-        QMessageBox.information(self,"Almacenamiento","Para quitar un dispositivo usa el botón 🗑 Eliminar del árbol de Almacenamiento. El orden de arranque solo controla prioridad.")
+        """DEPRECATED — remove_boot_button_v1.
+
+        El botón "🗑 Quitar" del boot order se eliminó de la UI porque
+        solo mostraba un aviso: QEMU no permite sacar un dispositivo
+        del boot order sin eliminarlo. La acción real vive en
+        delete_storage_device() (botón "🗑 Eliminar" del árbol).
+
+        Se conserva este método por si algún mixin externo lo llama de
+        forma dinámica. Muestra un aviso por si acaso, en vez de hacer
+        algo silencioso o romper.
+        """
+        QMessageBox.information(
+            self,
+            self.tr("Almacenamiento"),
+            self.tr(
+                "Para eliminar un dispositivo de la VM usa el botón "
+                "'🗑 Eliminar' del árbol de Almacenamiento.\n\n"
+                "El orden de arranque solo controla la prioridad entre "
+                "dispositivos que ya existen."
+            ),
+        )
 
     def delete_storage_device(self):
         if not self.current_vm_dir or not hasattr(self, "storage_tree"):
@@ -1175,7 +1391,15 @@ class StorageMixin:
         except Exception:
             pass
 
-        dialog = DiskCreationDialog(self, devtype, os_type, os_version, distro, win_ver)
+        # disk_bus_storage_devices_v1: pasar los discos actuales para
+        # que el diálogo pueda validar límites de bus.
+        try:
+            _current_devs = self._storage_devices_all(self.current_vm_dir)
+        except Exception:
+            _current_devs = []
+        dialog = DiskCreationDialog(self, devtype, os_type, os_version,
+                                     distro, win_ver,
+                                     current_devices=_current_devs)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         values = dialog.values()
@@ -1216,13 +1440,42 @@ class StorageMixin:
         except Exception:
             pass
 
-    def _register_storage_device(self, name, path, devtype):
+    def _register_storage_device(self, name, path, devtype, bus_hint=None, extra_attrs=None):
+        """Registra un dispositivo de almacenamiento.
+
+        disk_bus_storage_devices_v1: acepta y persiste `bus_hint`
+        ("auto"/"sata"/"nvme"/"virtio-blk"/"virtio-scsi") para discos
+        duros. Los CD/DVD y floppies lo ignoran.
+
+        disk_bus_bughunt_v1 (A): `bus_hint=None` (default) PRESERVA el
+        hint del disco existente con el mismo path. Sin esto, un reattach
+        por "Usar archivo existente" borraba un hint explícito como "nvme".
+        Un caller que pase un string sobreescribe el hint (cambio
+        deliberado desde el combo del diálogo).
+        """
         devices=self._storage_devices_all(self.current_vm_dir)
         ap=os.path.abspath(path) if path else ""
-        # Evita duplicados por ruta solo para discos; CD/DVD pueden tener el mismo ISO en varias unidades.
+        _existing_hint = None
+        if devtype in ("sata", "nvme") and ap:
+            for d in devices:
+                if os.path.abspath(d.get("path","")) == ap:
+                    _v = d.get("bus_hint")
+                    if _v:
+                        _existing_hint = str(_v).strip().lower() or None
+                    break
         if devtype != "cdrom":
             devices=[d for d in devices if os.path.abspath(d.get("path","")) != ap]
-        devices.append({"id":"dev_" + uuid.uuid4().hex[:12],"name":name,"path":ap,"device":devtype})
+        entry = {"id":"dev_" + uuid.uuid4().hex[:12],
+                 "name":name,"path":ap,"device":devtype}
+        if devtype in ("sata", "nvme"):
+            if bus_hint is None:
+                entry["bus_hint"] = _existing_hint or "auto"
+            else:
+                entry["bus_hint"] = str(bus_hint).lower() or "auto"
+        # disk_io_tuning_v1: aplicar ajustes avanzados si vienen.
+        if extra_attrs:
+            entry.update(extra_attrs)
+        devices.append(entry)
         self._write_storage_devices(devices)
 
     def _register_cdrom_device(self, name, path="", source=""):
@@ -1514,7 +1767,7 @@ class StorageMixin:
             if os.path.abspath(dpath) == os.path.abspath(path):
                 info = (name, typ, dpath); break
         if not info:
-            QMessageBox.information(self, self.tr('Expandir disco'),
+            QMessageBox.information(self, self.tr('Modificar disco'),
                                     self.tr('No se encontro la informacion del '
                                             'dispositivo seleccionado.'))
             return
@@ -1526,7 +1779,7 @@ class StorageMixin:
         # disco principal podia romper el arranque).
         if devtype == "floppy":
             QMessageBox.information(
-                self, self.tr("Expandir disco"),
+                self, self.tr("Modificar disco"),
                 self.tr("Los disquetes no se pueden redimensionar.\n\n"
                         "Eliminalo y crea otro si necesitas otro tamano.")
             )
@@ -1568,7 +1821,7 @@ class StorageMixin:
         _current_qemu = _bytes_to_qemu_size(_current_bytes)
 
         dialog = QDialog(self)
-        dialog.setWindowTitle(self.tr("\u2197 Expandir disco"))
+        dialog.setWindowTitle(self.tr("✏ Modificar disco"))
         dialog.resize(520, 280)
         lay = QVBoxLayout(dialog)
         form = QFormLayout()
@@ -1590,6 +1843,17 @@ class StorageMixin:
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#666;")
         lay.addWidget(hint)
+
+        # disk_io_tuning_v1: seccion "Avanzado (rendimiento e I/O)".
+        _io_widget = DiskIoAdvancedWidget(dialog)
+        _dev_entry = next(
+            (d for d in self._storage_devices_all(self.current_vm_dir)
+             if os.path.abspath(d.get("path", "")) == os.path.abspath(old_path)),
+            None,
+        )
+        _io_widget.set_values(_dev_entry or {})
+        _io_original = _io_widget.values()
+        lay.addWidget(_io_widget)
 
         def _validate_and_accept():
             txt = size_edit.text().strip()
@@ -1636,29 +1900,74 @@ class StorageMixin:
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         _txt = size_edit.text().strip()
-        if not _txt or _txt == _current_qemu:
+        _io_new = _io_widget.values()
+        _size_changed = bool(_txt) and _txt != _current_qemu
+        _io_changed = (_io_new != _io_original)
+        if not _size_changed and not _io_changed:
             return
-        try:
-            subprocess.run(
-                ['qemu-img', 'resize', old_path, _txt],
-                check=True, capture_output=True, text=True, timeout=600,
-            )
-            self.refresh_storage_ui()
-            self._update_manager_details()
-            QMessageBox.information(
-                self, "Disco expandido",
-                f"El disco se expandio correctamente a {_txt}.\n\n"
-                "Recuerda ampliar tambien la particion/volumen dentro del "
-                "sistema invitado si quieres aprovechar el nuevo espacio."
-            )
+        if _size_changed:
             try:
-                self._scan_media_vms_after_storage_change()
-            except Exception:
-                pass
-        except Exception as e:
-            QMessageBox.critical(
-                self, self.tr("Expandir disco"),
-                self.tr("No se pudo expandir el disco.\n\n{0}").format(e)
+                subprocess.run(
+                    ['qemu-img', 'resize', old_path, _txt],
+                    check=True, capture_output=True, text=True, timeout=600,
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self, self.tr("Expandir disco"),
+                    self.tr("No se pudo expandir el disco.\n\n{0}").format(e)
+                )
+                return
+        if _io_changed:
+            try:
+                devices = self._storage_devices_all(self.current_vm_dir)
+                for d in devices:
+                    if (os.path.abspath(d.get("path", ""))
+                            == os.path.abspath(old_path)):
+                        d.update(_io_new)
+                        break
+                self._write_storage_devices(devices)
+            except Exception as e:
+                QMessageBox.critical(
+                    self.tr("Disco actualizado"),
+                    f"No se pudieron guardar los ajustes avanzados.\n\n{e}"
+                )
+                return
+        self.refresh_storage_ui()
+        self._update_manager_details()
+        _msgs = []
+        if _size_changed:
+            _msgs.append(
+                f"El disco se expandio correctamente a {_txt}.\n\n"
+                "Recuerda ampliar tambien la particion/volumen dentro "
+                "del sistema invitado si quieres aprovechar el nuevo "
+                "espacio."
             )
+        if _io_changed:
+            _msgs.append(
+                "Se actualizaron los ajustes avanzados de I/O del disco."
+            )
+        QMessageBox.information(
+            self, self.tr("Dispositivo actualizado"),
+            "\n\n".join(_msgs),
+        )
+        try:
+            self._scan_media_vms_after_storage_change()
+        except Exception:
+            pass
 
 # vm_config_save_cancel_v1_dirty_2b1
+
+
+# disk_bus_storage_devices_v1
+
+
+# disk_bus_bughunt_v1
+
+
+# disk_bus_column_v1
+
+# disk_io_tuning_v1_storage
+
+# disk_io_tuning_v1_rev2_storage
+
+# storage_paths_resolve_v1

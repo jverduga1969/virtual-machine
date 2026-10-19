@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QDialog, QFormLayout, QSpinBox,
     QRadioButton, QButtonGroup, QSizePolicy,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QTreeWidget, QTreeWidgetItem,
+    QTreeWidget, QTreeWidgetItem, QToolButton,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QPen, QBrush
@@ -155,11 +155,213 @@ class NetworkDeviceDialog(QDialog):
             "hostfwd": list(getattr(self, "_hostfwd", []) or []),
         }
 
+# disk_io_tuning_v1: etiquetas de los combos avanzados de disco.
+# "auto" = no emitir flag, dejar a QEMU su default.
+_DISK_CACHE_OPTIONS = [
+    ("Automático (default de QEMU: writeback)", "auto"),
+    ("Sin caché (O_DIRECT) — máxima integridad; requisito de io=native", "none"),
+    ("Writeback — equilibrado", "writeback"),
+    ("Writethrough — cada escritura a disco; más lento", "writethrough"),
+    ("Directsync — como writethrough sin caché del host", "directsync"),
+    ("⚠ Unsafe — sin fsync; riesgo de corrupción si el host cae", "unsafe"),
+]
+_DISK_IO_OPTIONS = [
+    ("Automático (threads)", "auto"),
+    ("native — io nativo de Linux; requiere cache=none o directsync", "native"),
+    ("threads — portable, sin requisitos", "threads"),
+    ("io_uring — kernel mayor o igual a 5.1; más moderno", "io_uring"),
+]
+_DISK_DISCARD_OPTIONS = [
+    ("Automático (ignore)", "auto"),
+    ("unmap — permite fstrim desde el guest (QCOW2)", "unmap"),
+    ("ignore — default de QEMU", "ignore"),
+]
+_DISK_DZERO_OPTIONS = [
+    ("Automático (off)", "auto"),
+    ("unmap — más rápido en QCOW2", "unmap"),
+    ("on — más compatible", "on"),
+    ("off — default de QEMU", "off"),
+]
+_DISK_AIO_OPTIONS = [
+    ("Automático (threads)", "auto"),
+    ("native — requiere cache=none; QCOW2 no lo soporta", "native"),
+    ("threads — portable", "threads"),
+    ("io_uring — kernel mayor o igual a 5.1", "io_uring"),
+]
+
+
+class DiskIoAdvancedWidget(QWidget):
+    """Seccion plegable con los 5 combos de ajustes avanzados de disco.
+
+    Marcador: disk_io_tuning_v1_rev2.
+
+    Plegado (default) -> values() devuelve todo "auto".
+    Desplegado -> devuelve los valores de los combos.
+
+    Sustituye al QGroupBox checkable de la version anterior, que
+    deshabilitaba los combos pero no ocultaba el cuerpo.
+    """
+
+    _FIELDS = ("disk_cache", "disk_io", "disk_discard",
+               "disk_detect_zeroes", "disk_aio")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.header_btn = QToolButton()
+        self.header_btn.setCheckable(True)
+        self.header_btn.setChecked(False)
+        self.header_btn.setText(self.tr("Avanzado (rendimiento e I/O)"))
+        self.header_btn.setArrowType(Qt.ArrowType.RightArrow)
+        self.header_btn.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.header_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.header_btn.setStyleSheet(
+            "QToolButton { text-align: left; padding: 6px 8px; "
+            "border: 1px solid palette(mid); border-radius: 6px; "
+            "background: palette(button); } "
+            "QToolButton:hover { background: palette(alternate-base); }"
+        )
+        self.header_btn.setToolTip(self.tr(
+            "Mostrar u ocultar los ajustes avanzados de I/O del disco.\n"
+            "\n"
+            "Plegado, el disco se arranca con los valores por defecto de\n"
+            "QEMU (cache=writeback, io=threads, aio=threads, sin discard\n"
+            "ni detect-zeroes).\n"
+            "\n"
+            "Desplegado, puedes ajustar cada parametro. Al plegar de nuevo,\n"
+            "todos vuelven a auto."
+        ))
+        self.header_btn.toggled.connect(self._on_header_toggled)
+        outer.addWidget(self.header_btn)
+
+        self._body = QWidget()
+        body_lay = QFormLayout(self._body)
+        body_lay.setContentsMargins(12, 10, 12, 10)
+        body_lay.setSpacing(6)
+
+        self.combo_cache = QComboBox()
+        for label, val in _DISK_CACHE_OPTIONS:
+            self.combo_cache.addItem(label, val)
+        self.combo_cache.setToolTip(self.tr(
+            "Modo de cache del disco (QEMU -drive cache=)."
+        ))
+        body_lay.addRow(self.tr("Cache (cache=):"), self.combo_cache)
+
+        self.combo_io = QComboBox()
+        for label, val in _DISK_IO_OPTIONS:
+            self.combo_io.addItem(label, val)
+        self.combo_io.setToolTip(self.tr(
+            "Backend de I/O del disco (QEMU -drive io=)."
+        ))
+        body_lay.addRow(self.tr("Backend I/O (io=):"), self.combo_io)
+
+        self.combo_discard = QComboBox()
+        for label, val in _DISK_DISCARD_OPTIONS:
+            self.combo_discard.addItem(label, val)
+        self.combo_discard.setToolTip(self.tr(
+            "Comportamiento de los discards del guest (QEMU -drive discard=)."
+        ))
+        body_lay.addRow(self.tr("Discard:"), self.combo_discard)
+
+        self.combo_dzero = QComboBox()
+        for label, val in _DISK_DZERO_OPTIONS:
+            self.combo_dzero.addItem(label, val)
+        self.combo_dzero.setToolTip(self.tr(
+            "Deteccion de ceros en escrituras (QEMU -drive detect-zeroes=)."
+        ))
+        body_lay.addRow(self.tr("Detect zeros:"), self.combo_dzero)
+
+        self.combo_aio = QComboBox()
+        for label, val in _DISK_AIO_OPTIONS:
+            self.combo_aio.addItem(label, val)
+        self.combo_aio.setToolTip(self.tr(
+            "Backend de AIO (QEMU -drive aio=)."
+        ))
+        body_lay.addRow(self.tr("AIO:"), self.combo_aio)
+
+        self._unsafe_warn = QLabel(self.tr(
+            "cache=unsafe desactiva el fsync del host. Si el host se cae "
+            "o se reinicia sin sincronizar, el disco del guest puede quedar "
+            "corrupto. Usalo solo para tests de rendimiento con discos "
+            "desechables."
+        ))
+        self._unsafe_warn.setWordWrap(True)
+        self._unsafe_warn.setStyleSheet(
+            "color:#b71c1c; background:#ffebee; border:1px solid #ef9a9a; "
+            "border-radius:4px; padding:6px; font-size:11px;"
+        )
+        self._unsafe_warn.setVisible(False)
+        body_lay.addRow("", self._unsafe_warn)
+
+        self.combo_cache.currentIndexChanged.connect(self._on_cache_changed)
+
+        self._body.setVisible(False)
+        outer.addWidget(self._body)
+
+    def _on_header_toggled(self, checked):
+        self.header_btn.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+        )
+        self._body.setVisible(bool(checked))
+        self._on_cache_changed()
+
+    def _on_cache_changed(self, *_):
+        unsafe = (self.combo_cache.currentData() == "unsafe")
+        self._unsafe_warn.setVisible(unsafe and self.header_btn.isChecked())
+
+    def set_values(self, dev):
+        if not isinstance(dev, dict):
+            return
+        mapping = (
+            (self.combo_cache,   "disk_cache"),
+            (self.combo_io,      "disk_io"),
+            (self.combo_discard, "disk_discard"),
+            (self.combo_dzero,   "disk_detect_zeroes"),
+            (self.combo_aio,     "disk_aio"),
+        )
+        has_any = False
+        for combo, key in mapping:
+            v = str(dev.get(key) or "auto").lower()
+            if v != "auto":
+                has_any = True
+            idx = combo.findData(v)
+            if idx < 0:
+                idx = 0
+            combo.blockSignals(True)
+            combo.setCurrentIndex(idx)
+            combo.blockSignals(False)
+        self.header_btn.blockSignals(True)
+        self.header_btn.setChecked(has_any)
+        self.header_btn.blockSignals(False)
+        self._on_header_toggled(has_any)
+
+    def values(self):
+        if not self.header_btn.isChecked():
+            return {k: "auto" for k in self._FIELDS}
+        return {
+            "disk_cache":         self.combo_cache.currentData() or "auto",
+            "disk_io":            self.combo_io.currentData() or "auto",
+            "disk_discard":       self.combo_discard.currentData() or "auto",
+            "disk_detect_zeroes": self.combo_dzero.currentData() or "auto",
+            "disk_aio":           self.combo_aio.currentData() or "auto",
+        }
+
+
 class DiskCreationDialog(QDialog):
     """Dialogo único para crear/adjuntar almacenamiento o configurar CD/DVD."""
-    def __init__(self, parent=None, devtype="sata", os_type="linux", os_version="", distro="", win_ver="Windows 11", initial_path="", initial_name=""):
+    def __init__(self, parent=None, devtype="sata", os_type="linux", os_version="", distro="", win_ver="Windows 11", initial_path="", initial_name="", current_devices=None):
         super().__init__(parent)
         self.devtype = devtype
+        # disk_bus_selector_v1: lista actual de storage_devices para
+        # validar limites antes de aceptar.
+        self._current_devices = list(current_devices or [])
         self.os_type = os_type
         self.os_version = os_version
         self.distro = distro
@@ -186,6 +388,7 @@ class DiskCreationDialog(QDialog):
         self.combo_format = None
         self.input_path = None
         self.btn_browse = None
+        self.combo_bus = None  # disk_bus_selector_v1
         self.source_radio = None
         self.existing_radio = None
 
@@ -342,6 +545,56 @@ class DiskCreationDialog(QDialog):
                 self.combo_format.addItem(label, value)
             form.addRow(self.tr("Formato:"), self.combo_format)
 
+            # disk_bus_selector_v1: combo de bus del disco. Solo aplica a
+            # discos duros (no a floppy ni CD/DVD). Los tooltips explican
+            # los límites y el compromiso snapshots/rendimiento.
+            self.combo_bus = QComboBox()
+            self.combo_bus.addItem(
+                self.tr("Automático (recomendado) — SATA/AHCI"), "auto")
+            self.combo_bus.addItem(
+                self.tr("SATA/AHCI (compatible con snapshots completos)"),
+                "sata")
+            self.combo_bus.addItem(
+                self.tr("NVMe (más rápido; snapshots completos NO)"),
+                "nvme")
+            self.combo_bus.addItem(
+                self.tr("VirtIO-BLK (compatible con snapshots; "
+                        "requiere drivers en Windows)"),
+                "virtio-blk")
+            self.combo_bus.addItem(
+                self.tr("VirtIO-SCSI (para muchos discos; "
+                        "requiere drivers en Windows)"),
+                "virtio-scsi")
+            _bus_tips = {
+                "auto": self.tr(
+                    "SATA/AHCI por defecto. El bus se decide según el SO\n"
+                    "invitado, priorizando la compatibilidad con snapshots\n"
+                    "completos (RAM + dispositivos)."),
+                "sata": self.tr(
+                    "SATA/AHCI. Compatible con snapshots completos.\n"
+                    "Límite: 4 discos por VM (los CD/DVD comparten el\n"
+                    "controlador AHCI)."),
+                "nvme": self.tr(
+                    "NVMe. Más rápido, pero QEMU no puede migrar el\n"
+                    "controlador nvme: los snapshots completos fallarán.\n"
+                    "Solo se podrán hacer snapshots SOLO DE DISCOS.\n"
+                    "Límite: ~20 discos."),
+                "virtio-blk": self.tr(
+                    "VirtIO-BLK. Buen rendimiento, compatible con\n"
+                    "snapshots completos. En Windows requiere drivers\n"
+                    "VirtIO (ISO virtio-win). Límite: ~20 discos."),
+                "virtio-scsi": self.tr(
+                    "VirtIO-SCSI. Recomendado si necesitas más de 4\n"
+                    "discos: admite hasta 256 por VM. En Windows\n"
+                    "requiere drivers VirtIO. Compatible con snapshots\n"
+                    "completos."),
+            }
+            for _i in range(self.combo_bus.count()):
+                _d = self.combo_bus.itemData(_i)
+                if _d in _bus_tips:
+                    self.combo_bus.setItemData(_i, _bus_tips[_d], 3)
+            form.addRow(self.tr("Bus del disco:"), self.combo_bus)
+
 
         # media_library_device_picker_v1_B: campo Archivo + botones
         # compartidos por los 3 tipos.
@@ -402,9 +655,17 @@ class DiskCreationDialog(QDialog):
 
     def _update_disk_mode(self, *_):
         create_mode = bool(self.source_radio.isChecked()) if self.source_radio else True
-        for w in (self.input_name, self.input_size, self.combo_type, self.combo_format):
+        # name/size/type/format solo aplican al modo "crear nuevo".
+        for w in (self.input_name, self.input_size, self.combo_type,
+                  self.combo_format):
             if w is not None:
                 w.setEnabled(create_mode)
+        # disk_bus_selector_v1_existing_fix: el bus SÍ aplica también
+        # cuando se adjunta un archivo existente (biblioteca, import,
+        # ruta manual). No debe deshabilitarse al cambiar a ese modo.
+        _bus_combo = getattr(self, "combo_bus", None)
+        if _bus_combo is not None:
+            _bus_combo.setEnabled(True)
         if self.input_path is not None:
             self.input_path.setEnabled(not create_mode)
         if self.btn_browse is not None:
@@ -480,7 +741,7 @@ class DiskCreationDialog(QDialog):
             if mode == "existing":
                 path = self.input_path.text().strip()
                 if not path or not os.path.isfile(path):
-                    QMessageBox.warning(self, self.tr("Medio inválido"), self.tr("Selecciona un ISO/IMG/DMG válido."))
+                    QMessageBox.warning(self, self.tr("Medio invalido"), self.tr("Selecciona un ISO/IMG/DMG valido."))
                     return
             self.accept()
             return
@@ -490,9 +751,12 @@ class DiskCreationDialog(QDialog):
         if existing:
             path = self.input_path.text().strip()
             if not path or not os.path.isfile(path):
-                QMessageBox.warning(self, self.tr("Archivo inválido"),
-                                    self.tr("Selecciona un archivo existente válido."))
+                QMessageBox.warning(self, self.tr("Archivo invalido"),
+                                    self.tr("Selecciona un archivo existente valido."))
                 return
+            if self.devtype in ("sata", "nvme", "floppy"):
+                if not self._check_bus_limits():
+                    return
             self.accept()
             return
 
@@ -502,9 +766,73 @@ class DiskCreationDialog(QDialog):
             QMessageBox.warning(self, self.tr("Nombre requerido"), self.tr("Indica un nombre para el dispositivo."))
             return
         if self.devtype != "floppy" and not re.fullmatch(r"(?:\d+(?:\.\d+)?)(?:[KMGTP]i?B?|B)?", size, re.IGNORECASE):
-            QMessageBox.warning(self, self.tr("Tamaño inválido"), self.tr("Usa un tamaño como 40G, 512M o 1T."))
+            QMessageBox.warning(self, self.tr("Tamano invalido"), self.tr("Usa un tamano como 40G, 512M o 1T."))
             return
+        if self.devtype in ("sata", "nvme"):
+            if not self._check_bus_limits():
+                return
         self.accept()
+
+    def _check_bus_limits(self):
+        try:
+            from disk_bus import (check_new_disk_fits,
+                                    validate_disk_bus_limits,
+                                    resolve_disk_bus_for_os)
+        except Exception:
+            return True
+        _hint = "auto"
+        if getattr(self, "combo_bus", None) is not None:
+            _hint = self.combo_bus.currentData() or "auto"
+        _new = {"device": self.devtype, "bus_hint": _hint}
+        _cdroms_n = len([d for d in self._current_devices
+                         if isinstance(d, dict) and d.get("device") == "cdrom"])
+        try:
+            _before = validate_disk_bus_limits(
+                self._current_devices,
+                os_type=self.os_type or "linux",
+                win_ver=self.win_ver or "",
+                chipset_is_q35=True, cdroms_count=_cdroms_n)
+            _after = check_new_disk_fits(
+                self._current_devices, _new,
+                os_type=self.os_type or "linux",
+                win_ver=self.win_ver or "",
+                chipset_is_q35=True, cdroms_count=_cdroms_n)
+        except Exception as _e:
+            try: print("[AVISO] check_new_disk_fits: " + str(_e))
+            except Exception: pass
+            return True
+        if not _after:
+            return True
+        _nuevos = [e for e in _after if e not in _before]
+        _parts = []
+        if _before and not _nuevos:
+            _parts.append(self.tr(
+                "Tu configuracion de almacenamiento ya supera el limite de uno de sus buses:"))
+            _parts.append("\n".join(_before))
+            _parts.append("")
+            _parts.append(self.tr(
+                "Antes de anadir mas discos, corrige el arbol de Almacenamiento: "
+                "quita el disco que sobra o cambialo de bus."))
+        elif _nuevos:
+            _parts.append(self.tr("El disco nuevo no cabe en el bus elegido:"))
+            _parts.append("\n".join(_nuevos))
+            _bus = resolve_disk_bus_for_os(
+                os_type=self.os_type or "linux",
+                win_ver=self.win_ver or "",
+                chipset_is_q35=True,
+                devtype=self.devtype, bus_hint=_hint)
+            if _bus == "sata_ahci":
+                _parts.append("")
+                _parts.append(self.tr(
+                    "Sugerencia: elige 'VirtIO-SCSI' en el combo 'Bus del disco' "
+                    "para mas de 4 discos (max. 256)."))
+            elif _bus == "ide":
+                _parts.append("")
+                _parts.append(self.tr("El bus IDE heredado solo admite 2 discos."))
+        else:
+            _parts.append("\n".join(_after))
+        QMessageBox.warning(self, self.tr("Limite de bus alcanzado"), "\n".join(_parts))
+        return False
 
     def values(self):
         if self.devtype == "cdrom":
@@ -521,6 +849,10 @@ class DiskCreationDialog(QDialog):
             }
         existing = bool(getattr(self, "existing_radio", None)
                         and self.existing_radio.isChecked())
+        # disk_bus_selector_v1: leer bus_hint del combo si existe.
+        _bus_hint = "auto"
+        if getattr(self, "combo_bus", None) is not None:
+            _bus_hint = self.combo_bus.currentData() or "auto"
         return {
             "name": self.input_name.text().strip(),
             "size": self.input_size.currentData() if self.devtype == "floppy" else self.input_size.text().strip(),
@@ -529,6 +861,7 @@ class DiskCreationDialog(QDialog):
             "path": self.input_path.text().strip() if existing else "",
             "device": self.devtype,
             "existing": existing,
+            "bus_hint": _bus_hint,
         }
 
 
@@ -625,6 +958,11 @@ class _CreateMediumDialog(QDialog):
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet("color: #666; font-size: 11px;")
         layout.addWidget(self.hint)
+
+        # disk_io_tuning_v1: seccion plegable Avanzado.
+        self.advanced_disk_io = DiskIoAdvancedWidget(self)
+        layout.addWidget(self.advanced_disk_io)
+
         layout.addStretch(1)
 
         btns = QHBoxLayout()
@@ -780,7 +1118,7 @@ class _CreateMediumDialog(QDialog):
         _size_txt = self.combo_size.currentText().strip()
         if not _size_txt:
             _size_txt = str(self.combo_size.currentData() or "")
-        return {
+        _out = {
             "name": self.input_name.text().strip(),
             "type": t,
             "extension": ext,
@@ -789,6 +1127,18 @@ class _CreateMediumDialog(QDialog):
             "prealloc": prealloc,
             "size": _size_txt,
         }
+        # disk_io_tuning_v1: campos de los combos avanzados.
+        if getattr(self, "advanced_disk_io", None) is not None:
+            _out.update(self.advanced_disk_io.values())
+        else:
+            _out.update({
+                "disk_cache": "auto",
+                "disk_io": "auto",
+                "disk_discard": "auto",
+                "disk_detect_zeroes": "auto",
+                "disk_aio": "auto",
+            })
+        return _out
 
     @staticmethod
     def build_qemu_create_cmd(values, target_path):
@@ -1397,3 +1747,13 @@ class NatPortForwardDialog(QDialog):
 
 
 # media_library_create_disk_v1_size_fix
+
+
+# disk_bus_selector_v1
+
+
+# disk_bus_selector_v1_existing_fix
+
+# disk_io_tuning_v1_final_applied
+
+# disk_io_tuning_v1_create_medium

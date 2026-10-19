@@ -1,0 +1,406 @@
+#!/bin/bash
+# /usr/local/bin/virtual-machine-desktop
+# Wrapper sudo para Desktop Mode de Virtual.Machine (Xorg en VT).
+#
+# Uso:
+#   sudo /usr/local/bin/virtual-machine-desktop <vm-name> <tty> [last|extend] [0|1]
+#
+# Marcador: desktop_mode_xorg_vt_v11
+#
+# Cadena:
+#   setpriv -> startx -> Xorg :N vtN -> QEMU GTK fullscreen
+#
+# startx hace el cambio de VT (con 'vtN' como argumento del
+# servidor) y lo devuelve al terminar. NO se usa openvt: los dos
+# peleaban por el control de la VT y Xorg no llegaba a arrancar.
+#
+# Por que startx y no Xorg directo:
+#   Xorg lanzado desde setpriv/sudo NO queda registrado como
+#   sesion logind, y logind revierte la VT a los pocos segundos.
+#   startx crea una sesion logind virtual y logind respeta la VT.
+
+set -euo pipefail
+
+if [ "$#" -lt 2 ] || [ "$#" -gt 4 ]; then
+    echo "Uso: $0 <vm-name> <tty-number> [last|extend] [0|1]" >&2
+    exit 64
+fi
+
+VM_NAME="$1"
+TTY_NUM="$2"
+MONITOR="${3:-last}"
+SNAPSHOT="${4:-0}"
+
+case "$TTY_NUM" in
+    2|3|4|5|6|7|8|9|10|11|12) ;;
+    *) echo "[ERROR] TTY invalido: $TTY_NUM (debe ser 2..12)" >&2; exit 64 ;;
+esac
+
+case "$MONITOR" in
+    last|extend) ;;
+    *) echo "[ERROR] monitor invalido: $MONITOR (last|extend)" >&2; exit 64 ;;
+esac
+
+case "$SNAPSHOT" in
+    0|1) ;;
+    *) echo "[ERROR] snapshot debe ser 0 o 1 (recibido: $SNAPSHOT)" >&2; exit 64 ;;
+esac
+
+if [ -z "$VM_NAME" ] \
+   || [ "${#VM_NAME}" -gt 80 ] \
+   || [[ "$VM_NAME" == */* ]] \
+   || [[ "$VM_NAME" == *..* ]] \
+   || [[ "$VM_NAME" == .* ]] \
+   || [[ "$VM_NAME" == *$'\n'* ]]; then
+    echo "[ERROR] Nombre de VM invalido: $VM_NAME" >&2
+    exit 64
+fi
+
+if [ -f /etc/virtual-machine.conf ]; then
+    . /etc/virtual-machine.conf
+fi
+if [ -z "${REPO_DIR:-}" ]; then
+    echo "[ERROR] No se encontro /etc/virtual-machine.conf." >&2
+    echo "        Ejecuta: sudo bash packaging/install-wrapper.sh" >&2
+    exit 1
+fi
+if [ ! -d "$REPO_DIR" ]; then
+    echo "[ERROR] REPO_DIR no existe: $REPO_DIR" >&2
+    exit 1
+fi
+
+TARGET_USER="${SUDO_USER:-}"
+if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
+    echo "[ERROR] El wrapper debe ejecutarse con sudo desde una cuenta de usuario." >&2
+    exit 1
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+if [ -z "$TARGET_HOME" ] || [ ! -d "$TARGET_HOME" ]; then
+    echo "[ERROR] No se pudo detectar el home de $TARGET_USER." >&2
+    exit 1
+fi
+
+VM_BASE="$REPO_DIR/VirtualMachines"
+VM_DIR="$VM_BASE/$VM_NAME"
+LAUNCHER="$REPO_DIR/desktop_mode.py"
+TARGET_UID="$(id -u "$TARGET_USER")"
+TARGET_GID="$(id -g "$TARGET_USER")"
+# desktop_mode_audio_gid_v1_13: anadir el GID del grupo audio a
+# los grupos de setpriv. Sin esto QEMU no puede abrir /dev/snd/*
+# cuando la VT activa no es la del escritorio (logind retira los
+# ACLs del usuario al cambiar de VT). El grupo audio tiene acceso
+# permanente a /dev/snd/* via permisos POSIX, no via ACL.
+AUDIO_GID="$(getent group audio | cut -d: -f3)"
+if [ -n "$AUDIO_GID" ]; then
+    USER_GROUPS="$(id -G "$TARGET_USER" | tr ' ' ','),$AUDIO_GID"
+else
+    USER_GROUPS="$(id -G "$TARGET_USER" | tr ' ' ',')"
+fi
+
+
+if [ ! -d "$VM_DIR" ]; then
+    echo "[ERROR] La VM '$VM_NAME' no existe en $VM_BASE" >&2
+    exit 1
+fi
+if [ ! -f "$LAUNCHER" ]; then
+    echo "[ERROR] No se encuentra el launcher: $LAUNCHER" >&2
+    exit 1
+fi
+
+# Guard: no permitir el TTY de la sesion grafica del host.
+GRAPHICAL_TTY=""
+if command -v loginctl >/dev/null 2>&1; then
+    for sid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+        T=$(loginctl show-session "$sid" -p TTY --value 2>/dev/null || true)
+        TYP=$(loginctl show-session "$sid" -p Type --value 2>/dev/null || true)
+        if [ -n "$T" ] && [ -n "$TYP" ] && [ "$TYP" != "tty" ] && [ "$TYP" != "unspecified" ]; then
+            case "$T" in
+                tty*) GRAPHICAL_TTY="${T#tty}" ;;
+            esac
+        fi
+    done
+fi
+if [ -n "$GRAPHICAL_TTY" ] && [ "$TTY_NUM" = "$GRAPHICAL_TTY" ]; then
+    echo "[ERROR] tty$TTY_NUM es la sesion grafica del host." >&2
+    echo "        Elegir esa VT destruiria el escritorio." >&2
+    exit 1
+fi
+
+# desktop_mode_xorg_vt_v5: preferir el binario real de Xorg, no el
+# wrapper Xorg.wrap de Debian/Ubuntu/Mint. El wrapper rechaza arrancar
+# si el proceso no tiene una consola controladora (y nosotros vamos
+# via sudo/setpriv/startx, sin consola propia).
+# desktop_mode_xorg_vt_v7: preferir /usr/bin/Xorg (el wrapper SUID
+# Xorg.wrap). El binario real /usr/lib/xorg/Xorg no puede abrir
+# /dev/ttyN sin privilegios (el dispositivo es crw--w---- root:tty y
+# el grupo solo tiene w-, no r-). El wrapper hace setuid y luego baja
+# a usuario. Requiere /etc/X11/Xwrapper.config con:
+#     allowed_users=anybody
+#     needs_root_rights=yes
+XORG_BIN=""
+for _cand in /usr/bin/Xorg /usr/lib/xorg/Xorg /usr/libexec/Xorg; do
+    if [ -x "$_cand" ]; then
+        XORG_BIN="$_cand"
+        break
+    fi
+done
+
+# Aviso si Xorg.wrap va a rechazarnos por falta de Xwrapper.config.
+if [ "$XORG_BIN" = "/usr/bin/Xorg" ] && [ -f /etc/X11/Xwrapper.config ]; then
+    if ! grep -qE '^[[:space:]]*allowed_users[[:space:]]*=[[:space:]]*anybody' \
+            /etc/X11/Xwrapper.config 2>/dev/null; then
+        echo "[AVISO] /etc/X11/Xwrapper.config no tiene allowed_users=anybody." >&2
+        echo "        Ejecuta:" >&2
+        echo "            sudo tee /etc/X11/Xwrapper.config <<'EOF'" >&2
+        echo "            allowed_users=anybody" >&2
+        echo "            needs_root_rights=yes" >&2
+        echo "            EOF" >&2
+    fi
+fi
+if [ -z "$XORG_BIN" ]; then
+    echo "[ERROR] No se encontro el binario de Xorg en rutas conocidas." >&2
+    echo "        Instala: sudo apt install xserver-xorg-core" >&2
+    exit 1
+fi
+
+for tool in xinit; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "[ERROR] Falta '$tool' en PATH." >&2
+        echo "        Instala: sudo apt install xinit" >&2
+        exit 1
+    fi
+done
+
+# desktop_mode_multi_tty_v1: el display number NO puede ser :0
+# (lo usa Cinnamon). Calculamos uno que nunca colisione con el
+# escritorio ni con otra VM en Desktop Mode ya corriendo.
+#   - Base: TTY_NUM - 2 (da :1 para tty3, :2 para tty4, ...).
+#   - Si sale <1 (caso tty2), desplazar a un rango alterno.
+#   - Verificar que el display no este ya en uso por otra VM
+#     (lock en /tmp/.X${N}-lock). Si lo esta, subir hasta encontrar
+#     uno libre.
+DISPLAY_NUM=$((TTY_NUM - 2))
+if [ "$DISPLAY_NUM" -lt 1 ]; then
+    DISPLAY_NUM=$((TTY_NUM + 1))
+fi
+# Buscar hueco si el display calculado ya esta ocupado.
+for _try in $(seq 1 20); do
+    if [ ! -e "/tmp/.X${DISPLAY_NUM}-lock" ]; then
+        break
+    fi
+    DISPLAY_NUM=$((DISPLAY_NUM + 1))
+    if [ "$DISPLAY_NUM" -gt 20 ]; then
+        echo "[ERROR] No hay display X libre en el rango 1..20." >&2
+        exit 1
+    fi
+done
+if [ "$DISPLAY_NUM" -eq 0 ]; then
+    echo "[ERROR] DISPLAY=:0 no es valido (pertenece al escritorio)." >&2
+    exit 1
+fi
+
+# desktop_mode_xorg_vt_v6: log en /run/user/<uid>/ si existe (es
+# propiedad del usuario y siempre escribible); fallback a /tmp si no.
+_RUNTIME_DIR_USER="/run/user/$TARGET_UID"
+if [ -d "$_RUNTIME_DIR_USER" ] && [ -w "$_RUNTIME_DIR_USER" ]; then
+    XORG_LOG="$_RUNTIME_DIR_USER/xorg-vm-tty${TTY_NUM}.log"
+else
+    XORG_LOG="/tmp/xorg-vm-tty${TTY_NUM}.log"
+fi
+CHAIN_LOG="/tmp/desktop_mode_cage.log"
+LOCK_FILE="/tmp/xorg-vm-tty${TTY_NUM}.lock"
+
+if [ -f "$LOCK_FILE" ]; then
+    OLD=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+    if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null; then
+        echo "[ERROR] tty$TTY_NUM ya esta en uso por otra VM (pid $OLD)." >&2
+        exit 1
+    fi
+    rm -f "$LOCK_FILE"
+fi
+echo $$ > "$LOCK_FILE"
+
+# desktop_mode_xorg_vt_v6: limpiar restos de intentos previos que
+# root pudo dejar en /tmp (el wrapper corre como root, asi que
+# puede). Sin esto Xorg falla con "Cannot move old log file".
+rm -f "/tmp/xorg-vm-tty${TTY_NUM}.log" \
+      "/tmp/xorg-vm-tty${TTY_NUM}.log.old" \
+      "/tmp/xorg-vm-tty${TTY_NUM}.Xauthority" 2>/dev/null || true
+rm -f "/tmp/.X${DISPLAY_NUM}-lock" 2>/dev/null || true
+rm -f "/tmp/.X11-unix/X${DISPLAY_NUM}" 2>/dev/null || true
+
+# desktop_mode_xorg_vt_v8: copia periodica del log de Xorg
+# (/var/log/Xorg.$DISPLAY_NUM.log) a la ruta user-writable, mientras
+# dure la sesion. Asi el usuario puede seguir el log en vivo.
+_copiar_log_xorg() {
+    while kill -0 "$$" 2>/dev/null; do
+        if [ -f "/var/log/Xorg.${DISPLAY_NUM}.log" ]; then
+            cp -f "/var/log/Xorg.${DISPLAY_NUM}.log" "$XORG_LOG" 2>/dev/null || true
+            chown "$TARGET_UID:$TARGET_GID" "$XORG_LOG" 2>/dev/null || true
+            chmod 0644 "$XORG_LOG" 2>/dev/null || true
+        fi
+        sleep 2
+    done
+}
+_copiar_log_xorg &
+_LOG_COPY_PID=$!
+trap 'kill $_LOG_COPY_PID 2>/dev/null || true; rm -f "$LOCK_FILE"' EXIT
+
+: > "$CHAIN_LOG"
+{
+    echo "=== Inicio Desktop Mode (Xorg VT / xinit): $(date -Iseconds) ==="
+    echo "VM_NAME=$VM_NAME  TTY=$TTY_NUM  DISPLAY=:$DISPLAY_NUM"
+    echo "MONITOR=$MONITOR  SNAPSHOT=$SNAPSHOT"
+    echo "USER_GROUPS=$USER_GROUPS"
+    echo "XORG_LOG=$XORG_LOG"
+    echo "---"
+} >> "$CHAIN_LOG" 2>&1
+
+echo "==> Desktop Mode (Xorg VT): tty$TTY_NUM -> DISPLAY=:$DISPLAY_NUM"
+echo "==> Log chain: $CHAIN_LOG"
+echo "==> Log Xorg:  $XORG_LOG"
+
+SNAPSHOT_ARGS=""
+[ "$SNAPSHOT" = "1" ] && SNAPSHOT_ARGS="--snapshot"
+
+# desktop_mode_xorg_vt_v4: quitado openvt. startx hace el VT switch
+# con 'vtN' como argumento del servidor. Es el patron canonico
+# (RetroPie, Kodi, Steam Big Picture).
+echo "[step 1/3] lanzando xinit -> Xorg :$DISPLAY_NUM en vt$TTY_NUM..." | tee -a "$CHAIN_LOG"
+
+# desktop_mode_xorg_vt_v9: el cliente Python va envuelto en un script
+# temporal. Motivo: startx/xinit parsean las `--` del cliente como
+# separador cliente/servidor, y nuestro cliente las lleva
+# (--inside-cage, --vm-dir). Con el script intermedio, el parser solo
+# ve UN argumento (la ruta del script), y no se confunde.
+CLIENT_SCRIPT="/tmp/desktop-mode-client-$$.sh"
+# desktop_mode_xorg_vt_v12: el script cliente configura xrandr antes
+# de arrancar QEMU, para evitar el "spanning desktop" de Xorg (que
+# une los dos monitores en un framebuffer gigante). Valor de $MONITOR:
+#   - "last"   -> usar solo el ultimo monitor conectado (default)
+#   - "extend" -> usar todos los monitores (comportamiento antiguo)
+#   - "HDMI-1" -> usar ese monitor concreto (nombre de xrandr)
+cat > "$CLIENT_SCRIPT" <<CLIENT_EOF
+#!/bin/bash
+
+# Esperar a que Xorg termine de configurar los outputs.
+sleep 1
+
+# Configurar xrandr segun \$MONITOR.
+if command -v xrandr >/dev/null 2>&1; then
+    if [ "$MONITOR" = "last" ]; then
+        # Elegir el ultimo output de la lista de monitores.
+        MONITORS=\$(xrandr --listmonitors | awk 'NR>1 {print \$NF}')
+        LAST_MON=\$(echo "\$MONITORS" | tail -1)
+        if [ -n "\$LAST_MON" ]; then
+            for m in \$MONITORS; do
+                if [ "\$m" = "\$LAST_MON" ]; then
+                    xrandr --output "\$m" --auto 2>/dev/null || true
+                else
+                    xrandr --output "\$m" --off 2>/dev/null || true
+                fi
+            done
+        fi
+    elif [ "$MONITOR" != "extend" ] && [ -n "$MONITOR" ]; then
+        # Nombre concreto de output: usar solo ese.
+        MONITORS=\$(xrandr --listmonitors | awk 'NR>1 {print \$NF}')
+        for m in \$MONITORS; do
+            if [ "\$m" = "$MONITOR" ]; then
+                xrandr --output "\$m" --auto 2>/dev/null || true
+            else
+                xrandr --output "\$m" --off 2>/dev/null || true
+            fi
+        done
+    fi
+    # extend: no toca xrandr, mantiene spanning.
+fi
+
+matchbox-window-manager -use_titlebar no -use_desktop_mode no &
+sleep 1
+python3 "$LAUNCHER" --inside-cage --vm-dir "$VM_DIR" $SNAPSHOT_ARGS
+CLIENT_EOF
+chmod +x "$CLIENT_SCRIPT"
+chown "$TARGET_UID:$TARGET_GID" "$CLIENT_SCRIPT"
+
+# desktop_mode_audio_pin_sink_v1_wrapper:
+# Detectar el sink real de PipeWire ANTES de cambiar de VT.
+# Cuando WirePlumber detecta un cambio de VT activa, sustituye
+# el default sink por Dummy Output. Fijando PULSE_SINK aqui,
+# QEMU queda clavado al sink real y no lo sigue.
+REAL_SINK=""
+if command -v pactl >/dev/null 2>&1; then
+    REAL_SINK=$(
+        XDG_RUNTIME_DIR="/run/user/$TARGET_UID" \
+        PULSE_SERVER="unix:/run/user/$TARGET_UID/pulse/native" \
+        pactl list short sinks 2>/dev/null \
+        | awk '$2 !~ /Dummy/ && $2 !~ /auto_null/ {print $2; exit}'
+    )
+fi
+if [ -n "$REAL_SINK" ]; then
+    echo "==> Desktop Mode: sink de audio fijado a $REAL_SINK" | tee -a "$CHAIN_LOG"
+else
+    echo "[AVISO] Desktop Mode: no se detecto sink real; audio usara el default." | tee -a "$CHAIN_LOG"
+fi
+
+# desktop_mode_xdg_session_id_v1_11
+GRAPHICAL_SID=""
+if command -v loginctl >/dev/null 2>&1; then
+    for sid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+        s_user=$(loginctl show-session "$sid" -p Name --value 2>/dev/null)
+        s_type=$(loginctl show-session "$sid" -p Type --value 2>/dev/null)
+        if [ "$s_user" = "$TARGET_USER" ] && [ "$s_type" != "tty" ] && [ "$s_type" != "unspecified" ]; then
+            GRAPHICAL_SID="$sid"
+            break
+        fi
+    done
+fi
+if [ -n "$GRAPHICAL_SID" ]; then
+    echo "==> Desktop Mode: sesion grafica=$GRAPHICAL_SID" | tee -a "$CHAIN_LOG"
+fi
+
+set +e
+setpriv \
+    --reuid="$TARGET_UID" \
+    --regid="$TARGET_GID" \
+    --groups="$USER_GROUPS" \
+env HOME="$TARGET_HOME" \
+    USER="$TARGET_USER" \
+    LOGNAME="$TARGET_USER" \
+    SHELL=/bin/bash \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    XDG_RUNTIME_DIR="/run/user/$TARGET_UID" \
+    XDG_SESSION_TYPE=x11 \
+    XDG_SESSION_ID="${GRAPHICAL_SID:-}" \
+    PULSE_SERVER="unix:/run/user/$TARGET_UID/pulse/native" \
+    PULSE_SINK="${REAL_SINK:-}" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$TARGET_UID/bus" \
+    GDK_BACKEND=x11 \
+    QT_QPA_PLATFORM=xcb \
+    VM_DESKTOP_MODE_FULLSCREEN=1 \
+xinit "$CLIENT_SCRIPT" \
+    -- "$XORG_BIN" ":$DISPLAY_NUM" "vt$TTY_NUM" \
+        -keeptty -nolisten tcp -noreset \
+    >> "$CHAIN_LOG" 2>&1
+RC=$?
+set -e
+rm -f "$CLIENT_SCRIPT"
+
+# desktop_mode_xorg_vt_v8: Xorg rechaza -logfile cuando corre con
+# privilegios elevados (proteccion contra symlink). Escribe en
+# /var/log/Xorg.$DISPLAY_NUM.log. Como el wrapper es root, copiamos
+# ese log a una ruta que el usuario si pueda leer.
+XORG_DEFAULT_LOG="/var/log/Xorg.${DISPLAY_NUM}.log"
+if [ -f "$XORG_DEFAULT_LOG" ]; then
+    cp -f "$XORG_DEFAULT_LOG" "$XORG_LOG" 2>/dev/null || true
+    chown "$TARGET_UID:$TARGET_GID" "$XORG_LOG" 2>/dev/null || true
+    chmod 0644 "$XORG_LOG" 2>/dev/null || true
+fi
+
+echo "[step 3/3] Desktop Mode finalizado (rc=$RC)." | tee -a "$CHAIN_LOG"
+
+if [ -n "$GRAPHICAL_TTY" ]; then
+    chvt "$GRAPHICAL_TTY" 2>/dev/null || true
+fi
+
+exit $RC

@@ -59,8 +59,15 @@ def socket_path(vm_dir: str, protocol: str) -> str:
 
 
 # --- Argumentos QEMU ---------------------------------------------------------
-def qemu_console_args(vm_dir: str, protocol: str, mode: str) -> tuple:
+def qemu_console_args(vm_dir: str, protocol: str, mode: str,
+                     clipboard_on: bool = False) -> tuple:
     """Devuelve (args_qemu, info) para el protocolo/modo elegidos.
+
+    clipboard_on (marcador clipboard_full_v1): si es True y el
+    protocolo es VNC, se anade ,clipboard=on al -vnc. Sin ese
+    flag, QEMU no conecta el chardev qemu-vdagent al servidor
+    VNC y el clipboard queda inerte. SPICE no lo necesita: el
+    chardev spicevmc ya esta enganchado al servidor por si solo.
 
     info = {"protocol": ..., "mode": ..., "socket": ...}
 
@@ -71,6 +78,12 @@ def qemu_console_args(vm_dir: str, protocol: str, mode: str) -> tuple:
         la diferencia es quién se conecta: el widget o un visor externo.
     """
     info = {"protocol": protocol, "mode": mode, "socket": ""}
+    # clipboard_vnc_flag_removed_v1: NO anadir ,clipboard=on al
+    # -vnc. Ese flag existe solo en QEMU 9.0+; en 8.2.2 aborta
+    # el arranque con "Invalid parameter 'clipboard'". El
+    # clipboard por VNC va por el chardev qemu-vdagent (que ya
+    # emite workers._clipboard_qemu_args), sin flag en -vnc.
+    _vnc_clip = ""
 
     if mode == MODE_NATIVE:
         return "", info
@@ -282,6 +295,73 @@ def find_viewer(protocol: str):
     return None, None
 
 
+# --- Eleccion de visor externo (marcador: console_viewer_choice_v1) ---------
+# Listas ordenadas de visores por protocolo, con sus plantillas de
+# argumentos. Se usan para:
+#   1. El submenu del boton "Ventana externa".
+#   2. Guardar/elegir el preferido en QSettings.
+
+VNC_VIEWER_CANDIDATES = (
+    ("gvncviewer",      ["{sock}"]),
+    ("vncviewer",       ["{sock}"]),
+    ("tigervnc-viewer", ["{sock}"]),
+)
+
+SPICE_VIEWER_CANDIDATES = (
+    ("spicy",         ["--host=127.0.0.1", "--port={port}"]),
+    ("remote-viewer", ["{uri}"]),
+    # NOTA: NO incluir "virt-viewer". Ese binario pertenece al mismo
+    # paquete que remote-viewer pero su proposito es distinto: es un
+    # cliente de consola libvirt que espera un nombre de dominio
+    # (virt-viewer -c qemu:///system <dominio>), NO una URI. Si se
+    # le pasa una URI spice:// falla al arrancar.
+    # Marcador: console_viewer_choice_v1_rev2
+)
+
+
+def list_installed_vnc_viewers():
+    """[(name, path, template), ...] de visores VNC instalados."""
+    out = []
+    for name, template in VNC_VIEWER_CANDIDATES:
+        path = shutil.which(name)
+        if path:
+            out.append((name, path, list(template)))
+    return out
+
+
+def list_installed_spice_viewers():
+    """[(name, path, template), ...] de visores SPICE instalados."""
+    out = []
+    for name, template in SPICE_VIEWER_CANDIDATES:
+        path = shutil.which(name)
+        if path:
+            out.append((name, path, list(template)))
+    return out
+
+
+def find_viewer_by_name(protocol: str, name: str):
+    """(path, template) para el visor `name`, o (None, None).
+
+    Marcador: console_viewer_choice_v1.
+    """
+    if not name:
+        return None, None
+    if protocol == PROTOCOL_VNC:
+        candidates = VNC_VIEWER_CANDIDATES
+    elif protocol == PROTOCOL_SPICE:
+        candidates = SPICE_VIEWER_CANDIDATES
+    else:
+        return None, None
+    for cand_name, template in candidates:
+        if cand_name != name:
+            continue
+        path = shutil.which(cand_name)
+        if path:
+            return path, list(template)
+        return None, None
+    return None, None
+
+
 # --- Capacidades del host ----------------------------------------------------
 def embedded_spice_available() -> bool:
     """True si spice-gtk tiene binding Python (gi.repository.SpiceClientGtk)."""
@@ -400,3 +480,9 @@ def can_embed_spice() -> bool:
     if not is_x11_session():
         return False
     return embedded_spice_available()
+
+
+# clipboard_full_v1
+
+
+# clipboard_vnc_flag_removed_v1

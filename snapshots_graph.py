@@ -206,14 +206,13 @@ class SnapshotsGraphView(QGraphicsView):
             return
         super().wheelEvent(event)
 
-    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
-    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
+    # snapshots_graph_zoom_buttons_v1: reset_zoom y fit_all ya no son
+    # dead code — los invocan los botones de zoom de la pestaña
+    # Snapshots (añadidos en virtual_machine.py con el mismo marcador).
     def reset_zoom(self):
         self.resetTransform()
         self._zoom = 1.0
 
-    # d2b_dead_candidate_v1: sin referencias estáticas en el repo a
-    # fecha 2026-10-06. Ver AUDITORIA.md §3. Revisar antes de borrar.
     def fit_all(self):
         rect = self._scene.itemsBoundingRect()
         if rect.isNull() or rect.isEmpty():
@@ -222,6 +221,21 @@ class SnapshotsGraphView(QGraphicsView):
         rect = rect.adjusted(-margin, -margin, margin, margin)
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
         self._zoom = self.transform().m11()
+
+    # snapshots_graph_zoom_buttons_v1: botones de zoom +/-.
+    # Usan el mismo rango y el mismo factor que la rueda con Ctrl
+    # (0.2 a 3.0, factor 1.25), para que la interacción sea coherente.
+    def zoom_in(self, factor=1.25):
+        new = self._zoom * factor
+        if new <= 3.0:
+            self._zoom = new
+            self.scale(factor, factor)
+
+    def zoom_out(self, factor=1/1.25):
+        new = self._zoom * factor
+        if new >= 0.2:
+            self._zoom = new
+            self.scale(factor, factor)
 
     # ------------------------------------------------------------- rebuild
 

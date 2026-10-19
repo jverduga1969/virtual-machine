@@ -43,6 +43,124 @@ class SnapshotsMixin:
         except Exception:
             return {}
 
+    def _snapshot_raw_vm_size(self, tag):
+        # vm_size crudo del snapshot (p.ej. 6.0 GiB), o None.
+        if not tag:
+            return None
+        try:
+            for line in self._snapshot_list():
+                parsed = self._parse_snapshot_line(line)
+                if parsed and parsed[1] == tag:
+                    return (parsed[2] or "").strip() or None
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _parse_vm_size_gib(raw):
+        # Convierte vm_size (6.0 GiB, 6000 MiB) a GiB, o None.
+        import re as _re
+        if not raw:
+            return None
+        m = _re.match(r"^\s*([0-9]*\.?[0-9]+)\s*([A-Za-z]+)\s*$", str(raw))
+        if not m:
+            return None
+        try:
+            n = float(m.group(1))
+        except Exception:
+            return None
+        u = m.group(2).upper()
+        if u in ("GIB", "G"):
+            return n
+        if u in ("MIB", "M"):
+            return n / 1024.0
+        if u in ("KIB", "K"):
+            return n / (1024.0 * 1024.0)
+        if u in ("TIB", "T"):
+            return n * 1024.0
+        if u == "B":
+            return n / (1024.0 ** 3)
+        return None
+
+    def _snapshot_vmstate_gib(self, tag):
+        # RAM del vmstate del snapshot en GiB, o None.
+        return self._parse_vm_size_gib(self._snapshot_raw_vm_size(tag))
+
+    def _vm_config_ram_gib(self):
+        # RAM configurada para la VM actual, en GiB, o None.
+        import re as _re
+        if not self.current_vm_dir:
+            return None
+        try:
+            cfg = self._load_vm_config_cached(self.current_vm_dir)
+        except Exception:
+            return None
+        ram = str(cfg.get("ram") or "").strip().upper()
+        if not ram:
+            return None
+        m = _re.match(r"^([0-9]+)\s*(G|M|GB|MB)?$", ram)
+        if not m:
+            return None
+        try:
+            n = int(m.group(1))
+        except Exception:
+            return None
+        u = (m.group(2) or "G").upper()
+        return n / 1024.0 if u in ("M", "MB") else float(n)
+
+    def _show_ram_mismatch_dialog(self, tag, snap_gib, vm_gib):
+        # Dialogo especifico de mismatch de RAM.
+        if snap_gib is not None and vm_gib is not None:
+            body = self.tr(
+                "El snapshot {0} se guardó con <b>{1:.1f} GiB</b> "
+                "de RAM, pero la VM está configurada ahora con "
+                "<b>{2:.1f} GiB</b>.<br><br>"
+                "QEMU no puede cargar un estado de RAM sobre una "
+                "cantidad de memoria distinta. No es un bug de la app "
+                "ni del motor: es una comprobación explícita de QEMU.<br><br>"
+                "Cómo resolverlo:<br>"
+                "&nbsp;&nbsp;• Ajusta la RAM de la VM en "
+                "<b>Configuración VM → Sistema</b> a {1:.1f} GiB, "
+                "pulsa Guardar y reintenta.<br>"
+                "&nbsp;&nbsp;• O elimina este snapshot y crea uno "
+                "nuevo con la RAM actual."
+            ).format(tag, snap_gib, vm_gib)
+        else:
+            body = self.tr(
+                "El snapshot {0} se guardó con una cantidad de RAM "
+                "distinta a la que tiene ahora la VM.<br><br>"
+                "QEMU no puede cargar un estado de RAM sobre una "
+                "cantidad de memoria distinta.<br><br>"
+                "Cómo resolverlo:<br>"
+                "&nbsp;&nbsp;• Revisa la RAM de la VM en "
+                "<b>Configuración VM → Sistema</b> y ajústala al "
+                "valor con el que se creó el snapshot.<br>"
+                "&nbsp;&nbsp;• O elimina este snapshot y crea uno "
+                "nuevo con la RAM actual."
+            ).format(tag)
+        box = QMessageBox(self)
+        box.setWindowTitle(self.tr("Snapshot incompatible: RAM distinta"))
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(body)
+        box.addButton(QMessageBox.StandardButton.Ok)
+        box.exec()
+
+    def _preflight_ram_mismatch(self, tag):
+        # Compara RAM del snapshot con la actual. ok/mismatch/unknown.
+        if not tag:
+            return "unknown"
+        try:
+            if self._snapshot_is_disk_only(tag):
+                return "ok"
+        except Exception:
+            pass
+        snap_gib = self._snapshot_vmstate_gib(tag)
+        vm_gib = self._vm_config_ram_gib()
+        if snap_gib is None or vm_gib is None:
+            return "unknown"
+        return "ok" if abs(snap_gib - vm_gib) <= 0.7 else "mismatch"
+
     def _snapshot_is_disk_only(self, tag):
         """True si el snapshot no guarda RAM (solo disco).
 
@@ -1621,14 +1739,6 @@ class SnapshotsMixin:
             return
 
         # 2) Barra inline (fallback si no hay diálogo).
-        try:
-            if hasattr(self, "snapshot_progress_label"):
-                self.snapshot_progress_label.setText(clean)
-            if pct is not None and hasattr(self, "snapshot_progress_bar"):
-                self.snapshot_progress_bar.setRange(0, 100)
-                self.snapshot_progress_bar.setValue(pct)
-        except Exception:
-            pass
 
 
     def _create_live_disk_only_snapshot(self, name, readiness):
@@ -1664,6 +1774,72 @@ class SnapshotsMixin:
     # estado pero no puede reconstruirlo ("Failed to load element of type
     # virtio for virtio"). QXL y VGA estándar sí funcionan.
 
+    def _vm_has_nvme_for_snapshots(self):
+        """True si algún disco elegible usa NVMe en el bus real.
+
+        Marcador: snapshot_nvme_guard_v1_detect.
+
+        QEMU no puede migrar el controlador `nvme`: intentar un snapshot
+        completo aborta con:
+          State blocked by non-migratable device 'XXXX:XX:XX.X/nvme'
+
+        La detección usa disk_bus.resolve_disk_bus_for_device, que es la
+        MISMA fuente de verdad que workers._disk_runtime_args. Así el
+        guard siempre coincide con el bus que QEMU realmente usará.
+        """
+        if not self.current_vm_dir:
+            return False
+        try:
+            from disk_bus import resolve_disk_bus_for_device
+        except Exception:
+            return False
+        # Leer SO / win_ver de la config de la VM.
+        try:
+            cfg = self._load_vm_config_cached(self.current_vm_dir)
+        except Exception:
+            return False
+        os_type = str(cfg.get("os_type") or "linux").lower()
+        win_ver = str((cfg.get("extra") or {}).get("win_ver") or "")
+        chipset = str(cfg.get("chipset") or "pc").lower()
+        chipset_is_q35 = ("q35" in chipset)
+        try:
+            disks = self._snapshot_candidate_disks() or []
+        except Exception:
+            return False
+        for d in disks:
+            if not isinstance(d, dict):
+                continue
+            # Usar el "device" real (sata/nvme/floppy) y el bus_hint
+            # guardado en storage_devices, si existe.
+            dev_entry = {
+                "device": str(d.get("device") or "sata").lower(),
+                "bus_hint": "auto",
+            }
+            # Buscar el bus_hint original en storage_devices.
+            try:
+                for _sd in self._storage_devices_all(self.current_vm_dir):
+                    if not isinstance(_sd, dict):
+                        continue
+                    if (os.path.abspath(str(_sd.get("path") or ""))
+                            == os.path.abspath(str(d.get("path") or ""))):
+                        dev_entry["bus_hint"] = str(
+                            _sd.get("bus_hint") or "auto"
+                        ).lower()
+                        dev_entry["device"] = str(
+                            _sd.get("device") or "sata"
+                        ).lower()
+                        break
+            except Exception:
+                pass
+            bus = resolve_disk_bus_for_device(
+                dev_entry, os_type=os_type, win_ver=win_ver,
+                chipset_is_q35=chipset_is_q35,
+            )
+            if bus == "nvme":
+                return True
+        return False
+
+
     def _vm_graphics_mode(self):
         """Devuelve el modo de gráficos actual de la VM (o None)."""
         if not self.current_vm_dir:
@@ -1685,6 +1861,241 @@ class SnapshotsMixin:
         # uno de ellos en la mayoría de configs Linux.
         return mode in ("virtio", "virgl", "venus", "auto")
 
+    # ------------------------------------------------------------------
+    # Detección unificada de bloqueadores de snapshot completo
+    # ------------------------------------------------------------------
+    # Marcador: snapshot_blockers_v1
+    #
+    # Antes los guards eran una cascada de elif en create_snapshot_from_page
+    # y en _pause_with_snapshot: si la VM tenía NVMe Y clipboard activo,
+    # el usuario arreglaba NVMe, volvía a intentarlo, y entonces aparecía
+    # el de clipboard. Este helper acumula TODOS los motivos y el
+    # diálogo los muestra juntos.
+
+    def _vm_has_clipboard_vdagent_for_snapshots(self):
+        """True si la VM emite un chardev vdagent (spicevmc/qemu-vdagent).
+
+        Marcador: snapshot_vdagent_guard_v1_detect
+
+        El chardev del clipboard NO soporta migración. Intentar un
+        snapshot completo aborta con:
+          The vdagent chardev doesn't yet support migration
+
+        La detección replica workers._clipboard_qemu_args() para saber
+        si el chardev se va a emitir en el arranque:
+
+          • clipboard desactivado           -> no hay chardev.
+          • macOS / Android                 -> workers omite el canal.
+          • console_mode == "native"        -> clipboard va por
+                                              -display gtk,clipboard=on,
+                                              no hay chardev.
+          • resto (embedded/external/...)   -> chardev vdagent presente.
+        """
+        if not self.current_vm_dir:
+            return False
+        try:
+            cfg = self._load_vm_config_cached(self.current_vm_dir)
+        except Exception:
+            return False
+        os_type = str(cfg.get("os_type") or "linux").lower()
+        if os_type not in ("linux", "windows"):
+            return False
+        extra = cfg.get("extra") or {}
+        clipboard = extra.get("clipboard") or {}
+        if not isinstance(clipboard, dict):
+            return False
+        if str(clipboard.get("mode", "disabled")).lower() == "disabled":
+            return False
+        _mode = str(extra.get("console_mode") or "").lower()
+        if not _mode:
+            _mode = "embedded" if extra.get("vnc_embedded", True) else "native"
+        if _mode == "native":
+            return False
+        return True
+
+    def _snapshot_blockers(self):
+        """Devuelve la lista de motivos por los que NO se puede crear un
+        snapshot completo (RAM + dispositivos) de la VM actual.
+
+        Marcador: snapshot_blockers_v1
+
+        Cada elemento es un dict:
+          {
+            "key":    str,  # identificador para logs
+            "label":  str,  # etiqueta corta (negrita en el diálogo)
+            "detail": str,  # explicación larga
+            "fix":    str,  # qué hacer para desbloquearlo
+          }
+
+        Los motivos son ACUMULATIVOS: una VM con NVMe Y clipboard
+        activo muestra los dos a la vez, en un solo diálogo.
+        """
+        blockers = []
+
+        # --- 1. Clon enlazado -----------------------------------------
+        try:
+            if self._is_linked_clone():
+                blockers.append({
+                    "key": "linked_clone",
+                    "label": self.tr("Clon enlazado"),
+                    "detail": self.tr(
+                        "La VM es un clon enlazado (backing file QCOW2). "
+                        "QEMU no puede restaurar snapshots completos "
+                        "sobre un QCOW2 con backing file: al hacer "
+                        "loadvm aborta con una aserción interna "
+                        "(vmstate_load_next)."
+                    ),
+                    "fix": self.tr(
+                        "Usa '\U0001f9ec Desenlazar' en Resumen para "
+                        "independizar el clon, o crea solo snapshots "
+                        "de disco."
+                    ),
+                })
+        except Exception:
+            pass
+
+        # --- 2. NVMe ---------------------------------------------------
+        try:
+            if self._vm_has_nvme_for_snapshots():
+                blockers.append({
+                    "key": "nvme",
+                    "label": self.tr("Disco en bus NVMe"),
+                    "detail": self.tr(
+                        "Al menos un disco usa el bus NVMe. QEMU no "
+                        "puede migrar el controlador nvme: el snapshot "
+                        "aborta con 'State blocked by non-migratable "
+                        "device .../nvme'."
+                    ),
+                    "fix": self.tr(
+                        "Cambia el bus del disco a 'SATA/AHCI' o "
+                        "'VirtIO-BLK' en Configuración -> Almacenamiento."
+                    ),
+                })
+        except Exception:
+            pass
+
+        # --- 3. Gráficos incompatibles ---------------------------------
+        try:
+            if self._vm_graphics_is_problematic_for_snapshots():
+                _mode = self._vm_graphics_mode() or "auto"
+                try:
+                    _name = self._graphics_mode_display_name()
+                except Exception:
+                    _name = _mode
+                blockers.append({
+                    "key": "graphics",
+                    "label": self.tr("Gráficos {0}").format(_name),
+                    "detail": self.tr(
+                        "Los gráficos '{0}' no permiten restaurar "
+                        "snapshots completos: QEMU guarda su estado "
+                        "pero no puede reconstruirlo al hacer loadvm."
+                    ).format(_mode),
+                    "fix": self.tr(
+                        "Cambia 'Gráficos / GPU' a 'Red Hat QXL 2D', "
+                        "'VMware SVGA II' o 'VGA estándar' y reinicia "
+                        "la VM."
+                    ),
+                })
+        except Exception:
+            pass
+
+        # --- 4. Clipboard / vdagent ------------------------------------
+        try:
+            if self._vm_has_clipboard_vdagent_for_snapshots():
+                blockers.append({
+                    "key": "clipboard",
+                    "label": self.tr("Clipboard (chardev vdagent)"),
+                    "detail": self.tr(
+                        "La VM tiene el clipboard activado con consola "
+                        "VNC o SPICE, así que QEMU añade un chardev "
+                        "spicevmc / qemu-vdagent. Ese chardev no "
+                        "soporta migración: el snapshot aborta con "
+                        "'The vdagent chardev doesn't yet support "
+                        "migration'."
+                    ),
+                    "fix": self.tr(
+                        "Desactiva el clipboard en Configuración -> "
+                        "Integración Host <-> Guest, o cambia la consola "
+                        "a 'Ventana nativa de QEMU' (el clipboard de "
+                        "GTK no usa chardev)."
+                    ),
+                })
+        except Exception:
+            pass
+
+        return blockers
+
+    def _show_snapshot_blockers_dialog(self, blockers, mode="create"):
+        """Diálogo único con TODOS los motivos por los que no se puede
+        crear un snapshot completo.
+
+        Marcador: snapshot_blockers_v1_dialog
+
+        mode = "create" -> pestaña Snapshots.
+        mode = "pause"  -> botón "Guardar estado y pausar".
+
+        Devuelve True si el usuario acepta crear solo-disco.
+        """
+        if not blockers:
+            return True
+        _box = QMessageBox(self)
+        if mode == "pause":
+            _box.setWindowTitle(
+                self.tr("Guardar estado: solo de discos"))
+        else:
+            _box.setWindowTitle(
+                self.tr("Snapshot completo no disponible"))
+        _box.setIcon(QMessageBox.Icon.Information)
+        _box.setTextFormat(Qt.TextFormat.RichText)
+
+        _parts = [self.tr(
+            "No se puede guardar el <b>estado completo</b> de esta VM "
+            "(RAM + dispositivos) porque:"
+        ), "<ul>"]
+        for b in blockers:
+            _parts.append(
+                "<li><b>{0}</b><br>{1}<br><i>{2}</i></li>".format(
+                    b.get("label") or "",
+                    b.get("detail") or "",
+                    b.get("fix") or "",
+                )
+            )
+        _parts.append("</ul>")
+
+        if mode == "pause":
+            _parts.append(self.tr(
+                "Se creará un snapshot <b>SOLO DE DISCOS</b> y se "
+                "pausará la VM:<br>"
+                "&nbsp;&nbsp;• Restaurable con la VM apagada.<br>"
+                "&nbsp;&nbsp;• NO se guarda RAM ni ventanas.<br>"
+                "&nbsp;&nbsp;• La VM queda pausada igualmente.<br><br>"
+                "¿Continuar?"
+            ))
+        else:
+            _parts.append(self.tr(
+                "Se creará un snapshot <b>SOLO DE DISCOS</b> en su "
+                "lugar:<br>"
+                "&nbsp;&nbsp;• Restaurable con la VM apagada.<br>"
+                "&nbsp;&nbsp;• NO se guarda RAM ni ventanas.<br><br>"
+                "¿Crear el snapshot solo de discos?"
+            ))
+
+        _box.setText("".join(_parts))
+        _btn_ok = _box.addButton(QMessageBox.StandardButton.Ok)
+        _btn_cancel = _box.addButton(QMessageBox.StandardButton.Cancel)
+        try:
+            _btn_ok.setText(self.tr("Crear solo de discos"))
+        except Exception:
+            pass
+        _box.setDefaultButton(_btn_cancel)
+        _box.exec()
+        return _box.clickedButton() is _btn_ok
+
+
+    # d2b_dead_candidate_v1: sin referencias estáticas en el repo
+    # a fecha 2026-10-08. DECISIÓN: CONSERVAR por si se quiere
+    # llamar desde otro sitio en el futuro (por ejemplo, un
+    # pre-aviso opcional activable por preferencia). NO se borra.
     def _warn_virtio_gpu_snapshot(self):
         """Avisa si los gráficos actuales impiden RESTAURAR snapshots completos.
 
@@ -1744,13 +2155,16 @@ class SnapshotsMixin:
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-        # Avisar si los gráficos actuales harán que el snapshot no
-        # se pueda restaurar (virtio-gpu, virgl, venus).
-        try:
-            if not self._warn_virtio_gpu_snapshot():
-                return
-        except Exception:
-            pass
+        # snapshot_gfx_guard_v1_remove_prewarn: se eliminó la llamada
+        # a _warn_virtio_gpu_snapshot() aquí. Antes aparecía ANTES del
+        # diálogo del nombre, lo cual era confuso (el usuario todavía
+        # no sabía qué iba a crear). El aviso específico de gráficos
+        # incompatibles se muestra ahora DENTRO del flujo, después del
+        # nombre, con botones OK/Cancelar (Cancelar por defecto).
+        #
+        # El método _warn_virtio_gpu_snapshot() se conserva por si en
+        # el futuro se quiere llamar desde otro sitio, pero ya no se
+        # invoca en el camino principal de create_snapshot_from_page().
         name,ok=QInputDialog.getText(self,self.tr('Crear snapshot'),self.tr('Nombre del snapshot:'))
         if not ok or not name.strip(): return
         name=name.strip().replace(' ','_')
@@ -1769,39 +2183,34 @@ class SnapshotsMixin:
         self._snapshot_log(f"[SNAPSHOT] QCOW2 escribibles incluidos: {len(readiness['eligible'])}")
         for d in readiness['eligible']:
             self._snapshot_log(f"[SNAPSHOT]   • {d['name']} | {self._format_bytes(d.get('virtual_size',0))} | archivo: {self._format_bytes(d.get('actual_size',-1))} | libre host: {self._format_bytes(d.get('free',-1))}")
-        # Clon enlazado (marcador linked_clone_snapshot_v1): QEMU no
-        # puede restaurar snapshots completos (RAM + dispositivos)
-        # sobre un QCOW2 con backing file. Falla con una aserción en
-        # vmstate_load_next y mata el proceso QEMU. Forzamos solo-disco.
-        _linked_force_disk = False
-        try:
-            _linked_force_disk = self._is_linked_clone()
-        except Exception:
-            _linked_force_disk = False
 
+        # snapshot_blockers_v1: lista unificada de motivos por los que
+        # no se puede crear un snapshot completo (RAM + dispositivos).
+        # Si hay >=1, un solo diálogo los muestra TODOS juntos, con
+        # OK/Cancelar (Cancelar por defecto). Si no hay bloqueadores,
+        # sigue saliendo el QMessageBox.question de siempre.
         try:
             if state in ('running','paused'):
-                if _linked_force_disk:
-                    self._snapshot_log("[SNAPSHOT] Clon enlazado: se omite el diálogo de snapshot completo; forzando SOLO DISCOS.")
-                    self._snapshot_log("[SNAPSHOT] Causa: QEMU no puede restaurar snapshots completos sobre un QCOW2 con backing file (aserción en vmstate_load_next).")
-                    try:
-                        QMessageBox.information(
-                            self,
-                            self.tr("Clon enlazado: snapshot solo de discos"),
-                            self.tr(
-                                "Esta VM es un clon enlazado (backing file QCOW2).\n\n"
-                                "QEMU no puede crear/restaurar snapshots completos\n"
-                                "(RAM + dispositivos) sobre un QCOW2 con backing\n"
-                                "file: al hacer loadvm QEMU aborta con una aserción\n"
-                                "interna (vmstate_load_next).\n\n"
-                                "Por seguridad se creará un snapshot SOLO DE DISCOS,\n"
-                                "que sí se puede restaurar con la VM apagada.\n\n"
-                                "Si necesitas un snapshot completo, desenlaza\n"
-                                "primero el clon (🧬 Desenlazar)."
-                            )
+                _blockers = self._snapshot_blockers()
+                if _blockers:
+                    self._snapshot_log(
+                        "[SNAPSHOT] Bloqueadores detectados para snapshot "
+                        "completo: "
+                        + ", ".join(b["key"] for b in _blockers)
+                    )
+                    for _b in _blockers:
+                        self._snapshot_log(
+                            f"[SNAPSHOT]   \u2022 {_b['label']}: {_b['detail']}"
                         )
-                    except Exception:
-                        pass
+                    _confirmed = self._show_snapshot_blockers_dialog(
+                        _blockers, mode="create"
+                    )
+                    if not _confirmed:
+                        self._snapshot_log(
+                            "[SNAPSHOT] Creación cancelada por el usuario "
+                            "(bloqueadores detectados)."
+                        )
+                        return
                     choice = QMessageBox.StandardButton.No
                 else:
                     choice = QMessageBox.question(
@@ -1924,6 +2333,22 @@ class SnapshotsMixin:
             )
             return
 
+        # snapshot_dialog_cleanup_v1: si quedó un TaskProgressDialog de
+        # una operación anterior sin destruir, destruirlo AHORA antes de
+        # crear el nuevo.
+        _old_dlg = getattr(self, "_snapshot_progress_dialog", None)
+        if _old_dlg is not None:
+            try:
+                _old_dlg.setAttribute(
+                    __import__("PyQt6.QtCore", fromlist=["Qt"]).Qt
+                        .WidgetAttribute.WA_DeleteOnClose,
+                    True,
+                )
+                _old_dlg.close()
+            except Exception:
+                pass
+            self._snapshot_progress_dialog = None
+
         worker = SnapshotOperationWorker(
             self, vm_dir, command, arguments, operation_label,
             timeout=1800, parent=self,
@@ -1932,7 +2357,7 @@ class SnapshotsMixin:
         self._snapshot_operation_tag = tag
         self._snapshot_operation_mode = mode
 
-        # --- Diálogo modal de progreso (mismo widget que ISO) ---
+        # --- Diálogo de progreso: crear uno solo y reutilizarlo ---
         subtitle = (
             self.tr(
                 "La operación se ejecuta en segundo plano; la interfaz sigue "
@@ -1940,21 +2365,65 @@ class SnapshotsMixin:
             )
         )
         try:
-            dlg = TaskProgressDialog(
-                self.tr("Snapshot — {0}").format(operation_label),
-                self,
-                cancelable=False,
-                show_log=True,
-                subtitle=subtitle,
-            )
-            dlg.set_progress(-1, "Iniciando…")
-            self._snapshot_progress_dialog = dlg
-            # Conectar el log del worker al diálogo (append en vivo).
-            worker.log_signal.connect(dlg.append_log)
+            # snapshot_reuse_dialog_v1: si ya existe un diálogo de una
+            # operación anterior, reutilizarlo. Si no, crearlo una vez.
+            dlg = getattr(self, "_snapshot_progress_dialog", None)
+            if dlg is None:
+                dlg = TaskProgressDialog(
+                    self.tr("Snapshot — {0}").format(operation_label),
+                    self,
+                    cancelable=False,
+                    show_log=True,
+                    subtitle=subtitle,
+                )
+                self._snapshot_progress_dialog = dlg
+                # Conexión del log del worker al diálogo: solo la primera
+                # vez (si reconectamos en cada operación, se acumulan).
+                try:
+                    worker.log_signal.connect(dlg.append_log)
+                except Exception:
+                    pass
+            else:
+                # Reutilizar: resetear estado y actualizar título/subtítulo.
+                try:
+                    dlg.setWindowTitle(
+                        self.tr("Snapshot — {0}").format(operation_label)
+                    )
+                except Exception:
+                    pass
+                try:
+                    dlg.reset(subtitle=subtitle)
+                except Exception:
+                    pass
+                # Reconectar log a esta operación (desconectar el anterior
+                # si sigue vivo, para no duplicar).
+                try:
+                    _old_worker = getattr(self, "_snapshot_last_worker", None)
+                    if _old_worker is not None:
+                        try:
+                            _old_worker.log_signal.disconnect(dlg.append_log)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    worker.log_signal.connect(dlg.append_log)
+                except Exception:
+                    pass
+            self._snapshot_last_worker = worker
+            try:
+                dlg.set_progress(-1, "Iniciando…")
+            except Exception:
+                pass
             # Mostrar el diálogo sin bloquear.
-            dlg.show()
+            try:
+                dlg.show()
+                dlg.raise_()
+                dlg.activateWindow()
+            except Exception:
+                pass
         except Exception as e:
-            log_err = f"[AVISO] No se pudo crear el diálogo de progreso: {e}"
+            log_err = f"[AVISO] No se pudo mostrar el diálogo de progreso: {e}"
             try:
                 self.log_message(log_err)
             except Exception:
@@ -1962,13 +2431,6 @@ class SnapshotsMixin:
             self._snapshot_progress_dialog = None
 
         # Ocultar la barra inline (ya no se usa durante la operación).
-        try:
-            if hasattr(self, "snapshot_progress_bar"):
-                self.snapshot_progress_bar.setVisible(False)
-            if hasattr(self, "snapshot_progress_label"):
-                self.snapshot_progress_label.setVisible(False)
-        except Exception:
-            pass
 
         # Señales del worker.
         worker.log_signal.connect(self._snapshot_log)
@@ -1983,9 +2445,13 @@ class SnapshotsMixin:
 
 
     def _finish_snapshot_progress_dialog(self, ok, tag, mode, error_msg=""):
-        """Cierra el diálogo de snapshot y restaura la barra inline.
+        """Cierra (oculta) el diálogo de snapshot y restaura la barra inline.
 
-        Se llama al terminar (éxito o error) la operación de snapshot.
+        snapshot_reuse_dialog_v1: NO se destruye el diálogo — se
+        reutiliza durante toda la sesión. Destruirlo promovía sus
+        hijos (barra de progreso, status label) a ventanas top-level
+        huérfanas durante la destrucción. Ocultar evita el problema de
+        raíz. El diálogo se limpia y reutiliza en la próxima operación.
         """
         dlg = getattr(self, "_snapshot_progress_dialog", None)
         if dlg is not None:
@@ -2004,22 +2470,22 @@ class SnapshotsMixin:
                     dlg.finish(False, error_msg or "Operación fallida.")
             except Exception:
                 pass
+            # Solo ocultar — la destrucción real la hace Qt al cerrar
+            # la app.
             try:
-                dlg.deleteLater()
+                dlg.hide()
             except Exception:
                 pass
-            self._snapshot_progress_dialog = None
 
-        # Restaurar la barra inline (que se ocultó al iniciar).
-        try:
-            if hasattr(self, "snapshot_progress_bar"):
-                self.snapshot_progress_bar.setVisible(True)
-                self.snapshot_progress_bar.setValue(0)
-            if hasattr(self, "snapshot_progress_label"):
-                self.snapshot_progress_label.setVisible(True)
-                self.snapshot_progress_label.setText("Sin operación de snapshot")
-        except Exception:
-            pass
+        # snapshot_hidden_widgets_fix_v1: NO reactivar snapshot_progress_bar
+        # ni snapshot_progress_label. Esos dos widgets fueron creados en
+        # virtual_machine.py SIN padre ni layout (el diseño los sustituyó
+        # por el TaskProgressDialog), por lo que son ventanas top-level
+        # de Qt. Llamarles setVisible(True) los hace aparecer como
+        # ventanas flotantes huérfanas en la pantalla. Se dejan ocultos
+        # para siempre; los eliminaremos del código en una limpieza
+        # posterior. Mientras tanto, solo nos aseguramos de que siguen
+        # ocultos.
 
     def _snapshot_worker_succeeded(self, result):
         tag = getattr(self, '_snapshot_operation_tag', '')
@@ -2034,10 +2500,6 @@ class SnapshotsMixin:
                     raise RuntimeError(f"El trabajo terminó, pero QEMU no muestra el snapshot '{tag}' en info snapshots.")
                 self._snapshot_log(f"[SNAPSHOT] ✓ Snapshot '{tag}' confirmado por QEMU.")
                 self._snapshot_log("[SNAPSHOT] ✓ Creación finalizada.")
-                if hasattr(self, "snapshot_progress_bar"):
-                    self.snapshot_progress_bar.setValue(100)
-                if hasattr(self, "snapshot_progress_label"):
-                    self.snapshot_progress_label.setText("Snapshot finalizado (100%).")
                 self.refresh_snapshot_page()
                 QMessageBox.information(
                     self,
@@ -2052,18 +2514,22 @@ class SnapshotsMixin:
                     self._snapshot_log("[SNAPSHOT] ✓ VM pausada.")
                 except Exception as stop_err:
                     self._snapshot_log(f"[AVISO] No se pudo pausar tras guardar: {stop_err}")
-                if hasattr(self, "snapshot_progress_bar"):
-                    self.snapshot_progress_bar.setValue(100)
-                if hasattr(self, "snapshot_progress_label"):
-                    self.snapshot_progress_label.setText("Estado guardado; VM pausada.")
                 self.refresh_snapshot_page()
-                QMessageBox.information(
-                    self, self.tr('VM pausada'),
-                    self.tr(
-                        "Estado guardado como '{0}'.\n\nLa VM quedó pausada. "
+                # snapshot_no_modal_v1: NO usar QMessageBox.information()
+                # aquí. Es modal y bloquea el bucle de eventos, lo que
+                # impide que deleteLater() del TaskProgressDialog se
+                # procese y sus hijos (barra, labels) quedan huérfanos
+                # como ventanas top-level sueltas. El mensaje ya se
+                # escribe en la consola de progreso y en el status del
+                # propio diálogo, que el usuario cierra con su botón
+                # "Cerrar".
+                try:
+                    self.log_message(
+                        f"==> Snapshot '{tag}' guardado. VM pausada. "
                         "Puedes reanudarla con el botón Pausar/Reanudar."
-                    ).format(tag),
-                )
+                    )
+                except Exception:
+                    pass
             elif mode == 'delete':
                 self._snapshot_log(f"[SNAPSHOT] ✓ Eliminación de '{tag}' finalizada.")
                 shot = self._snapshot_screenshot_path(tag) if self.current_vm_dir else ""
@@ -2105,10 +2571,6 @@ class SnapshotsMixin:
         else:
             title, action = 'Error al restaurar snapshot', self.tr('RESTAURACIÓN')
         self._snapshot_log(f"[SNAPSHOT] ✗ {action} FALLIDA: {message}")
-        if hasattr(self, "snapshot_progress_label"):
-            self.snapshot_progress_label.setText(f"{action.capitalize()} fallida")
-        if hasattr(self, "snapshot_progress_bar"):
-            self.snapshot_progress_bar.setValue(0)
         if mode == 'create' and self.current_vm_dir and tag:
             try:
                 shot = self._snapshot_screenshot_path(tag)
@@ -2298,6 +2760,83 @@ class SnapshotsMixin:
                 )
                 self.refresh_snapshot_page()
                 return
+            # snapshot_size_mismatch_v1: la RAM de la VM cambió desde
+            # que se creó el snapshot. QEMU rechaza el loadvm con:
+            #   Failed to load vmstate version_id: 4, ret: -22
+            #   Size mismatch: pc.ram: 0x180000000 != 0x100000000
+            # No es un bug de la app ni del motor: es una comprobación
+            # explícita de QEMU. Mostramos un diálogo específico con
+            # las dos salidas posibles, en lugar del error crudo.
+            # snapshot_size_mismatch_v1_qemu822_v2: el pre-check por
+            # VM_SIZE se elimino (ese valor es el vmstate COMPRIMIDO,
+            # no la RAM configurada). Se confia solo en el except.
+            # snapshot_size_mismatch_v1_qemu822_except: QEMU 8.2
+            # devuelve "Error -22 while loading VM state" cuando
+            # la RAM del vmstate no coincide con la actual.
+            if (("size mismatch" in _msg_low and "pc.ram" in _msg_low)
+                    or ("error -22" in _msg_low and "loading vm state" in _msg_low)
+                    or ("-22 while loading" in _msg_low)):
+                _snap_gib = None
+                _vm_gib = None
+                try:
+                    _m = re.search(
+                        r"pc\.ram:\s*0x([0-9a-f]+)\s*!=\s*0x([0-9a-f]+)",
+                        msg, re.I,
+                    )
+                    if _m:
+                        _snap_gib = int(_m.group(1), 16) / (1024 ** 3)
+                        _vm_gib = int(_m.group(2), 16) / (1024 ** 3)
+                except Exception:
+                    _snap_gib = _vm_gib = None
+                self._snapshot_log(
+                    f"[SNAPSHOT] La RAM de la VM cambió desde que se creó "
+                    f"'{tag}': QEMU no puede cargar el estado."
+                )
+                if _snap_gib is not None and _vm_gib is not None:
+                    _body = self.tr(
+                        "El snapshot '{0}' se guardó con "
+                        "<b>{1:.1f} GiB</b> de RAM, pero la VM está "
+                        "configurada ahora con <b>{2:.1f} GiB</b>.<br><br>"
+                        "QEMU no puede cargar un estado de RAM sobre una "
+                        "cantidad de memoria distinta. No es un bug de la "
+                        "app ni del motor: es una comprobación explícita "
+                        "de QEMU.<br><br>"
+                        "Cómo resolverlo:<br>"
+                        "&nbsp;&nbsp;• Ajusta la RAM de la VM en "
+                        "<b>Configuración VM → Sistema</b> a {1:.1f} GiB, "
+                        "pulsa Guardar y reintenta.<br>"
+                        "&nbsp;&nbsp;• O elimina este snapshot y crea uno "
+                        "nuevo con la RAM actual."
+                    ).format(tag, _snap_gib, _vm_gib)
+                else:
+                    _body = self.tr(
+                        "El snapshot '{0}' se guardó con una cantidad de "
+                        "RAM distinta a la que tiene ahora la VM.<br><br>"
+                        "QEMU no puede cargar un estado de RAM sobre una "
+                        "cantidad de memoria distinta. No es un bug de la "
+                        "app ni del motor: es una comprobación explícita "
+                        "de QEMU.<br><br>"
+                        "Cómo resolverlo:<br>"
+                        "&nbsp;&nbsp;• Revisa la RAM de la VM en "
+                        "<b>Configuración VM → Sistema</b> y ajústala al "
+                        "valor con el que se creó el snapshot.<br>"
+                        "&nbsp;&nbsp;• O elimina este snapshot y crea uno "
+                        "nuevo con la RAM actual."
+                    ).format(tag)
+                _box = QMessageBox(self)
+                _box.setWindowTitle(self.tr(
+                    "Snapshot incompatible: RAM distinta"))
+                _box.setIcon(QMessageBox.Icon.Warning)
+                _box.setTextFormat(Qt.TextFormat.RichText)
+                _box.setText(_body)
+                try:
+                    _box.setDetailedText(msg)
+                except Exception:
+                    pass
+                _box.addButton(QMessageBox.StandardButton.Ok)
+                _box.exec()
+                self.refresh_snapshot_page()
+                return
             # Caso especial: clon enlazado + snapshot completo. QEMU
             # aborta con una aserción en vmstate_load_next y el socket
             # QMP se resetea. Detectar y dar un mensaje útil.
@@ -2305,11 +2844,12 @@ class SnapshotsMixin:
                 _linked = self._is_linked_clone()
             except Exception:
                 _linked = False
+            # snapshot_gfx_guard_v1_cleanup: se eliminó la condición
+            # 'vmstate_load_next' in msg (no viaja por la excepción QMP).
             _linked_err = _linked and (
                 'Errno 104' in msg
                 or 'Conexión reinicializada' in msg
                 or 'Connection reset' in msg
-                or 'vmstate_load_next' in msg
             )
             if _linked_err:
                 self._snapshot_log(
@@ -2362,17 +2902,22 @@ class SnapshotsMixin:
             )
         self.refresh_snapshot_page()
 
-    @staticmethod
-    def _is_virtio_gpu_restore_error(msg):
-        """True si el error de QEMU corresponde a un fallo por virtio-gpu.
-
-        Se detecta por el patrón 'element of type virtio for virtio' o
-        'virtio-gpu' en el mensaje. Cuando eso ocurre, mostramos un
-        mensaje específico en lugar del genérico de QEMU.
-        """
+    def _is_virtio_gpu_restore_error(self, msg):
+        """snapshot_gfx_guard_v1_detect"""
         low = str(msg or "").lower()
-        return ("element of type virtio for virtio" in low
-                or "virtio-gpu" in low)
+        if ("element of type virtio for virtio" in low
+                or "virtio-gpu" in low
+                or ("auto_alloc" in low and "*pptr" in low)):
+            return True
+        if ("errno 104" in low
+                or "connection reset" in low
+                or "conexión reinicializada" in low):
+            try:
+                if self._vm_graphics_is_problematic_for_snapshots():
+                    return True
+            except Exception:
+                pass
+        return False
 
     def _show_virtio_gpu_restore_help(self):
         """Muestra un aviso específico cuando la restauración falla por
@@ -2500,3 +3045,8 @@ class SnapshotsMixin:
                 self.tr('Error al cambiar nombre'),
                 self.tr('No se pudo cambiar el nombre.\n\n{0}').format(e),
             )
+
+
+# snapshot_nvme_guard_v1_detect
+# snapshot_nvme_guard_v1_create
+# snapshot_nvme_guard_v1_dialog_ux_create

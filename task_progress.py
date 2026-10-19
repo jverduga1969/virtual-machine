@@ -39,6 +39,15 @@ class TaskProgressDialog(QDialog):
         self.setMinimumWidth(560)
         self.resize(620, 340 if show_log else 200)
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        # task_progress_reuse_dialog_v1: NO destruir al cerrar. El
+        # diálogo se reutiliza durante toda la sesión (hide/show).
+        # Destruirlo promovía sus hijos (barra, labels) a ventanas
+        # top-level huérfanas durante la destrucción. Se destruye solo
+        # cuando la app cierra, que es lo correcto.
+        try:
+            self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        except Exception:
+            pass
 
         self._cancelable = cancelable
         self._finished = False
@@ -130,13 +139,61 @@ class TaskProgressDialog(QDialog):
             self._bar.setValue(100)
             self._status_label.setText(message or self.tr("Completado."))
             self._close_btn.setVisible(True)
+            # task_progress_close_fix_v1: accept() NO cierra un diálogo
+            # no modal (self.setModal(False)). Solo marca el resultado
+            # interno. Hay que llamar a close() para ocultarlo de verdad.
             self.accept()
+            self.close()
         else:
             self._bar.setRange(0, 100)
             self._status_label.setText(
                 f"<span style='color:#c62828;'><b>" + self.tr("Error:") + "</b> " + (message or self.tr("La tarea falló.")) + "</span>"
             )
             self._close_btn.setVisible(True)
+
+    def reset(self, subtitle=None):
+        """Reinicia el estado del diálogo para reutilizarlo.
+
+        task_progress_reuse_dialog_v1: como el diálogo se reutiliza
+        durante toda la sesión, hay que limpiar el estado entre
+        operaciones: barra a 0, status inicial, botón Cancelar visible,
+        botón Cerrar oculto, y log limpio (opcional).
+        """
+        self._finished = False
+        try:
+            self._bar.setRange(0, 100)
+            self._bar.setValue(0)
+        except Exception:
+            pass
+        try:
+            if subtitle is not None:
+                self._status_label.setText(subtitle)
+            else:
+                self._status_label.setText(self.tr("Iniciando…"))
+        except Exception:
+            pass
+        try:
+            self._cancel_btn.setVisible(bool(self._cancelable))
+            self._cancel_btn.setEnabled(True)
+            self._cancel_btn.setText(self.tr("Cancelar"))
+        except Exception:
+            pass
+        try:
+            self._close_btn.setVisible(False)
+        except Exception:
+            pass
+        # Limpiar el log si existe.
+        for _attr in ("_log_view", "_log", "_log_edit", "_log_text"):
+            w = getattr(self, _attr, None)
+            if w is not None:
+                try:
+                    if hasattr(w, "clear"):
+                        w.clear()
+                    elif hasattr(w, "setPlainText"):
+                        w.setPlainText("")
+                except Exception:
+                    pass
+                break
 
     def _on_cancel_clicked(self):
         self._cancel_btn.setEnabled(False)

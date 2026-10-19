@@ -610,6 +610,16 @@ class VmLifecycleMixin:
         except Exception:
             out["autostart_on_launch"] = False
         try:
+            out["autostart_on_boot"] = bool(
+                self.check_autostart_on_boot.isChecked())
+        except Exception:
+            out["autostart_on_boot"] = False
+        try:
+            out["autostart_on_boot_viewer"] = bool(
+                self.check_autostart_on_boot_viewer.isChecked())
+        except Exception:
+            out["autostart_on_boot_viewer"] = False
+        try:
             out["snapshot_compat"] = bool(
                 self.check_snapshot_compat.isChecked())
         except Exception:
@@ -630,7 +640,19 @@ class VmLifecycleMixin:
         except Exception:
             out["passthrough_devices"] = []
         try:
-            out["boot_order"] = list(self._current_boot_order_tokens())
+            # boot_order_from_ui_v1: leer el orden DIRECTAMENTE
+            # del widget. Antes se reconstruia desde
+            # _current_boot_order_tokens(), que combina
+            # storage_devices con el orden guardado en el .ini:
+            # el reorder del usuario en la lista nunca contaba
+            # como cambio pendiente y se perdia al Guardar.
+            if hasattr(self, "storage_list") and self.storage_list.count():
+                out["boot_order"] = [
+                    self.storage_list.item(k).data(Qt.ItemDataRole.UserRole)
+                    for k in range(self.storage_list.count())
+                ]
+            else:
+                out["boot_order"] = list(self._current_boot_order_tokens())
         except Exception:
             out["boot_order"] = []
         return out
@@ -680,6 +702,10 @@ class VmLifecycleMixin:
             "audio_device": data.get("audio_device", "intel-hda"),
             "autostart_on_launch": bool(
                 extra.get("autostart_on_launch", False)),
+            "autostart_on_boot": bool(
+                extra.get("autostart_on_boot", False)),
+            "autostart_on_boot_viewer": bool(
+                extra.get("autostart_on_boot_viewer", False)),
             "snapshot_compat": bool(extra.get("snapshot_compat", False)),
         }
         # vm_config_save_cancel_v1_dirty_2b1: red y passthrough.
@@ -733,7 +759,9 @@ class VmLifecycleMixin:
         for k in ("name", "ram", "cores", "cpu_model", "chipset",
                   "firmware", "secure_boot", "tpm",
                   "graphics_mode", "graphics_vram", "audio_device",
-                  "autostart_on_launch", "snapshot_compat",
+                  "autostart_on_launch", "autostart_on_boot",
+                  "autostart_on_boot_viewer",
+                  "snapshot_compat",
                   # vm_config_save_cancel_v1_dirty_2b1:
                   "network_devices", "no_network",
                   "passthrough_devices", "boot_order"):
@@ -839,6 +867,8 @@ class VmLifecycleMixin:
             ("combo_lin_distro", "currentIndexChanged"),
             ("combo_lin_version", "currentIndexChanged"),
             ("check_autostart_on_launch", "stateChanged"),
+            ("check_autostart_on_boot", "stateChanged"),
+            ("check_autostart_on_boot_viewer", "stateChanged"),
             ("check_snapshot_compat", "stateChanged"),
         ]
         for attr, sig in pairs:
@@ -1044,6 +1074,8 @@ class VmLifecycleMixin:
         extra = {
             "cpu_model": ui.get("cpu_model") or "auto",
             "autostart_on_launch": bool(ui.get("autostart_on_launch", False)),
+            "autostart_on_boot": bool(ui.get("autostart_on_boot", False)),
+            "autostart_on_boot_viewer": bool(ui.get("autostart_on_boot_viewer", False)),
             "snapshot_compat": bool(ui.get("snapshot_compat", False)),
             "pointer_device": "auto",
             "serial_to_file": False,
@@ -1108,6 +1140,19 @@ class VmLifecycleMixin:
             )
             return False
 
+        # --- 5b. quick_create_v1_mixin: inyectar eleccion ISO del wizard ---
+        try:
+            if hasattr(self, "_inject_pending_iso"):
+                self._inject_pending_iso(extra, os_type)
+        except Exception as _qc_err:
+            try:
+                self.log_message(
+                    "[AVISO] Modo Rapido: fallo al inyectar ISO: "
+                    + str(_qc_err)
+                )
+            except Exception:
+                pass
+
         # --- 6. Escribir vm_config.ini con rollback si algo falla ---
         try:
             vm_config.save_vm_config(
@@ -1155,6 +1200,19 @@ class VmLifecycleMixin:
         # --- 7. Actualizar estado de la app ---
         self.current_vm_dir = target_dir
         self._new_vm_mode = False
+
+        # autostart_host_boot_v1: si el usuario marco la casilla en
+        # la creacion, generar el servicio systemd. Aunque todavia
+        # no exista run_temp.sh (la VM no se ha arrancado), el
+        # wrapper manejara ese caso con un mensaje en el journal.
+        try:
+            _enabled = bool((extra or {}).get("autostart_on_boot", False))
+            self._autostart_on_boot_apply(target_dir, _enabled)
+        except Exception as _ab_err:
+            try:
+                self.log_message(f"[AVISO] autostart_on_boot: {_ab_err}")
+            except Exception:
+                pass
 
         if hasattr(self, "_invalidate_vm_config_cache"):
             self._invalidate_vm_config_cache(target_dir)
@@ -1241,6 +1299,10 @@ class VmLifecycleMixin:
             extra["cpu_model"] = ui["cpu_model"]
         if "autostart_on_launch" in ui:
             extra["autostart_on_launch"] = bool(ui["autostart_on_launch"])
+        if "autostart_on_boot" in ui:
+            extra["autostart_on_boot"] = bool(ui["autostart_on_boot"])
+        if "autostart_on_boot_viewer" in ui:
+            extra["autostart_on_boot_viewer"] = bool(ui["autostart_on_boot_viewer"])
         if "snapshot_compat" in ui:
             extra["snapshot_compat"] = bool(ui["snapshot_compat"])
         try:
@@ -1256,6 +1318,21 @@ class VmLifecycleMixin:
             pass
 
         # --- Llamar a save_vm_config ---
+        # boot_order_from_ui_v1: derivar boot_order y boot_device de
+        # la UI (ui["boot_order"]) y no del .ini cargado en disco.
+        # Antes se pasaba data.get("boot_order"), que reflejaba el
+        # estado persistido y descartaba el reorder del usuario.
+        _bo = list(
+            ui.get("boot_order")
+            or data.get("boot_order")
+            or ["cdrom", "disk", "network"]
+        )
+        _first = str(_bo[0]) if _bo else "disk"
+        _bd = (
+            "cdrom" if _first.startswith("cdrom")
+            else "network" if _first == "network"
+            else "disk"
+        )
         try:
             import vm_config as _vc
             _vc.save_vm_config(
@@ -1272,7 +1349,7 @@ class VmLifecycleMixin:
                 firmware=ui.get("firmware") or data.get("firmware") or "bios",
                 secure_boot=bool(ui.get("secure_boot")),
                 tpm=bool(ui.get("tpm")),
-                boot_device=data.get("boot_device") or "cdrom",
+                boot_device=_bd,
                 network_model=data.get("network_model") or "virtio-net-pci",
                 audio_device=ui.get("audio_device") or data.get("audio_device") or "intel-hda",
                 network_mode=data.get("network_mode") or "nat",
@@ -1280,7 +1357,7 @@ class VmLifecycleMixin:
                 network_count=int(data.get("network_count") or 1),
                 graphics_mode=ui.get("graphics_mode") or "auto",
                 graphics_vram=ui.get("graphics_vram") or "256M",
-                boot_order=data.get("boot_order") or ["cdrom", "disk", "network"],
+                boot_order=_bo,
                 network_devices=ui.get("network_devices") or data.get("network_devices") or [],
                 passthrough_devices=ui.get("passthrough_devices") or data.get("passthrough_devices") or [],
                 chipset=ui.get("chipset") or data.get("chipset") or "pc",
@@ -1295,6 +1372,19 @@ class VmLifecycleMixin:
 
         if hasattr(self, "_invalidate_vm_config_cache"):
             self._invalidate_vm_config_cache(vm_dir)
+
+        # autostart_host_boot_v1: sincronizar el servicio systemd con
+        # el estado del checkbox. Idempotente: enable/disable segun
+        # el valor actual. Los errores de systemctl no bloquean el
+        # guardado (ya se ha escrito el .ini).
+        try:
+            _enabled = bool(ui.get("autostart_on_boot", False))
+            self._autostart_on_boot_apply(vm_dir, _enabled)
+        except Exception as _ab_err:
+            try:
+                self.log_message(f"[AVISO] autostart_on_boot: {_ab_err}")
+            except Exception:
+                pass
 
         try:
             self.refresh_vm_list(select_name=os.path.basename(vm_dir))
@@ -2187,18 +2277,15 @@ class VmLifecycleMixin:
             3, QHeaderView.ResizeMode.Stretch
         )
 
-        # Colores por motivo del cierre.
-        _colores = {
-            "acpi":    QColor("#e8f5e9"),  # verde claro
-            "forced":  QColor("#fff3e0"),  # ámbar claro
-            "crash":   QColor("#ffebee"),  # rojo claro
-            "unknown": QColor("#f5f5f5"),  # gris claro
-        }
+        # Motivo del cierre. Marcador vm_history_icons_v2: se
+        # eliminó el código de color por fondo (feo en tema oscuro) y
+        # se sustituyó por ICONO + TEXTO en la propia celda "Motivo",
+        # igual que ya hace la app en Sugerencias, Semáforos, etc.
         _etiquetas_motivo = {
-            "acpi":    self.tr("ACPI (apagado ordenado)"),
-            "forced":  self.tr("Forzado (por el usuario)"),
-            "crash":   self.tr("Cierre anómalo"),
-            "unknown": self.tr("Desconocido"),
+            "acpi":    self.tr("\u2705 ACPI (apagado ordenado)"),
+            "forced":  self.tr("\u26a0\ufe0f Forzado (por el usuario)"),
+            "crash":   self.tr("\u274c Cierre anómalo"),
+            "unknown": self.tr("\u2754 Desconocido"),
         }
 
         for s in sessions:
@@ -2222,17 +2309,10 @@ class VmLifecycleMixin:
                 it.setData(2, _Qt.ItemDataRole.UserRole, int(dur or 0))
             except Exception:
                 it.setData(2, _Qt.ItemDataRole.UserRole, 0)
-            # Columna 3 — Motivo
+            # Columna 3 — Motivo (con icono, sin fondo).
             it.setText(3, _etiquetas_motivo.get(reason, reason))
             it.setData(3, _Qt.ItemDataRole.UserRole,
                        _etiquetas_motivo.get(reason, reason))
-
-            # Fondo por motivo.
-            bg = _colores.get(reason)
-            if bg is not None:
-                brush = QBrush(bg)
-                for c in range(4):
-                    it.setBackground(c, brush)
 
             tree.addTopLevelItem(it)
 
@@ -2335,11 +2415,6 @@ class VmLifecycleMixin:
                     it2.setText(3, _etiquetas_motivo.get(reason2, reason2))
                     it2.setData(3, _Qt.ItemDataRole.UserRole,
                                 _etiquetas_motivo.get(reason2, reason2))
-                    bg2 = _colores.get(reason2)
-                    if bg2 is not None:
-                        brush2 = QBrush(bg2)
-                        for c in range(4):
-                            it2.setBackground(c, brush2)
                     tree.addTopLevelItem(it2)
                 # Reaplicar el orden actual.
                 try:
@@ -3050,6 +3125,9 @@ class VmLifecycleMixin:
         act_start.setEnabled(state == "stopped")
         act_start.triggered.connect(self.control_start_vm)
 
+        # simple_kiosk_v1_ctx_removed: se quito la entrada del menu
+        # contextual. Modo kiosco vive solo en Configuracion Host.
+
         act_pause = menu.addAction(
             self.tr("▶ Reanudar") if state == "paused" else self.tr("⏸ Pausar")
         )
@@ -3464,6 +3542,606 @@ class VmLifecycleMixin:
         except Exception as e:
             try:
                 self.log_message(f"[AVISO] Auto-inicio: {e}")
+            except Exception:
+                pass
+
+    def _on_autostart_on_boot_changed(self, checked):
+        """Slot del checkbox de auto-arranque al inicio del sistema.
+
+        Marcador: autostart_host_boot_v1.
+
+        Igual que _on_autostart_changed: NO persiste directamente, solo
+        marca cambios pendientes. La generacion del servicio systemd se
+        hace en _save_config_from_ui cuando el usuario pulsa Guardar.
+        """
+        if not self.current_vm_dir:
+            return
+        try:
+            self._on_config_dirty()
+            self.log_message(
+                "==> Auto-arranque al inicio "
+                + ("marcado para ACTIVAR al guardar." if checked
+                   else "marcado para desactivar al guardar.")
+            )
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] Auto-arranque al inicio: {e}")
+            except Exception:
+                pass
+        try:
+            self._update_autostart_viewer_checkbox_state()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Auto-arranque al inicio del sistema (autostart_host_boot_v1)
+    # ------------------------------------------------------------------
+    # Genera y gestiona un servicio systemd --user por VM:
+    #   ~/.config/systemd/user/vm-<nombre>.service
+    # El servicio ejecuta un wrapper .sh:
+    #   ~/.local/share/virtual-machine/boot-wrappers/vm-<nombre>.sh
+    # El wrapper comprueba qemu.pid (por si la VM ya esta corriendo) y
+    # lanza run_temp.sh. Es idempotente: enable/disable se puede llamar
+    # tantas veces como se quiera.
+
+    def _autostart_service_name(self, vm_name):
+        """Nombre del servicio systemd --user para una VM."""
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(vm_name or "")).strip("_-")
+        if not safe:
+            safe = "vm"
+        return f"vm-{safe}"
+
+    def _autostart_unit_path(self, vm_name):
+        """Ruta absoluta del .service para una VM."""
+        return os.path.join(
+            os.path.expanduser("~"),
+            ".config", "systemd", "user",
+            self._autostart_service_name(vm_name) + ".service",
+        )
+
+    def _autostart_wrapper_path(self, vm_name):
+        """Ruta absoluta del wrapper .sh para una VM."""
+        xdg = (os.environ.get("XDG_DATA_HOME")
+               or os.path.expanduser("~/.local/share"))
+        return os.path.join(
+            xdg, "virtual-machine", "boot-wrappers",
+            self._autostart_service_name(vm_name) + ".sh",
+        )
+
+    def _systemd_user_available(self):
+        """True si systemd --user esta disponible para el usuario actual."""
+        import shutil as _sh
+        if not _sh.which("systemctl"):
+            return False
+        xdg_rt = os.environ.get("XDG_RUNTIME_DIR")
+        if xdg_rt and os.path.exists(os.path.join(xdg_rt, "systemd", "private")):
+            return True
+        try:
+            r = subprocess.run(
+                ["systemctl", "--user", "show-environment"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def _on_autostart_on_boot_viewer_changed(self, checked):
+        """Slot del checkbox de visor al inicio.
+
+        Marcador: autostart_viewer_v1. Solo marca dirty; la generacion
+        del segundo unit la hace _save_config_from_ui a traves de
+        _autostart_on_boot_apply.
+        """
+        if not self.current_vm_dir:
+            return
+        try:
+            self._on_config_dirty()
+            self.log_message(
+                "==> Abrir visor al inicio "
+                + ("marcado para ACTIVAR al guardar." if checked
+                   else "marcado para desactivar al guardar.")
+            )
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] Abrir visor al inicio: {e}")
+            except Exception:
+                pass
+
+    def _update_autostart_viewer_checkbox_state(self):
+        """Habilita/deshabilita el checkbox de visor segun el de la VM.
+
+        Marcador: autostart_viewer_v1. El visor solo tiene sentido si
+        primero se arranca la VM al iniciar el sistema.
+        """
+        try:
+            on = bool(
+                getattr(self, "check_autostart_on_boot", None)
+                and self.check_autostart_on_boot.isChecked()
+            )
+            chk = getattr(self, "check_autostart_on_boot_viewer", None)
+            if chk is None:
+                return
+            chk.setEnabled(on)
+            if not on:
+                chk.blockSignals(True)
+                chk.setChecked(False)
+                chk.blockSignals(False)
+        except Exception:
+            pass
+
+    def _autostart_viewer_service_name(self, vm_name):
+        return self._autostart_service_name(vm_name) + "-viewer"
+
+    def _autostart_viewer_unit_path(self, vm_name):
+        return os.path.join(
+            os.path.expanduser("~"),
+            ".config", "systemd", "user",
+            self._autostart_viewer_service_name(vm_name) + ".service",
+        )
+
+    def _autostart_viewer_wrapper_path(self, vm_name):
+        xdg = (os.environ.get("XDG_DATA_HOME")
+               or os.path.expanduser("~/.local/share"))
+        return os.path.join(
+            xdg, "virtual-machine", "boot-wrappers",
+            self._autostart_viewer_service_name(vm_name) + ".sh",
+        )
+
+    def _autostart_pick_viewer(self, protocol):
+        """Visor a usar por el wrapper. Devuelve (path, template).
+
+        Marcador: autostart_viewer_v1. Usa find_viewer() de
+        console_backend, que aplica las preferencias del usuario por
+        protocolo. Devuelve ("", "") si no hay ninguno instalado.
+        """
+        try:
+            from console_backend import find_viewer as _fv
+            return _fv(protocol)
+        except Exception:
+            return ("", "")
+
+    def _generate_autostart_viewer_unit(self, vm_dir, vm_name):
+        """Genera el wrapper .sh y el .service del visor y lo habilita.
+
+        Marcador: autostart_viewer_v1. Requiere systemd --user.
+        """
+        if not self._systemd_user_available():
+            try:
+                self.log_message(
+                    "[AVISO] systemd --user no disponible; no se "
+                    "configura el visor al inicio."
+                )
+            except Exception:
+                pass
+            return False
+
+        try:
+            _cfg = self._load_vm_config_cached(vm_dir)
+            _proto = str((_cfg.get("extra") or {}).get(
+                "console_protocol") or "vnc").lower()
+        except Exception:
+            _proto = "vnc"
+        if _proto not in ("vnc", "spice"):
+            _proto = "vnc"
+
+        viewer_path, _viewer_tpl = self._autostart_pick_viewer(_proto)
+        if not viewer_path:
+            try:
+                self.log_message(
+                    f"[AVISO] No hay visor {_proto.upper()} instalado; "
+                    "no se abre el visor al inicio. Instala virt-viewer "
+                    "(spicy/remote-viewer) o tigervnc y vuelve a guardar."
+                )
+            except Exception:
+                pass
+            return False
+
+        service = self._autostart_viewer_service_name(vm_name)
+        unit_path = self._autostart_viewer_unit_path(vm_name)
+        wrapper_path = self._autostart_viewer_wrapper_path(vm_name)
+        main_service = self._autostart_service_name(vm_name)
+
+        try:
+            os.makedirs(os.path.dirname(wrapper_path), exist_ok=True)
+            _vm_dir_q = vm_dir.replace('"', '\\"')
+            _viewer_q = viewer_path.replace('"', '\\"')
+            wrapper_content = (
+                "#!/bin/bash\n"
+                "# Generado por Virtual.Machine - autostart_viewer_v1.\n"
+                "# NO editar a mano.\n"
+                "#\n"
+                f"# VM: {vm_name}\n"
+                "\n"
+                f'VM_DIR="{_vm_dir_q}"\n'
+                'RUN_SH="$VM_DIR/run_temp.sh"\n'
+                f'VIEWER="{_viewer_q}"\n'
+                f'PROTO="{_proto}"\n'
+                "\n"
+                "# 1) Esperar a que exista run_temp.sh.\n"
+                'for _i in $(seq 1 60); do\n'
+                '    [ -f "$RUN_SH" ] && break\n'
+                '    sleep 1\n'
+                'done\n'
+                '[ -f "$RUN_SH" ] || { echo "[vm-viewer] run_temp.sh no aparece; salgo." >&2; exit 1; }\n'
+                "\n"
+                "# 2) Extraer puerto del -spice (si aplica).\n"
+                'PORT=""\n'
+                'if [ "$PROTO" = "spice" ]; then\n'
+                '    PORT=$(grep -oE -- "-spice[^\\"]*port=[0-9]+" "$RUN_SH" | head -n1 | grep -oE "port=[0-9]+" | cut -d= -f2)\n'
+                'fi\n'
+                "\n"
+                "# 3) Esperar a que la VM este escuchando.\n"
+                'if [ -n "$PORT" ]; then\n'
+                '    for _i in $(seq 1 120); do\n'
+                '        if (echo > /dev/tcp/127.0.0.1/$PORT) >/dev/null 2>&1; then\n'
+                '            break\n'
+                '        fi\n'
+                '        sleep 1\n'
+                '    done\n'
+                'fi\n'
+                "\n"
+                "# 4) Lanzar el visor.\n"
+                '_base=$(basename "$VIEWER")\n'
+                'case "$_base" in\n'
+                '    spicy)\n'
+                '        exec "$VIEWER" --host=127.0.0.1 --port="$PORT"\n'
+                '        ;;\n'
+                '    remote-viewer)\n'
+                '        exec "$VIEWER" "spice://127.0.0.1:$PORT"\n'
+                '        ;;\n'
+                '    vncviewer|tigervnc)\n'
+                '        exec "$VIEWER" "127.0.0.1:${PORT:-5900}"\n'
+                '        ;;\n'
+                '    *)\n'
+                '        echo "[vm-viewer] Visor $_base no reconocido; salgo." >&2\n'
+                '        exit 1\n'
+                '        ;;\n'
+                'esac\n'
+            )
+            with open(wrapper_path, "w", encoding="utf-8") as f:
+                f.write(wrapper_content)
+            os.chmod(wrapper_path, 0o755)
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] wrapper visor: {e}")
+            except Exception:
+                pass
+            return False
+
+        unit_content = (
+            "[Unit]\n"
+            f"Description=Virtual.Machine - visor de '{vm_name}' al inicio\n"
+            f"Requires={main_service}.service\n"
+            f"After={main_service}.service graphical-session.target\n"
+            "PartOf=graphical-session.target\n"
+            "\n"
+            "[Service]\n"
+            "Type=simple\n"
+            f'ExecStart="{wrapper_path}"\n'
+            "Restart=on-failure\n"
+            "RestartSec=10\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=graphical-session.target\n"
+        )
+        try:
+            os.makedirs(os.path.dirname(unit_path), exist_ok=True)
+            with open(unit_path, "w", encoding="utf-8") as f:
+                f.write(unit_content)
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] .service visor: {e}")
+            except Exception:
+                pass
+            return False
+
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "daemon-reload"],
+                capture_output=True, text=True, timeout=10,
+            )
+            r = subprocess.run(
+                ["systemctl", "--user", "enable", service + ".service"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode != 0:
+                try:
+                    self.log_message(
+                        f"[AVISO] systemctl enable visor devolvio "
+                        f"{r.returncode}: "
+                        + (r.stderr or r.stdout or "").strip()
+                    )
+                except Exception:
+                    pass
+                return False
+            return True
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] habilitar visor: {e}")
+            except Exception:
+                pass
+            return False
+
+    def _remove_autostart_viewer_unit(self, vm_name):
+        """Deshabilita y elimina el servicio del visor de una VM."""
+        service = self._autostart_viewer_service_name(vm_name)
+        unit_path = self._autostart_viewer_unit_path(vm_name)
+        wrapper_path = self._autostart_viewer_wrapper_path(vm_name)
+        for args in (
+            ["systemctl", "--user", "disable", service + ".service"],
+            ["systemctl", "--user", "stop", service + ".service"],
+        ):
+            try:
+                subprocess.run(args, capture_output=True, text=True, timeout=10)
+            except Exception:
+                pass
+        for p in (unit_path, wrapper_path):
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+            except OSError:
+                pass
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "daemon-reload"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            pass
+        return True
+
+
+    def _generate_autostart_unit(self, vm_dir, vm_name):
+        """Genera el wrapper .sh y el .service, y habilita el servicio.
+
+        Marcador: autostart_host_boot_v1. Devuelve True si quedo todo OK.
+        """
+        if not self._systemd_user_available():
+            try:
+                self.log_message(
+                    "[AVISO] systemd --user no esta disponible: no se "
+                    "puede configurar el arranque automatico al inicio "
+                    "del sistema."
+                )
+            except Exception:
+                pass
+            return False
+
+        run_temp = os.path.join(vm_dir, "run_temp.sh")
+        if not os.path.isfile(run_temp):
+            try:
+                self.log_message(
+                    f"[AVISO] Arranque automatico: '{os.path.basename(vm_dir)}' "
+                    "todavia no tiene run_temp.sh. El servicio se generara "
+                    "igual; arrancara cuando exista el script (arranca la "
+                    "VM una vez desde la app)."
+                )
+            except Exception:
+                pass
+
+        service = self._autostart_service_name(vm_name)
+        unit_path = self._autostart_unit_path(vm_name)
+        wrapper_path = self._autostart_wrapper_path(vm_name)
+
+        # --- Wrapper ---
+        try:
+            os.makedirs(os.path.dirname(wrapper_path), exist_ok=True)
+            _vm_dir_q = vm_dir.replace('"', '\\"')
+            _run_q = run_temp.replace('"', '\\"')
+            wrapper_content = (
+                "#!/bin/bash\n"
+                "# Generado por Virtual.Machine - autostart_host_boot_v1_rev2.\n"
+                "# NO editar a mano: se regenera al guardar la configuracion\n"
+                "# de la VM desde la aplicacion.\n"
+                "#\n"
+                f"# VM: {vm_name}\n"
+                "\n"
+                f'VM_DIR="{_vm_dir_q}"\n'
+                f'RUN_SH="{_run_q}"\n'
+                'PID_FILE="$VM_DIR/qemu.pid"\n'
+                "\n"
+                'if [ -f "$PID_FILE" ]; then\n'
+                '    _pid=$(cat "$PID_FILE" 2>/dev/null)\n'
+                '    if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then\n'
+                '        echo "[vm-autostart] La VM ya esta corriendo (PID $_pid); salgo." >&2\n'
+                '        exit 0\n'
+                '    fi\n'
+                'fi\n'
+                "\n"
+                '_lock_check() {\n'
+                '    local _file="$1"\n'
+                '    if command -v fuser >/dev/null 2>&1; then\n'
+                '        if fuser -s "$_file" 2>/dev/null; then\n'
+                '            echo "[vm-autostart] Disco en uso: $_file" >&2\n'
+                '            fuser -v "$_file" >&2 2>&1 || true\n'
+                '            return 1\n'
+                '        fi\n'
+                '    elif command -v lsof >/dev/null 2>&1; then\n'
+                '        if lsof "$_file" >/dev/null 2>&1; then\n'
+                '            echo "[vm-autostart] Disco en uso: $_file" >&2\n'
+                '            lsof "$_file" >&2 2>&1 || true\n'
+                '            return 1\n'
+                '        fi\n'
+                '    fi\n'
+                '    return 0\n'
+                '}\n'
+                "\n"
+                '_disk_busy=0\n'
+                'for _f in "$VM_DIR"/*.qcow2 "$VM_DIR"/*.qcow "$VM_DIR"/*.raw \\\n'
+                '          "$VM_DIR"/*.vmdk "$VM_DIR"/*.vdi "$VM_DIR"/*.vhd \\\n'
+                '          "$VM_DIR"/*.vhdx; do\n'
+                '    [ -f "$_f" ] || continue\n'
+                '    if ! _lock_check "$_f"; then\n'
+                '        _disk_busy=1\n'
+                '    fi\n'
+                'done\n'
+                "\n"
+                'if [ "$_disk_busy" = "1" ]; then\n'
+                '    echo "[vm-autostart] Algun disco de la VM esta en uso por otro proceso." >&2\n'
+                '    echo "[vm-autostart] Esto suele pasar por un qemu-nbd huerfano de un" >&2\n'
+                '    echo "[vm-autostart] Montar en host de la Biblioteca de Medios." >&2\n'
+                '    echo "[vm-autostart] Solucion: sudo qemu-nbd --disconnect /dev/nbdN" >&2\n'
+                '    exit 0\n'
+                'fi\n'
+                "\n"
+                'if [ ! -x "$RUN_SH" ]; then\n'
+                '    echo "[vm-autostart] $RUN_SH no existe o no es ejecutable." >&2\n'
+                '    echo "[vm-autostart] Arranca la VM una vez desde la aplicacion para generar el script." >&2\n'
+                '    exit 1\n'
+                'fi\n'
+                "\n"
+                'echo "[vm-autostart] Arrancando $VM_DIR..." >&2\n'
+                'exec "$RUN_SH"\n'
+            )
+            with open(wrapper_path, "w", encoding="utf-8") as f:
+                f.write(wrapper_content)
+            os.chmod(wrapper_path, 0o755)
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] No se pudo escribir el wrapper: {e}")
+            except Exception:
+                pass
+            return False
+
+        # --- Unit ---
+        unit_content = (
+            "[Unit]\n"
+            f"Description=Virtual.Machine - arranque automatico de '{vm_name}'\n"
+            "After=default.target\n"
+            "\n"
+            "[Service]\n"
+            "Type=simple\n"
+            f'ExecStart="{wrapper_path}"\n'
+            "Restart=no\n"
+            "TimeoutStopSec=30\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=default.target\n"
+        )
+        try:
+            os.makedirs(os.path.dirname(unit_path), exist_ok=True)
+            with open(unit_path, "w", encoding="utf-8") as f:
+                f.write(unit_content)
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] No se pudo escribir el .service: {e}")
+            except Exception:
+                pass
+            return False
+
+        # --- systemctl --user daemon-reload + enable ---
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "daemon-reload"],
+                capture_output=True, text=True, timeout=10,
+            )
+            r = subprocess.run(
+                ["systemctl", "--user", "enable", service + ".service"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode != 0:
+                try:
+                    self.log_message(
+                        f"[AVISO] systemctl enable devolvio {r.returncode}: "
+                        + (r.stderr or r.stdout or "").strip()
+                    )
+                except Exception:
+                    pass
+                return False
+            return True
+        except Exception as e:
+            try:
+                self.log_message(f"[AVISO] No se pudo habilitar el servicio: {e}")
+            except Exception:
+                pass
+            return False
+
+    def _remove_autostart_unit(self, vm_name):
+        """Deshabilita y elimina el servicio systemd de una VM.
+
+        Marcador: autostart_host_boot_v1. Tambien limpia el unit
+        del visor si existe (autostart_viewer_v1).
+        """
+        try:
+            self._remove_autostart_viewer_unit(vm_name)
+        except Exception:
+            pass
+        service = self._autostart_service_name(vm_name)
+        unit_path = self._autostart_unit_path(vm_name)
+        wrapper_path = self._autostart_wrapper_path(vm_name)
+
+        for args in (
+            ["systemctl", "--user", "disable", service + ".service"],
+            ["systemctl", "--user", "stop",    service + ".service"],
+        ):
+            try:
+                subprocess.run(args, capture_output=True, text=True, timeout=10)
+            except Exception:
+                pass
+
+        for p in (unit_path, wrapper_path):
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+            except OSError:
+                pass
+
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "daemon-reload"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            pass
+        return True
+
+    def _autostart_on_boot_apply(self, vm_dir, enabled):
+        """Sincroniza el estado del servicio con el flag del .ini.
+
+        Marcador: autostart_host_boot_v1. Idempotente.
+        """
+        vm_name = os.path.basename(vm_dir)
+        if enabled:
+            ok = self._generate_autostart_unit(vm_dir, vm_name)
+            if ok:
+                try:
+                    self.log_message(
+                        f"==> Arranque automatico al inicio activado para "
+                        f"'{vm_name}'. Servicio: "
+                        f"{self._autostart_service_name(vm_name)}.service"
+                    )
+                except Exception:
+                    pass
+            try:
+                _viewer_on = bool(
+                    (self._load_vm_config_cached(vm_dir).get("extra") or {})
+                    .get("autostart_on_boot_viewer", False))
+            except Exception:
+                _viewer_on = False
+            try:
+                if _viewer_on:
+                    self._generate_autostart_viewer_unit(vm_dir, vm_name)
+                    try:
+                        self.log_message(
+                            f"==> Visor al inicio activado para '{vm_name}'."
+                        )
+                    except Exception:
+                        pass
+                else:
+                    self._remove_autostart_viewer_unit(vm_name)
+            except Exception as _ve:
+                try:
+                    self.log_message(f"[AVISO] visor al inicio: {_ve}")
+                except Exception:
+                    pass
+        else:
+            self._remove_autostart_viewer_unit(vm_name)
+            self._remove_autostart_unit(vm_name)
+            try:
+                self.log_message(
+                    f"==> Arranque automatico al inicio desactivado para "
+                    f"'{vm_name}'."
+                )
             except Exception:
                 pass
 
@@ -5405,6 +6083,13 @@ class VmLifecycleMixin:
         if resp != QMessageBox.StandardButton.Yes:
             return
 
+        # autostart_host_boot_v1: limpiar el servicio systemd asociado
+        # antes de borrar la carpeta. Best-effort: si systemctl no
+        # responde, no impedimos el borrado.
+        try:
+            self._remove_autostart_unit(name)
+        except Exception:
+            pass
         try:
             shutil.rmtree(vm_dir)
             self.current_vm_dir = None
@@ -5896,7 +6581,31 @@ class VmLifecycleMixin:
                 _group = f"[{_g}] "
         except Exception:
             _group = ""
-        return f"{icon}  {_group}{name}{suffix}"
+        # desktop_mode_demo_guard_fix1: marca visual [DEMO] mientras la
+        # VM corre en modo demo. Sin emoji (Kvantum segfaulta con emoji
+        # en QListWidgetItem).
+        _demo_marker = ""
+        try:
+            _d = getattr(self, "_demo_mode_active_vms", None) or {}
+            _vd = os.path.join(vm_config.BASE_VM_DIR, name)
+            if _vd in _d:
+                _demo_marker = " [DEMO]"
+        except Exception:
+            pass
+        # desktop_mode_v1: marca [Desktop ttyN] mientras la VM corre
+        # en Desktop Mode (sin emoji: Kvantum segfaulta con emoji en
+        # QListWidgetItem).
+        _dm_marker = ""
+        try:
+            _dd = getattr(self, "_desktop_mode_running", None) or {}
+            _vdd = os.path.join(vm_config.BASE_VM_DIR, name)
+            _entry = _dd.get(_vdd)
+            if _entry is not None:
+                _tty = _entry[0] if isinstance(_entry, tuple) else _entry
+                _dm_marker = f" [Desktop tty{int(_tty)}]"
+        except Exception:
+            pass
+        return f"{icon}  {_group}{name}{suffix}{_demo_marker}{_dm_marker}"
 
 
     def refresh_vm_list(self, select_name=None):
@@ -6120,11 +6829,46 @@ class VmLifecycleMixin:
             os.kill(pid, 0)
         except Exception:
             return "stopped"
+        # desktop_mode_app_freeze_v1: durante el arranque de Desktop
+        # Mode, QMP tarda en responder y bloquearia el hilo de UI
+        # hasta 4s por VM. Saltamos la consulta QMP durante la
+        # ventana de gracia; con el pid vivo es suficiente.
+        try:
+            import time as _time
+            if _time.time() < getattr(self, "_desktop_mode_grace_until", 0):
+                return "running"
+        except Exception:
+            pass
+        # qmp_fast_timeout_v1: cache de fallos. Si QMP acaba de fallar
+        # para esta VM, no reintentar durante 5s. Asi el bloqueo maximo
+        # del hilo de UI es 0.5s cada 5s, en lugar de 4s cada 5.5s.
+        try:
+            import time as _t
+            _cache = getattr(self, "_qmp_fail_cache", None)
+            if _cache is None:
+                _cache = {}
+                self._qmp_fail_cache = _cache
+            _now = _t.time()
+            if _now < _cache.get(vm_dir, 0):
+                return "running"
+        except Exception:
+            pass
         try:
             result = self._qmp_command(vm_dir, {"execute":"query-status"})
             status = (result.get("return") or {}).get("status", "running")
+            try:
+                if hasattr(self, "_qmp_fail_cache"):
+                    self._qmp_fail_cache.pop(vm_dir, None)
+            except Exception:
+                pass
             return "paused" if status in ("paused", "prelaunch", "inmigrate") else "running"
         except Exception:
+            try:
+                import time as _t2
+                if hasattr(self, "_qmp_fail_cache"):
+                    self._qmp_fail_cache[vm_dir] = _t2.time() + 5.0
+            except Exception:
+                pass
             return "running"
 
     def _qmp_command(self, vm_dir, payload):
@@ -6152,7 +6896,9 @@ class VmLifecycleMixin:
                     raise RuntimeError("Respuesta QMP demasiado grande.")
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(4.0)
+        # qmp_fast_timeout_v1: 0.5s (antes 4.0s). Con QMP caido
+        # el bloqueo del hilo de UI es imperceptible.
+        sock.settimeout(0.5)
         buffer = b""
         try:
             sock.connect(qmp)
@@ -6172,7 +6918,8 @@ class VmLifecycleMixin:
             request["id"] = command_id
             sock.sendall((_json.dumps(request) + "\r\n").encode())
 
-            deadline = time.monotonic() + 4.0
+            # qmp_fast_timeout_v1: 0.5s (antes 4.0s).
+            deadline = time.monotonic() + 0.5
             while time.monotonic() < deadline:
                 msg, buffer = recv_json_message(sock, buffer)
                 if msg.get("id") != command_id:
@@ -7097,6 +7844,124 @@ class VmLifecycleMixin:
             return []
         return []
 
+    def _find_live_viewer_pid(self, protocol, vm_dir):
+        """Busca el PID del visor externo vivo para esta VM.
+
+        Marcador: spice_viewer_fork_reference_v1.
+
+        Se usa porque spicy (GTK) hace fork al arrancar: el Popen que
+        guardamos en _external_viewers apunta al wrapper, que muere
+        enseguida, mientras el spicy real sigue vivo. Sin esta
+        busqueda, el anti-bucle cree que el visor murio y lanza otro.
+
+        Para SPICE busca por `--port=NNNN` (el puerto que QEMU esta
+        usando, leido de run_temp.sh). Para VNC busca por la ruta del
+        socket en la linea de comandos del visor.
+
+        Devuelve el PID (int) o None.
+        """
+        import subprocess as _sp
+        if protocol == PROTOCOL_SPICE:
+            _port = self._spice_port_from_runtime()
+            if _port is None:
+                return None
+            needle = f"--port={int(_port)}"
+        else:
+            _sock = _cb_socket_path(vm_dir, protocol)
+            if not _sock:
+                return None
+            needle = str(_sock)
+        try:
+            r = _sp.run(
+                ["pgrep", "-f", needle],
+                capture_output=True, text=True, timeout=3,
+            )
+            if r.returncode != 0:
+                return None
+            _me = os.getpid()
+            for line in (r.stdout or "").splitlines():
+                try:
+                    pid = int(line.strip())
+                except (ValueError, AttributeError):
+                    continue
+                if pid == _me:
+                    continue
+                try:
+                    os.kill(pid, 0)
+                    return pid
+                except Exception:
+                    continue
+        except Exception:
+            return None
+        return None
+
+    def _reap_external_proc(self, proc, timeout=2.0):
+        """Termina y reapea un proceso de visor externo.
+
+        Marcador: spice_launch_ready_and_reap_v1.
+
+        Popen.terminate() envia SIGTERM pero no espera al hijo, asi
+        que el proceso queda <defunct> (zombie) en la tabla de
+        procesos hasta que el padre lo reapee con wait(). Esto se ve
+        en ps como:
+            [spicy] <defunct>
+        No consume CPU ni recursos, pero ensucia la tabla y puede
+        confundir a diagnostico. Este helper cierra el ciclo.
+        """
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                try:
+                    proc.wait(timeout=float(timeout))
+                    return
+                except Exception:
+                    pass
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                try:
+                    proc.wait(timeout=float(timeout))
+                except Exception:
+                    pass
+            else:
+                try:
+                    proc.wait(timeout=0.05)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _spice_port_ready(self, host, port, timeout=0.25):
+        """True si el puerto SPICE acepta una conexion TCP ahora mismo.
+
+        Marcador: spice_launch_ready_and_reap_v1.
+
+        Se usa antes de lanzar spicy/remote-viewer para no lanzarlo
+        cuando QEMU aun no ha abierto el puerto. Un spicy lanzado
+        contra un puerto cerrado sale con error inmediato y queda
+        como zombie hasta que la app lo reapee.
+        """
+        import socket as _s
+        try:
+            s = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+            s.settimeout(float(timeout))
+            try:
+                s.connect((host, int(port)))
+                return True
+            finally:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        except Exception:
+            return False
+
     def _sync_external_viewer(self, state, protocol):
         """Gestiona el visor externo DEL VM ACTUAL.
 
@@ -7129,12 +7994,22 @@ class VmLifecycleMixin:
         if state != "running":
             entry = self._external_viewers.pop(vm_dir, None)
             if entry:
-                p = entry.get("proc")
-                try:
-                    if p is not None and p.poll() is None:
-                        p.terminate()
-                except Exception:
-                    pass
+                # spice_launch_ready_and_reap_v1: reaping completo
+                # (terminate + wait + kill) para no dejar <defunct>.
+                self._reap_external_proc(entry.get("proc"))
+                # spice_viewer_fork_reference_v1: si el Popen capturo
+                # el wrapper y el wrapper murio, el spicy real sigue
+                # vivo sin referencia. Matarlo por el pid guardado.
+                _pid = entry.get("pid")
+                _proc = entry.get("proc")
+                _popen_dead = (_proc is None) or (_proc.poll() is not None)
+                if _pid and _popen_dead:
+                    try:
+                        os.kill(int(_pid), 15)  # SIGTERM
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+                    except Exception:
+                        pass
             return
 
         # --- Corriendo: decidir si hay que lanzar ---
@@ -7150,14 +8025,35 @@ class VmLifecycleMixin:
 
             # ¿Vivo pero con OTRO protocolo? → cerrar el viejo y relanzar.
             if alive and not same_proto:
-                try:
-                    p.terminate()
-                except Exception:
-                    pass
+                # spice_launch_ready_and_reap_v1: reaping completo
+                # (terminate + wait + kill) para no dejar <defunct>.
+                self._reap_external_proc(p)
                 self._external_viewers.pop(vm_dir, None)
 
-            # ¿Muerto hace poco? → respetar ventana de gracia (30 s).
+            # ¿Muerto? → comprobaciones en cascada antes de relanzar.
+            #
+            # spice_antiloop_by_pid_v1: primero os.kill(pid, 0).
+            # spice_viewer_fork_reference_v1: si el Popen capturo el
+            # wrapper (muerto) y el spicy real sigue vivo, el pid del
+            # entry ya no vale. Antes del anti-bucle temporal se hace
+            # un pgrep para localizar el visor real.
             elif not alive:
+                _pid = entry.get("pid")
+                if _pid:
+                    try:
+                        os.kill(int(_pid), 0)
+                        # El PID sigue vivo: no relanzar.
+                        return
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+                # Antes del anti-bucle temporal: buscar el visor real
+                # por pgrep. Si hay uno vivo para esta VM, actualizar
+                # el pid del entry y salir sin lanzar otro.
+                _live = self._find_live_viewer_pid(protocol, vm_dir)
+                if _live is not None:
+                    entry["pid"] = _live
+                    return
+                # Anti-bucle temporal (heredado).
                 last = entry.get("last_launch", 0.0)
                 if _time.monotonic() - last < 30.0:
                     return
@@ -7171,6 +8067,23 @@ class VmLifecycleMixin:
                 try:
                     self.vnc_label_status.setText("Iniciando SPICE… esperando puerto")
                     self.log_message("==> SPICE: aún no encuentro el puerto en run_temp.sh.")
+                except Exception:
+                    pass
+                return
+            # spice_launch_ready_and_reap_v1: comprobar que QEMU ya
+            # esta escuchando antes de lanzar el visor. Sin esto, en
+            # los primeros cientos de ms tras Iniciar, spicy intenta
+            # conectar a un puerto cerrado, sale con error inmediato
+            # y queda <defunct> hasta que lo reapee la app.
+            if not self._spice_port_ready("127.0.0.1", _spice_port):
+                try:
+                    self.vnc_label_status.setText(
+                        f"Iniciando SPICE… esperando puerto {_spice_port}"
+                    )
+                    self.log_message(
+                        f"==> SPICE: puerto {_spice_port} aun no "
+                        "escucha; se espera al siguiente tick."
+                    )
                 except Exception:
                     pass
                 return
@@ -7279,6 +8192,23 @@ class VmLifecycleMixin:
 
         # --- Detener: matar visor y limpiar widget ---
         if state != "running":
+            # spice_embed_stop_delegate_v1: delegar en
+            # _sync_external_viewer para que popee y reapee el
+            # visor externo guardado en _external_viewers[vm_dir].
+            # Sin esta llamada, el entry del dict no se popea, el
+            # Popen pierde su referencia y el proceso queda zombie
+            # para siempre tras apagar la VM. El atributo legacy
+            # _external_viewer_proc ya no se usa (siempre None).
+            try:
+                self._sync_external_viewer(state, PROTOCOL_SPICE)
+            except Exception as _reap_err:
+                try:
+                    self.log_message(
+                        f"[AVISO] SPICE: fallo al reapear visor externo: "
+                        f"{_reap_err}"
+                    )
+                except Exception:
+                    pass
             proc = getattr(self, "_external_viewer_proc", None)
             if proc is not None:
                 try:
@@ -7390,7 +8320,35 @@ class VmLifecycleMixin:
                 self.vnc_placeholder.hide()
             self._spice_widget_vm_dir = self.current_vm_dir
             self.vnc_label_status.setText(f"SPICE: 127.0.0.1:{port}")
-            self.log_message(f"==> SPICE: widget embebido (127.0.0.1:{port}).")
+            # spice_sync_log_honest_v1: consultar al widget si
+            # logro embeber. Antes se logueaba 'widget embebido'
+            # incondicionalmente, lo que mentia cuando el widget
+            # hacia fallback a visor externo (pendiente #18).
+            _embed_ok = bool(
+                getattr(self.spice_widget, "embed_available", True))
+            _embed_reason = str(
+                getattr(self.spice_widget, "embed_failure_reason", "") or "")
+            if _embed_ok:
+                self.log_message(
+                    f"==> SPICE: widget embebido (127.0.0.1:{port}).")
+            else:
+                self.log_message(
+                    f"==> SPICE: no se pudo embeber ({_embed_reason}); "
+                    f"abriendo visor externo.")
+                # Deshabilitar el embed en esta sesion: aunque el
+                # widget no lanzo el visor, si el mixin lo lanza
+                # aqui, la proxima vez no creara el widget.
+                self._spice_embed_disabled = True
+                try:
+                    if hasattr(self, "_destroy_embedded_console_widget"):
+                        pass  # no destruimos aun: mantenemos el
+                              # placeholder visible.
+                except Exception:
+                    pass
+                # Delegar el lanzamiento del visor externo al mixin,
+                # que ya registra el PID en _external_viewers.
+                self._sync_external_viewer(state, PROTOCOL_SPICE)
+                return
             self._focus_console_tab()
         except Exception as e:
             try:
@@ -8366,6 +9324,12 @@ class VmLifecycleMixin:
             "proc": proc,
             "protocol": protocol,
             "last_launch": _time.monotonic(),
+            # spice_antiloop_by_pid_v1: guardar el PID para poder
+            # comprobar con os.kill(pid, 0) si el proceso sigue
+            # vivo antes de relanzar. p.poll() puede dar falsos
+            # negativos en casos raros (procesos zombie, SO
+            # reciclando PIDs, spicy lanzado desde un subproceso).
+            "pid": getattr(proc, "pid", None),
         }
 
     def _focus_console_for_vm(self, vm_name, data=None):
@@ -8557,6 +9521,13 @@ class VmLifecycleMixin:
         # etiquetas para que el ⚠️ de la lista use el estado nuevo.
         if hasattr(self, "_watchdog_update_states"):
             self._watchdog_update_states()
+        # desktop_mode_v1: limpiar entradas del mapa de Desktop Mode
+        # cuya VM ya no esta corriendo.
+        if hasattr(self, "_desktop_mode_cleanup_stopped"):
+            try:
+                self._desktop_mode_cleanup_stopped()
+            except Exception:
+                pass
 
         for i in range(self.vm_list.count()):
             item = self.vm_list.item(i)
@@ -8616,12 +9587,158 @@ class VmLifecycleMixin:
                 self._refresh_history_summary()
             except Exception:
                 pass
+        # desktop_mode_demo_snapshot_guard_v1: mantener sincronizado el
+        # estado de la pestaña Snapshots (deshabilitada si hay modo demo).
+        if hasattr(self, "_update_snapshots_tab_gating"):
+            try:
+                self._update_snapshots_tab_gating()
+            except Exception:
+                pass
+        # Actualizar boton Desktop Mode (marcador desktop_mode_v1).
+        if hasattr(self, "_update_desktop_mode_button_state"):
+            try:
+                self._update_desktop_mode_button_state()
+            except Exception:
+                pass
 
     def control_start_vm(self):
+        # desktop_mode_demo_v1: arranque normal, sin -snapshot.
+        self._pending_snapshot = False
+        # desktop_mode_demo_guard_fix1: si esta VM estaba marcada como
+        # demo por un intento anterior cancelado, quitarla — este es un
+        # arranque normal.
+        try:
+            if self.current_vm_dir:
+                self._demo_set().pop(self.current_vm_dir, None)
+        except Exception:
+            pass
         if not self._vm_is_selected():
             QMessageBox.information(self, self.tr("Iniciar VM"), self.tr("Selecciona una máquina virtual."))
             return
         self.start_installation()
+
+    def _demo_set(self):
+        """Dict {vm_dir: bool} con las VMs en Modo Demo (-snapshot).
+
+        Marcador: desktop_mode_demo_guard_fix1
+
+        El valor booleano indica si la VM ya se ha visto corriendo al
+        menos una vez. Esto evita el bug del primer tick: si
+        control_start_vm_demo añade la VM al set y el gating se llama
+        inmediatamente, QEMU todavía no ha arrancado, y un chequeo
+        basado solo en _runtime_state == "stopped" la eliminaría al
+        instante.
+
+        Reglas:
+          - value=False → añadida, todavía no se ha visto corriendo.
+          - value=True  → ya se vio corriendo (running o paused).
+          - Se elimina del dict solo cuando estaba en True y pasa a
+            stopped (transición real corriendo → apagada).
+        """
+        d = getattr(self, "_demo_mode_active_vms", None)
+        if d is None:
+            d = {}
+            self._demo_mode_active_vms = d
+        return d
+
+    def _update_snapshots_tab_gating(self):
+        """Habilita/deshabilita la pestaña Snapshots según el modo demo.
+
+        Marcador: desktop_mode_demo_snapshot_guard_v1
+
+        Con Modo Demo (-snapshot), QEMU escribe a un overlay temporal en
+        /var/tmp que se borra al apagar. Cualquier snapshot creado en
+        esa sesión viviría solo en el overlay, invisible desde la
+        pestaña, y se perdería al apagar. Además, los snapshots ya
+        existentes en el .qcow2 no son accesibles mientras QEMU tiene
+        el archivo abierto en modo read-only.
+
+        Por eso: si la VM actual corre en Modo Demo → pestaña Snapshots
+        deshabilitada + tooltip explicativo + salto a Resumen si estaba
+        seleccionada.
+        """
+        if not hasattr(self, "main_tabs"):
+            return
+        try:
+            # 1) Actualizar el dict:
+            #    - Marcar True si la VM está running/paused.
+            #    - Quitar solo si estaba en True y ahora está stopped.
+            d = self._demo_set()
+            if d:
+                for _vd in list(d.keys()):
+                    try:
+                        _vn = os.path.basename(_vd)
+                        _state = self._runtime_state(_vn)
+                        if _state in ("running", "paused"):
+                            d[_vd] = True
+                        elif d[_vd] and _state == "stopped":
+                            del d[_vd]
+                    except Exception:
+                        pass
+
+            # 2) Aplicar el gating a la pestaña Snapshots.
+            idx = getattr(self, "_snapshots_tab_index", None)
+            if idx is None or idx < 0 or idx >= self.main_tabs.count():
+                return
+            active = bool(self.current_vm_dir) and (self.current_vm_dir in d)
+            self.main_tabs.setTabEnabled(idx, not active)
+            if active:
+                _tip = self.tr(
+                    "Modo Demo activo: la VM no guarda cambios al disco.\n"
+                    "Los snapshots están deshabilitados porque se perderían\n"
+                    "al apagar la VM.\n\n"
+                    "Para volver a usar snapshots: apaga la VM y arráncala\n"
+                    "en modo normal (▶ Iniciar)."
+                )
+                try:
+                    self.main_tabs.setTabToolTip(idx, _tip)
+                except Exception:
+                    pass
+                # Si el usuario estaba en Snapshots, saltar a Resumen.
+                if self.main_tabs.currentIndex() == idx:
+                    self.main_tabs.setCurrentIndex(0)
+            else:
+                try:
+                    self.main_tabs.setTabToolTip(idx, "")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def control_start_vm_demo(self):
+        """Arranque en Modo Demo: -snapshot, sin guardar cambios.
+
+        Marcador: desktop_mode_demo_v1
+
+        El flag self._pending_snapshot lo lee
+        install_flow_mixin.start_installation, que monkey-patchea el
+        worker de ESTA ejecución para inyectar -snapshot en run_temp.sh
+        justo antes de que QEMU arranque. No se toca workers.py.
+        """
+        if not self._vm_is_selected():
+            QMessageBox.information(
+                self, self.tr("Modo Demo"),
+                self.tr("Selecciona una máquina virtual."),
+            )
+            return
+        self._pending_snapshot = True
+        # desktop_mode_demo_snapshot_guard_v1: registrar esta VM como
+        # en modo demo. Se limpia solo cuando la VM pasa a stopped.
+        if self.current_vm_dir:
+            self._demo_set()[self.current_vm_dir] = False
+        try:
+            self.log_message(
+                "==> Modo Demo: la VM arrancará con -snapshot. Los cambios "
+                "en disco se descartarán al apagar."
+            )
+        except Exception:
+            pass
+        self.start_installation()
+        # Aplicar el gating ya mismo (sin esperar al próximo tick).
+        try:
+            self._update_snapshots_tab_gating()
+        except Exception:
+            pass
 
     def _update_pause_button_state(self, state):
         """Actualiza el texto y las acciones del botón Pausar según el estado.
@@ -8643,19 +9760,23 @@ class VmLifecycleMixin:
             return
         if state == "paused":
             btn.setText(self.tr("▶ Reanudar"))
+            # pause_snapshot_relabel_v1: texto alineado con la acción.
             btn.setToolTip(self.tr(
                 "Reanudar la VM pausada. Usa la flecha para más opciones:\n"
                 "• Pausar (rápido): detiene sin guardar el estado en disco.\n"
                 "• Reanudar: vuelve a ejecutar la VM.\n"
-                "• Tomar Snapshot: guarda el estado a disco y pausa."
+                "• Guardar estado y pausar: guarda RAM + dispositivos\n"
+                "  a disco antes de pausar (sobrevive a reinicios del host)."
             ))
         else:
             btn.setText(self.tr("⏸ Pausar"))
+            # pause_snapshot_relabel_v1: texto alineado con la acción.
             btn.setToolTip(self.tr(
                 "Pausar la VM. Usa la flecha para más opciones:\n"
                 "• Pausar (rápido): detiene sin guardar el estado en disco.\n"
                 "• Reanudar: vuelve a ejecutar la VM pausada.\n"
-                "• Tomar Snapshot: guarda el estado a disco y pausa."
+                "• Guardar estado y pausar: guarda RAM + dispositivos\n"
+                "  a disco antes de pausar (sobrevive a reinicios del host)."
             ))
         # Pausar y Tomar Snapshot solo aplican si la VM está corriendo.
         for name in ("action_vm_pause", "action_vm_pause_save"):
@@ -8788,8 +9909,56 @@ class VmLifecycleMixin:
             self.refresh_vm_runtime_status()
             return
 
+        # snapshot_blockers_v1: lista unificada de motivos por los que
+        # no se puede guardar el estado completo. Si hay >=1, un solo
+        # dialogo los muestra TODOS juntos y, al aceptar, se crea un
+        # snapshot solo-disco y se pausa la VM.
+        _blockers = self._snapshot_blockers()
+        if _blockers:
+            self._snapshot_log(
+                "[SNAPSHOT] Bloqueadores detectados para guardar estado: "
+                + ", ".join(b["key"] for b in _blockers)
+            )
+            for _b in _blockers:
+                self._snapshot_log(
+                    f"[SNAPSHOT]   \u2022 {_b['label']}: {_b['detail']}"
+                )
+            _confirmed = self._show_snapshot_blockers_dialog(
+                _blockers, mode="pause"
+            )
+            if not _confirmed:
+                self._snapshot_log(
+                    "[SNAPSHOT] Guardado de estado cancelado por el usuario."
+                )
+                return
+            try:
+                self._capture_snapshot_screenshot(snap_name)
+            except Exception:
+                pass
+            try:
+                _nodes = self._create_live_disk_only_snapshot(snap_name, readiness)
+                self._snapshot_log(
+                    f"[SNAPSHOT] \u2713 Snapshot de discos '{snap_name}' creado en {len(_nodes)} QCOW2."
+                )
+            except Exception as _disk_err:
+                self._snapshot_log(
+                    f"[SNAPSHOT] \u2717 Fallo snapshot de discos: {_disk_err}"
+                )
+            try:
+                self._qmp_hmp(self.current_vm_dir, "stop")
+                self._snapshot_log("[SNAPSHOT] \u2713 VM pausada.")
+            except Exception as _stop_err:
+                self._snapshot_log(f"[AVISO] No se pudo pausar: {_stop_err}")
+            self.refresh_snapshot_page()
+            return
+
         try:
             state_node, device_nodes = self._snapshot_qmp_nodes()
+            # pause_snapshot_devices_fix_v1: QMP snapshot-save espera
+            # 'devices' como array de STRINGS (nombres de nodo), no como
+            # array de dicts. Sin esta conversión, QEMU rechaza con:
+            #   Invalid parameter type for 'devices[0]', expected: string
+            node_names = [d["node_name"] for d in device_nodes]
         except Exception as e:
             QMessageBox.warning(
                 self, "Guardar estado",
@@ -8819,8 +9988,10 @@ class VmLifecycleMixin:
             )
         self._start_snapshot_worker(
             self.current_vm_dir, "snapshot-save",
+            # pause_snapshot_devices_fix_v1: 'devices' con node_names
+            # (strings), no con device_nodes (dicts).
             {"job-id": job_id, "tag": snap_name,
-             "vmstate": state_node, "devices": device_nodes},
+             "vmstate": state_node, "devices": node_names},
             f"Guardando estado '{snap_name}'", snap_name, "pause",
         )
 
@@ -8949,6 +10120,32 @@ class VmLifecycleMixin:
 
     def new_vm(self):
         self.current_vm_dir = None
+        # vm_optimizer_v1_lifecycle: resetear el estado del perfil.
+        # Sin esto, el label 'Perfil: X' del Resumen se queda pegado
+        # al pasar de una VM con perfil a la creacion de una nueva.
+        try:
+            self._applied_profile = None
+            self._profile_locked = False
+            if hasattr(self, "_set_profile_lock"):
+                self._set_profile_lock(False, save=False)
+            if hasattr(self, "_update_profile_indicator"):
+                self._update_profile_indicator()
+        except Exception:
+            pass
+        # vm_open_state_checks_v1: limpiar el banner de avisos al
+        # pasar a una VM nueva.
+        try:
+            if hasattr(self, "_clear_vm_issues_banner"):
+                self._clear_vm_issues_banner()
+        except Exception:
+            pass
+        # vm_open_state_checks_v1: limpiar el banner de avisos al
+        # pasar a una VM nueva.
+        try:
+            if hasattr(self, "_clear_vm_issues_banner"):
+                self._clear_vm_issues_banner()
+        except Exception:
+            pass
         # config_tab_gating_v1: activar modo creación. La pestaña
         # "Configuración VM" queda habilitada aunque no haya VM.
         self._new_vm_mode = True
@@ -8968,6 +10165,14 @@ class VmLifecycleMixin:
             self.check_autostart_on_launch.blockSignals(True)
             self.check_autostart_on_launch.setChecked(False)
             self.check_autostart_on_launch.blockSignals(False)
+        if hasattr(self, "check_autostart_on_boot"):
+            self.check_autostart_on_boot.blockSignals(True)
+            self.check_autostart_on_boot.setChecked(False)
+            self.check_autostart_on_boot.blockSignals(False)
+        if hasattr(self, "check_autostart_on_boot_viewer"):
+            self.check_autostart_on_boot_viewer.blockSignals(True)
+            self.check_autostart_on_boot_viewer.setChecked(False)
+            self.check_autostart_on_boot_viewer.blockSignals(False)
         if hasattr(self, "check_snapshot_compat"):
             self.check_snapshot_compat.blockSignals(True)
             self.check_snapshot_compat.setChecked(False)
@@ -8987,6 +10192,68 @@ class VmLifecycleMixin:
             self.check_serial_to_file.blockSignals(True)
             self.check_serial_to_file.setChecked(False)
             self.check_serial_to_file.blockSignals(False)
+        if hasattr(self, "check_virtio_rng"):
+            self.check_virtio_rng.blockSignals(True)
+            self.check_virtio_rng.setChecked(False)
+            self.check_virtio_rng.blockSignals(False)
+        if hasattr(self, "check_virtio_watchdog"):
+            self.check_virtio_watchdog.blockSignals(True)
+            self.check_virtio_watchdog.setChecked(False)
+            self.check_virtio_watchdog.blockSignals(False)
+        if hasattr(self, "combo_virtio_watchdog_action"):
+            self.combo_virtio_watchdog_action.blockSignals(True)
+            self.combo_virtio_watchdog_action.setCurrentIndex(0)
+            self.combo_virtio_watchdog_action.blockSignals(False)
+        if hasattr(self, "check_virtio_balloon"):
+            self.check_virtio_balloon.blockSignals(True)
+            self.check_virtio_balloon.setChecked(False)
+            self.check_virtio_balloon.blockSignals(False)
+
+        if hasattr(self, "check_cpu_topology_manual"):
+            self.check_cpu_topology_manual.blockSignals(True)
+            self.check_cpu_topology_manual.setChecked(False)
+            self.check_cpu_topology_manual.blockSignals(False)
+        if hasattr(self, "spin_cpu_sockets"):
+            self.spin_cpu_sockets.blockSignals(True)
+            self.spin_cpu_sockets.setValue(1)
+            self.spin_cpu_sockets.blockSignals(False)
+        if hasattr(self, "spin_cpu_cores"):
+            self.spin_cpu_cores.blockSignals(True)
+            self.spin_cpu_cores.setValue(2)
+            self.spin_cpu_cores.blockSignals(False)
+        if hasattr(self, "spin_cpu_threads"):
+            self.spin_cpu_threads.blockSignals(True)
+            self.spin_cpu_threads.setValue(1)
+            self.spin_cpu_threads.blockSignals(False)
+        if hasattr(self, "_cpu_topo_widget"):
+            self._cpu_topo_widget.setVisible(False)
+
+        if hasattr(self, "check_nested_virt"):
+            self.check_nested_virt.blockSignals(True)
+            self.check_nested_virt.setChecked(False)
+            self.check_nested_virt.blockSignals(False)
+        if hasattr(self, "check_hyperv_enlight"):
+            self.check_hyperv_enlight.blockSignals(True)
+            self.check_hyperv_enlight.setChecked(False)
+            self.check_hyperv_enlight.blockSignals(False)
+
+        if hasattr(self, "check_mem_hugepages"):
+            self.check_mem_hugepages.blockSignals(True)
+            self.check_mem_hugepages.setChecked(False)
+            self.check_mem_hugepages.blockSignals(False)
+        if hasattr(self, "check_mem_prealloc"):
+            self.check_mem_prealloc.blockSignals(True)
+            self.check_mem_prealloc.setChecked(False)
+            self.check_mem_prealloc.blockSignals(False)
+        if hasattr(self, "check_mem_memfd_lock"):
+            self.check_mem_memfd_lock.blockSignals(True)
+            self.check_mem_memfd_lock.setChecked(False)
+            self.check_mem_memfd_lock.blockSignals(False)
+        if hasattr(self, "_refresh_hugepages_status"):
+            try:
+                self._refresh_hugepages_status()
+            except Exception:
+                pass
         self.update_network_options()
         self.refresh_network_devices_ui()
         self._passthrough_saved=[]
@@ -9261,6 +10528,20 @@ class VmLifecycleMixin:
                 self.check_autostart_on_launch.blockSignals(True)
                 self.check_autostart_on_launch.setChecked(_as)
                 self.check_autostart_on_launch.blockSignals(False)
+            if hasattr(self, "check_autostart_on_boot"):
+                _ab = bool((data.get("extra") or {}).get("autostart_on_boot", False))
+                self.check_autostart_on_boot.blockSignals(True)
+                self.check_autostart_on_boot.setChecked(_ab)
+                self.check_autostart_on_boot.blockSignals(False)
+            if hasattr(self, "check_autostart_on_boot_viewer"):
+                _abv = bool((data.get("extra") or {}).get("autostart_on_boot_viewer", False))
+                self.check_autostart_on_boot_viewer.blockSignals(True)
+                self.check_autostart_on_boot_viewer.setChecked(_abv)
+                self.check_autostart_on_boot_viewer.blockSignals(False)
+                try:
+                    self._update_autostart_viewer_checkbox_state()
+                except Exception:
+                    pass
             self.update_firmware_options_visibility()
             self.refresh_boot_order_choices()
             mode_idx = self.combo_network_mode.findData(data.get("network_mode", "nat"))
@@ -9289,6 +10570,105 @@ class VmLifecycleMixin:
                 self.check_serial_to_file.blockSignals(True)
                 self.check_serial_to_file.setChecked(_ser)
                 self.check_serial_to_file.blockSignals(False)
+            if hasattr(self, "check_virtio_rng"):
+                _rng = bool((data.get("extra") or {}).get("virtio_rng", False))
+                self.check_virtio_rng.blockSignals(True)
+                self.check_virtio_rng.setChecked(_rng)
+                self.check_virtio_rng.blockSignals(False)
+            if hasattr(self, "check_virtio_watchdog"):
+                _wd = bool(
+                    (data.get("extra") or {}).get("virtio_watchdog", False)
+                )
+                _wda = str(
+                    (data.get("extra") or {}).get("virtio_watchdog_action")
+                    or "reset"
+                )
+                self.check_virtio_watchdog.blockSignals(True)
+                self.check_virtio_watchdog.setChecked(_wd)
+                self.check_virtio_watchdog.blockSignals(False)
+                if hasattr(self, "combo_virtio_watchdog_action"):
+                    _idx = self.combo_virtio_watchdog_action.findData(_wda)
+                    if _idx < 0:
+                        _idx = 0
+                    self.combo_virtio_watchdog_action.blockSignals(True)
+                    self.combo_virtio_watchdog_action.setCurrentIndex(_idx)
+                    self.combo_virtio_watchdog_action.blockSignals(False)
+                    try:
+                        self.combo_virtio_watchdog_action.setEnabled(_wd)
+                    except Exception:
+                        pass
+            if hasattr(self, "check_virtio_balloon"):
+                _bl = bool(
+                    (data.get("extra") or {}).get("virtio_balloon", False)
+                )
+                self.check_virtio_balloon.blockSignals(True)
+                self.check_virtio_balloon.setChecked(_bl)
+                self.check_virtio_balloon.blockSignals(False)
+
+            if hasattr(self, "check_cpu_topology_manual"):
+                _topo = (data.get("extra") or {}).get("cpu_topology") or {}
+                _tmode = str(_topo.get("mode") or "auto").lower()
+                self.check_cpu_topology_manual.blockSignals(True)
+                self.check_cpu_topology_manual.setChecked(_tmode == "manual")
+                self.check_cpu_topology_manual.blockSignals(False)
+                for _attr, _key, _default in (
+                    ("spin_cpu_sockets", "sockets", 1),
+                    ("spin_cpu_cores",   "cores",   2),
+                    ("spin_cpu_threads", "threads", 1),
+                ):
+                    _w = getattr(self, _attr, None)
+                    if _w is None:
+                        continue
+                    try:
+                        _val = int(_topo.get(_key) or _default)
+                    except Exception:
+                        _val = _default
+                    _w.blockSignals(True)
+                    _w.setValue(_val)
+                    _w.blockSignals(False)
+                if hasattr(self, "_cpu_topo_widget"):
+                    self._cpu_topo_widget.setVisible(_tmode == "manual")
+
+            if hasattr(self, "check_nested_virt"):
+                _nv = bool(
+                    (data.get("extra") or {}).get("nested_virt", False)
+                )
+                self.check_nested_virt.blockSignals(True)
+                self.check_nested_virt.setChecked(_nv)
+                self.check_nested_virt.blockSignals(False)
+            if hasattr(self, "check_hyperv_enlight"):
+                _hv = bool(
+                    (data.get("extra") or {}).get(
+                        "hyperv_enlightenments", False)
+                )
+                self.check_hyperv_enlight.blockSignals(True)
+                self.check_hyperv_enlight.setChecked(_hv)
+                self.check_hyperv_enlight.blockSignals(False)
+
+            if hasattr(self, "check_mem_hugepages"):
+                _mt = (data.get("extra") or {}).get("memory_tuning") or {}
+                for _attr, _key in (
+                    ("check_mem_hugepages",  "hugepages"),
+                    ("check_mem_prealloc",   "prealloc"),
+                    ("check_mem_memfd_lock", "memfd_lock"),
+                ):
+                    _w = getattr(self, _attr, None)
+                    if _w is None:
+                        continue
+                    _val = bool(_mt.get(_key, False))
+                    _w.blockSignals(True)
+                    _w.setChecked(_val)
+                    _w.blockSignals(False)
+                if hasattr(self, "_refresh_hugepages_status"):
+                    try:
+                        self._refresh_hugepages_status()
+                    except Exception:
+                        pass
+                if hasattr(self, "_refresh_cpu_topology_total"):
+                    try:
+                        self._refresh_cpu_topology_total()
+                    except Exception:
+                        pass
             graphics_idx = self.combo_graphics.findData(data.get("graphics_mode", "auto"))
             if graphics_idx >= 0:
                 self.combo_graphics.setCurrentIndex(graphics_idx)
@@ -9316,6 +10696,17 @@ class VmLifecycleMixin:
             self._apply_console_choice_from_vm(data)
 
             extra = data["extra"] or {}
+            # vm_optimizer_v1_lifecycle: cargar el estado del perfil
+            # aplicado (label del Resumen + candado de widgets).
+            try:
+                self._load_profile_state_from_extra(extra)
+            except Exception as _prof_err:
+                try:
+                    self.log_message(
+                        f"[AVISO] Perfil: no se pudo cargar el "
+                        f"estado desde extra: {_prof_err}")
+                except Exception:
+                    pass
             if data["os_type"] == "macos":
                 for i, (_, val) in enumerate(self.os_options):
                     if val == extra.get("os_choice"):
@@ -9386,6 +10777,32 @@ class VmLifecycleMixin:
             if hasattr(self, "_refresh_last_snapshot_thumbnail"):
                 self._refresh_last_snapshot_thumbnail()
             self.log_message(f"==> Configuración de '{vm_name}' cargada desde {vm_dir}")
+            # vm_open_state_checks_v1: chequeo de estado invalido
+            # antes de dar la VM por lista. Muestra banner en el
+            # Resumen + avisos en la Consola. No bloquea nada.
+            try:
+                _issues = self._check_vm_state_on_open(vm_dir, data)
+                self._update_vm_issues_banner(_issues)
+            except Exception as _chk_err:
+                try:
+                    self.log_message(
+                        f"[AVISO] vm_open_state_checks_v1: "
+                        f"{_chk_err}")
+                except Exception:
+                    pass
+            # vm_open_state_checks_v1: chequeo de estado invalido
+            # antes de dar la VM por lista. Muestra banner en el
+            # Resumen + avisos en la Consola. No bloquea nada.
+            try:
+                _issues = self._check_vm_state_on_open(vm_dir, data)
+                self._update_vm_issues_banner(_issues)
+            except Exception as _chk_err:
+                try:
+                    self.log_message(
+                        f"[AVISO] vm_open_state_checks_v1: "
+                        f"{_chk_err}")
+                except Exception:
+                    pass
             # Refrescar los botones inmediatamente sin esperar al timer.
             if hasattr(self, "_update_start_stop_buttons"):
                 try:
@@ -9467,6 +10884,37 @@ class VmLifecycleMixin:
         if file_name:
             line_edit_target.setText(file_name)
 
+    def _graphics_mode_display_name(self):
+        """Nombre legible de los gráficos que la VM está usando ahora mismo.
+
+        snapshot_gfx_guard_v1_gpu_name: si el modo guardado es 'auto',
+        resuelve a través de _auto_graphics_effective_label() para
+        devolver el nombre concreto que QEMU está usando en este
+        momento (p. ej. 'VirtIO-GPU 2D'). Si es un modo explícito,
+        devuelve su nombre legible.
+        """
+        try:
+            mode = self._vm_graphics_mode() or "auto"
+        except Exception:
+            mode = "auto"
+        if mode == "auto":
+            try:
+                _mode_id, label = self._auto_graphics_effective_label()
+                return label
+            except Exception:
+                return "auto"
+        _names = {
+            "virtio": "VirtIO-GPU 2D",
+            "virgl":  "VirtIO-GPU + VirGL 3D",
+            "venus":  "VirtIO-GPU + Venus/Vulkan 3D",
+            "qxl":    "Red Hat QXL 2D",
+            "vmware": "VMware SVGA II",
+            "std":    "VGA estándar de QEMU",
+            "none":   "Sin video / Headless",
+            "vga-macos": "VGA de OSX-KVM",
+        }
+        return _names.get(mode, mode)
+
     def _auto_graphics_effective_label(self):
         """Devuelve (mode_id, texto_corto) que elegiría "Automático" AHORA.
 
@@ -9531,7 +10979,20 @@ class VmLifecycleMixin:
         except Exception:
             gl_ok = virgl_installed = False
 
-        virgl_ok = gl_ok and virgl_installed and qemu_virgl and display_gl_ok
+        # virgl_udmabuf_autodetect_v1: comprobar /dev/udmabuf para que
+        # el texto del combo "Automático → X" refleje lo que se usara de
+        # verdad. Sin esta comprobacion, el combo prometia VirGL pero el
+        # backend caia a 2D porque udmabuf no era accesible.
+        _udmabuf_ok = True
+        try:
+            import os as _os_u
+            _udmabuf_ok = (_os_u.path.exists("/dev/udmabuf")
+                           and _os_u.access("/dev/udmabuf",
+                                            _os_u.R_OK | _os_u.W_OK))
+        except Exception:
+            _udmabuf_ok = False
+        virgl_ok = (gl_ok and virgl_installed and qemu_virgl
+                    and display_gl_ok and _udmabuf_ok)
         if virgl_ok:
             return "virgl", "VirtIO-GPU + VirGL 3D"
         if qemu_virtio:
@@ -9833,6 +11294,25 @@ class VmLifecycleMixin:
             )
             cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
 
+        # autostart_host_boot_v1: persistir el flag de auto-arranque al
+        # iniciar el sistema. La logica del servicio systemd la ejecuta
+        # _autostart_on_boot_apply() desde _save_config_from_ui.
+        if hasattr(self, "check_autostart_on_boot"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["autostart_on_boot"] = bool(
+                self.check_autostart_on_boot.isChecked()
+            )
+            if hasattr(self, "check_autostart_on_boot_viewer"):
+                extra["autostart_on_boot_viewer"] = bool(
+                    self.check_autostart_on_boot_viewer.isChecked()
+                )
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
         # serial_to_file_v1: persistir el flag de captura del puerto
         # serie (lo consume workers._serial_args()).
         if hasattr(self, "check_serial_to_file"):
@@ -9845,6 +11325,118 @@ class VmLifecycleMixin:
             extra["serial_to_file"] = bool(
                 self.check_serial_to_file.isChecked()
             )
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+        # virtio_rng_v1: persistir el flag de VirtIO-RNG.
+        if hasattr(self, "check_virtio_rng"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["virtio_rng"] = bool(
+                self.check_virtio_rng.isChecked()
+            )
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+        # virtio_watchdog_v1: persistir el flag y la accion.
+        if hasattr(self, "check_virtio_watchdog"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["virtio_watchdog"] = bool(
+                self.check_virtio_watchdog.isChecked()
+            )
+            _wd_act = getattr(self, "combo_virtio_watchdog_action", None)
+            if _wd_act is not None:
+                extra["virtio_watchdog_action"] = (
+                    _wd_act.currentData() or "reset"
+                )
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+        # virtio_balloon_v1: persistir el flag.
+        if hasattr(self, "check_virtio_balloon"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["virtio_balloon"] = bool(
+                self.check_virtio_balloon.isChecked()
+            )
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+        # cpu_topology_v1: persistir la topologia manual de CPU.
+        if hasattr(self, "check_cpu_topology_manual"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+
+            def _spin_val(name, default):
+                w = getattr(self, name, None)
+                if w is None:
+                    return default
+                try:
+                    return int(w.value())
+                except Exception:
+                    return default
+
+            extra["cpu_topology"] = {
+                "mode": (
+                    "manual"
+                    if self.check_cpu_topology_manual.isChecked()
+                    else "auto"
+                ),
+                "sockets": _spin_val("spin_cpu_sockets", 1),
+                "cores":   _spin_val("spin_cpu_cores", 2),
+                "threads": _spin_val("spin_cpu_threads", 1),
+            }
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+        # cpu_features_v1: virtualizacion anidada + Hyper-V.
+        if hasattr(self, "check_nested_virt"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["nested_virt"] = bool(
+                self.check_nested_virt.isChecked()
+            )
+            extra["hyperv_enlightenments"] = bool(
+                getattr(self, "check_hyperv_enlight", None)
+                and self.check_hyperv_enlight.isChecked()
+            )
+            cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
+
+        # memory_tuning_v1: hugepages / prealloc / memfd-lock.
+        if hasattr(self, "check_mem_hugepages"):
+            if not cfg.has_section("extra"):
+                cfg.add_section("extra")
+            try:
+                extra = json.loads(cfg["extra"].get("data", "{}"))
+            except Exception:
+                extra = {}
+            extra["memory_tuning"] = {
+                "hugepages": bool(self.check_mem_hugepages.isChecked()),
+                "prealloc": bool(
+                    getattr(self, "check_mem_prealloc", None)
+                    and self.check_mem_prealloc.isChecked()
+                ),
+                "memfd_lock": bool(
+                    getattr(self, "check_mem_memfd_lock", None)
+                    and self.check_mem_memfd_lock.isChecked()
+                ),
+            }
             cfg.set("extra", "data", json.dumps(extra, ensure_ascii=False))
 
         with open(cfg_path,"w",encoding="utf-8") as f: cfg.write(f)
@@ -11369,3 +12961,21 @@ class VmLifecycleMixin:
 # vm_config_save_cancel_v1_actions
 
 # vm_config_save_cancel_v1_actions onchange
+
+# vm_history_dark_colors_v1_applied
+
+# vm_history_icons_v2_applied
+
+
+# snapshot_nvme_guard_v1_pause
+# snapshot_nvme_guard_v1_dialog_ux_pause
+
+# virtio_rng_v1_lifecycle
+
+# autostart_host_boot_v1_lifecycle
+
+# autostart_host_boot_v1_rev2_lifecycle
+
+# autostart_viewer_v1_lifecycle
+
+# spice_sync_log_honest_v1
