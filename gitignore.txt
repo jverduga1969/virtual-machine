@@ -1,0 +1,7 @@
+# Carpeta OSX-KVM (solo el código, no los discos)
+OSX-KVM/*.img
+OSX-KVM/*.qcow2
+OSX-KVM/*.iso
+OSX-KVM/*.dmg
+OSX-KVM/BaseSystem*
+OSX-KVM/com.apple.recovery.boot/

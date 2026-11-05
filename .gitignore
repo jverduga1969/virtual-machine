@@ -1,0 +1,26 @@
+# Dependencias de runtime clonadas por la app (no son código fuente)
+OSX-KVM/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# QEMU/KVM artefactos locales
+*.qcow2
+*.vmdk
+*.vdi
+*.iso
+*.img
+
+# IDE / SO
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Backups y artefactos generados por scripts de fix
+.backups_*/
+*.bak

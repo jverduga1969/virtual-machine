@@ -1,0 +1,99 @@
+CONTEXTO DEL PROYECTO: "Virtual Machine • Administrador QEMU/KVM"
+App PyQt6 modular con arquitectura de plugins para gestionar VMs QEMU/KVM en Linux (CachyOS/Arch).
+Repositorio original: https://github.com/jverduga1969/virtual-machine
+
+ESTRUCTURA ACTUAL:
+NVM/
+├── main.py, main_window.py
+├── core/ (app_context.py, plugin_base.py, plugin_manager.py)
+├── services/ (vm_repository.py, host_adapter.py, vm_runner.py, host_diagnostics.py,
+│              host_profile.py, iso_manager.py, iso_utils.py, iso_sources.py,
+│              iso_versions.py, media_library.py, snapshot_manager.py,
+│              osx_kvm_updater.py)
+├── plugins/
+│   ├── config_vm/plugin.py         (Configuración VM)
+│   ├── host_config/plugin.py       (Configuración Host)
+│   ├── console/plugin.py           (Consola Gráfica VNC)
+│   ├── dashboard/plugin.py         (Resumen)
+│   ├── media_library/plugin.py     (Medios)
+│   ├── progress_console/plugin.py  (Consola de Progreso)
+│   └── snapshots/plugin.py         (Snapshots)
+├── ui_widgets/ (resource_monitor.py)
+├── OSX-KVM/ (bootloader macOS, OVMF, scripts)
+├── scripts/postinstall.sh
+└── vnc_widget/ (cliente VNC embebido)
+
+FUNCIONALIDADES COMPLETADAS:
+- Crear/eliminar/listar VMs, filtros, vista lista/tarjetas
+- Configuración completa: Sistema (firmware, chipset, Secure Boot, TPM),
+  Procesador, Memoria, Pantalla, Almacenamiento (QCOW2/ISO), Red, Dispositivos,
+  Passthrough (PCI/USB vía lspci/lsusb), Compartición
+- Arranque real con QEMU+KVM, VNC embebido, QMP (snapshots en caliente),
+  TPM 2.0 (swtpm), Secure Boot (OVMF secboot), SATA/AHCI para Windows 11
+- Panel de recursos con gráficas en tiempo real (CPU/RAM/Disco/Red)
+- Consola de progreso con logs, filtros, exportación
+- Biblioteca de medios (ISOs, discos QCOW2)
+- Snapshots (frío/caliente, miniaturas, vista lista y organigrama)
+- Actualización OSX-KVM vía git
+- Reparar OVMF Secure Boot desde Configuración Host
+- Windows 11 instalado correctamente
+
+PROBLEMAS PENDIENTES A ARREGLAR (este chat se corta aquí):
+
+1. BOTONES SIN FEEDBACK VISUAL: Los botones Iniciar/Pausar/Apagar no muestran
+   diferencia visual entre enabled/disabled porque el setStyleSheet sobrescribe
+   el estado :disabled. SOLUCIÓN: añadir reglas ":disabled { opacity: 0.5; }"
+   o "background-color: #666" al stylesheet.
+
+2. VM PIERDE SELECCIÓN AL INICIAR: Al arrancar una VM, la lista se reconstruye
+   con _refresh_vm_list() y pierde la selección. SOLUCIÓN: en _refresh_vm_list,
+   guardar current_id ANTES de clear, y restaurar después. Ya hay código parcial
+   pero no funciona del todo. Revisar.
+
+3. AUTO-CAMBIO DE PESTAÑA:
+   - Al INICIAR una VM → ir a "Consola Gráfica" automáticamente.
+     En _action_start, añadir: self.tabs.setCurrentWidget(<consola_widget>)
+     o self.tabs.setCurrentIndex(<índice>).
+   - Al SELECCIONAR una VM → ir a "Resumen" automáticamente.
+     En _on_vm_selected, añadir: self.tabs.setCurrentIndex(0).
+
+4. RED Y DISPOSITIVOS NO SE GUARDAN: En plugins/config_vm/plugin.py,
+   el método _save_config NO incluye los campos de Red (list_net) ni
+   Dispositivos (combo_audio, combo_pointer). SOLUCIÓN: añadir estos
+   campos al dict "data" antes de self.app.vm_repo.update(). También
+   en on_vm_selected() falta cargar estos valores del JSON.
+
+5. TAMAÑOS DE PANELES NO PERSISTEN: _left_saved_width y _right_saved_width
+   se guardan en memoria pero no en QSettings. SOLUCIÓN: en el splitterMoved
+   del QSplitter, guardar los tamaños con QSettings().setValue("layout/...")
+   y cargarlos en __init__.
+
+6. CUALQUIER OTRO BUG que aparezca durante el testing.
+
+ARCHIVOS CLAVE A MODIFICAR:
+- main_window.py (problemas 1, 2, 3, 5)
+- plugins/config_vm/plugin.py (problema 4)
+
+ESTILO DE TRABAJO:
+- El usuario prefiere ARCHIVOS COMPLETOS (no fragmentos) para evitar errores de pegado.
+- Borrar siempre __pycache__ con: find . -name "__pycache__" -type d -exec rm -rf {} +
+- El usuario tiene: CachyOS/Arch, QEMU 9+, KVM, swtpm 0.10.2, edk2-ovmf 202608.
+- No hay AppArmor instalado (aa-status no existe).
+- Se usa Secure Boot con CODE secboot + VARS normal (Arch no trae VARS secboot).
+- Windows 11 ya se instaló correctamente con Q35 + TPM-crb + SATA/AHCI.
+
+PRÓXIMOS PASOS DESPUÉS DE ARREGLAR LOS 6 PROBLEMAS:
+- Clonar/Importar/Exportar VMs (botones del Resumen).
+- Backups programados.
+- Atajos de teclado configurables.
+- Modo kiosco real.
+- Plugin macOS (descarga automática de OpenCore + Recovery).
+- Traducciones reales (i18n con .ts/.qm).
+- Pestaña de Ayuda con contenido real.
+
+INSTRUCCIÓN INICIAL PARA EL NUEVO CHAT:
+"Estoy continuando un proyecto PyQt6 modular. El chat anterior llegó al límite
+y me pasó este traspaso. Aquí tienes el contexto completo. Por favor, ayúdame a:
+1. Arreglar los 6 problemas pendientes (en orden de prioridad).
+2. Pasarme los archivos modificados COMPLETOS (no fragmentos).
+3. Cuando el nuevo chat llegue al 80% del límite, avísame y prepara otro traspaso."
