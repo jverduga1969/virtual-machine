@@ -1,8 +1,12 @@
 import os
+import platform
 import logging
 from typing import Dict, Any
 
 log = logging.getLogger(__name__)
+
+IS_WINDOWS = platform.system() == "Windows"
+
 
 class HostProfile:
     """Gestiona la detección de hardware y el cálculo de perfiles."""
@@ -12,6 +16,32 @@ class HostProfile:
         self._detect_hardware()
 
     def _detect_hardware(self):
+        if IS_WINDOWS:
+            detectado = False
+            # psutil es una dependencia de la app y da el total real del equipo;
+            # WMI puede no estar instalado en Python empaquetado.
+            try:
+                import psutil
+                vm = psutil.virtual_memory()
+                self.total_ram_mb = vm.total // (1024 * 1024)
+                detectado = True
+            except Exception:
+                try:
+                    import wmi
+                    c = wmi.WMI()
+                    modulos = [int(int(mem.Capacity) // (1024 * 1024))
+                               for mem in c.Win32_PhysicalMemory()]
+                    if modulos:
+                        # Asignar, nunca sumar al valor por defecto.
+                        self.total_ram_mb = sum(modulos)
+                        detectado = True
+                except Exception:
+                    pass
+            if not detectado:
+                log.error("No se pudo detectar RAM en Windows; usando valor por defecto 8192 MB")
+            self.total_cores = os.cpu_count() or 4
+            return
+
         try:
             with open('/proc/meminfo', 'r') as f:
                 for line in f:
@@ -21,7 +51,7 @@ class HostProfile:
                         break
         except Exception as e:
             log.error(f"Error detectando RAM: {e}")
-        
+
         self.total_cores = os.cpu_count() or 4
 
     def get_profile_settings(self, profile_name: str) -> Dict[str, Any]:
@@ -38,7 +68,7 @@ class HostProfile:
             return {"cores": min(max_cores, 8), "ram": min(max_ram, 16384), "vram": "512 MB", "graphics": "VirtIO-GPU 2D"} # VirGL/Venus iría aquí en el futuro
         elif profile_name == "Ligero":
             return {"cores": min(max_cores, 2), "ram": min(max_ram, 2048), "vram": "64 MB", "graphics": "VGA estándar"}
-        
+
         return {"cores": 2, "ram": 2048, "vram": "128 MB", "graphics": "Automático"}
 
     def is_overcommitted(self, ram_mb: int, cores: int) -> bool:

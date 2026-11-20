@@ -6,12 +6,13 @@ from PyQt6.QtWidgets import (
     QGroupBox, QComboBox, QCheckBox, QSpinBox, QRadioButton, 
     QStackedWidget, QGraphicsView, QGraphicsScene, QGraphicsRectItem,
     QGraphicsPixmapItem, QGraphicsTextItem, QGraphicsLineItem, QStyle,
-    QToolButton
+    QToolButton, QFileDialog
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap, QPen, QBrush, QColor, QIcon, QFont
 from core.plugin_base import PluginBase
 from services.snapshot_manager import SnapshotManager
+from services.backup_scheduler import BackupScheduler
 import logging
 log = logging.getLogger(__name__)
 
@@ -139,8 +140,17 @@ class Plugin(PluginBase):
 
     def __init__(self, app):
         super().__init__(app)
-        self.snap_mgr = SnapshotManager(app.data_dir)
+        self.snap_mgr = SnapshotManager(app.data_dir, getattr(app, 'vms_dir', None))
         self.current_vm_id = None
+        self.scheduler = BackupScheduler(
+            getattr(app, "settings", None), app.data_dir, self.snap_mgr)
+
+        # Comprueba las programaciones aunque el usuario no visite esta pestaña.
+        # PluginBase no es QObject: el dueño del timer es AppContext.
+        self._timer = QTimer(self.app)
+        self._timer.setInterval(self.scheduler.check_interval_ms)
+        self._timer.timeout.connect(self._run_schedules)
+        self._timer.start()
 
     def get_tabs(self):
         main_widget = SnapshotWidget(self)
@@ -156,9 +166,13 @@ class Plugin(PluginBase):
 
         toolbar = QHBoxLayout()
         self.btn_refresh = QPushButton("🔄 Actualizar")
+        self.btn_refresh.setToolTip("Refrescar la lista de snapshots y el estado del disco")
         self.btn_create = QPushButton("➕ Crear")
+        self.btn_create.setToolTip("Crear un nuevo punto de restauración de la VM")
         self.btn_restore = QPushButton("↩ Restaurar")
+        self.btn_restore.setToolTip("Restaurar la VM al snapshot seleccionado")
         self.btn_delete = QPushButton("🗑 Eliminar")
+        self.btn_delete.setToolTip("Eliminar el snapshot seleccionado")
         self.btn_refresh.clicked.connect(self.refresh_all)
         self.btn_create.clicked.connect(self._create_snapshot)
         self.btn_restore.clicked.connect(self._restore_snapshot)
@@ -183,8 +197,10 @@ class Plugin(PluginBase):
         view_layout = QHBoxLayout()
         view_layout.addWidget(QLabel("Vista:"))
         self.radio_list = QRadioButton("📋 Lista")
+        self.radio_list.setToolTip("Ver snapshots en forma de tabla")
         self.radio_list.setChecked(True)
         self.radio_tree = QRadioButton("🌳 Organigrama")
+        self.radio_tree.setToolTip("Ver snapshots en forma de árbol jerárquico")
         self.radio_list.toggled.connect(self._toggle_view)
         self.radio_tree.toggled.connect(self._toggle_view)
         view_layout.addWidget(self.radio_list)
@@ -197,9 +213,13 @@ class Plugin(PluginBase):
         toolbar_graph_layout.setContentsMargins(0, 0, 0, 0)
         
         self.btn_zoom_out = QPushButton("🔍−")
+        self.btn_zoom_out.setToolTip("Alejar el zoom del organigrama")
         self.btn_zoom_in = QPushButton("🔍+")
+        self.btn_zoom_in.setToolTip("Acercar el zoom del organigrama")
         self.btn_fit = QPushButton("⊞ Ajustar")
+        self.btn_fit.setToolTip("Ajustar el organigrama al panel")
         self.btn_real = QPushButton("1:1")
+        self.btn_real.setToolTip("Tamaño real del organigrama")
         
         self.btn_zoom_out.clicked.connect(lambda: self.graph_view.zoom_out())
         self.btn_zoom_in.clicked.connect(lambda: self.graph_view.zoom_in())
@@ -248,26 +268,147 @@ class Plugin(PluginBase):
         
         layout.addWidget(self.preview_group)
 
-        group_sched = QGroupBox("Snapshots automáticos programados")
+        group_sched = QGroupBox("Snapshots y backups programados (por VM)")
         sched_layout = QFormLayout(group_sched)
-        self.check_sched = QCheckBox("Activar")
+        self.check_sched = QCheckBox("Activar programación automática")
+        self.check_sched.setToolTip("Crear snapshots de esta VM según la frecuencia elegida")
         sched_layout.addRow("", self.check_sched)
         self.combo_freq = QComboBox()
         self.combo_freq.addItems(["Diario", "Semanal", "Mensual"])
         self.combo_freq.setCurrentText("Semanal")
+        self.combo_freq.setToolTip("Cada cuánto se ejecutará la programación")
         sched_layout.addRow("Frecuencia:", self.combo_freq)
         self.spin_keep = QSpinBox()
         self.spin_keep.setRange(1, 50)
         self.spin_keep.setValue(5)
+        self.spin_keep.setToolTip("Número de snapshots y backups a conservar")
         sched_layout.addRow("Conservar:", self.spin_keep)
+
+        self.check_backup = QCheckBox("Copiar también el disco (solo con la VM apagada)")
+        self.check_backup.setToolTip("Guarda una copia de la configuración y del disco en la carpeta de backups")
+        sched_layout.addRow("", self.check_backup)
+
+        dir_layout = QHBoxLayout()
+        self.lbl_backup_dir = QLabel(self.scheduler.get_backup_dir())
+        self.lbl_backup_dir.setStyleSheet("color: #888; font-size: 11px;")
+        self.lbl_backup_dir.setWordWrap(True)
+        btn_backup_dir = QToolButton()
+        btn_backup_dir.setText("…")
+        btn_backup_dir.setToolTip("Elegir la carpeta de backups")
+        btn_backup_dir.clicked.connect(self._choose_backup_dir)
+        btn_backup_now = QPushButton("💾 Backup ahora")
+        btn_backup_now.setToolTip("Crear un backup inmediato de la VM seleccionada")
+        btn_backup_now.clicked.connect(self._backup_now)
+        dir_layout.addWidget(self.lbl_backup_dir, 1)
+        dir_layout.addWidget(btn_backup_dir)
+        dir_layout.addWidget(btn_backup_now)
+        sched_layout.addRow("Carpeta:", dir_layout)
+
+        self.lbl_sched_status = QLabel("Selecciona una VM para ver su programación.")
+        self.lbl_sched_status.setStyleSheet("color: #888; font-size: 11px;")
+        self.lbl_sched_status.setWordWrap(True)
+        sched_layout.addRow("", self.lbl_sched_status)
+
+        self.check_sched.toggled.connect(self._save_schedule)
+        self.combo_freq.currentIndexChanged.connect(self._save_schedule)
+        self.spin_keep.valueChanged.connect(self._save_schedule)
+        self.check_backup.toggled.connect(self._save_schedule)
         layout.addWidget(group_sched)
 
         self.app.vm_selection_changed.connect(self._on_vm_selected)
+        # Si la pestaña se crea después de seleccionar una VM, tomar el id actual.
+        initial = (getattr(self.app.parent(), "_last_selected_id", None)
+                   or getattr(self.app, "_selected_vm_id", None))
+        if initial:
+            self.current_vm_id = initial
+            self._load_schedule()
         return [("Snapshots", main_widget)]
 
     def _on_vm_selected(self, vm_id: str):
         self.current_vm_id = vm_id
+        self._load_schedule()
         self.refresh_all()
+
+    # ------------------------------------------------------------ programación
+    def _load_schedule(self):
+        if not self.current_vm_id:
+            self.lbl_sched_status.setText("Selecciona una VM para ver su programación.")
+            return
+        sched = self.scheduler.get_schedule(self.current_vm_id)
+        # Bloquear señales mientras se cargan los valores guardados.
+        for control in (self.check_sched, self.combo_freq, self.spin_keep, self.check_backup):
+            control.blockSignals(True)
+        self.check_sched.setChecked(sched["enabled"])
+        self.combo_freq.setCurrentText(sched["freq"])
+        self.spin_keep.setValue(sched["keep"])
+        self.check_backup.setChecked(sched["backup"])
+        for control in (self.check_sched, self.combo_freq, self.spin_keep, self.check_backup):
+            control.blockSignals(False)
+        self.lbl_backup_dir.setText(self.scheduler.get_backup_dir())
+        self._update_sched_status()
+
+    def _save_schedule(self, *_args):
+        if not self.current_vm_id:
+            return
+        self.scheduler.set_schedule(
+            self.current_vm_id,
+            self.check_sched.isChecked(),
+            self.combo_freq.currentText(),
+            self.spin_keep.value(),
+            self.check_backup.isChecked(),
+        )
+        self._update_sched_status()
+
+    def _update_sched_status(self):
+        if not self.current_vm_id:
+            return
+        sched = self.scheduler.get_schedule(self.current_vm_id)
+        if not sched["enabled"]:
+            self.lbl_sched_status.setText("Programación desactivada para esta VM.")
+            return
+        last = self.scheduler.parse_last_run(sched["last_run"])
+        ultimo = last.strftime("%d/%m/%Y %H:%M") if last else "nunca"
+        backups = len(self.scheduler.list_backups(self.current_vm_id))
+        self.lbl_sched_status.setText(
+            f"Última ejecución: {ultimo} · Frecuencia: {sched['freq'].lower()} · "
+            f"Backups guardados: {backups}")
+
+    def _choose_backup_dir(self):
+        actual = self.scheduler.get_backup_dir()
+        elegido = QFileDialog.getExistingDirectory(
+            self.app.parent(), "Carpeta de backups", actual)
+        if elegido:
+            self.scheduler.set_backup_dir(elegido)
+            self.lbl_backup_dir.setText(elegido)
+
+    def _backup_now(self):
+        if not self.current_vm_id:
+            QMessageBox.warning(self.app.parent(), "Aviso", "Selecciona una VM.")
+            return
+        vm = self.app.get_vm(self.current_vm_id)
+        if not vm:
+            return
+        resultado = self.scheduler.create_backup(vm, repo=self.app.vm_repo)
+        self.scheduler.prune(self.current_vm_id, self.scheduler.get_schedule(self.current_vm_id)["keep"])
+        self._update_sched_status()
+        detalle = resultado["note"] or (
+            "Se copiaron la configuración y el disco." if resultado["disk"]
+            else "Se guardó la configuración.")
+        QMessageBox.information(
+            self.app.parent(), "Backup creado",
+            f"{detalle}\n\nUbicación: {resultado['path']}")
+
+    def _run_schedules(self):
+        """Disparado por el QTimer; no muestra diálogos para no molestar."""
+        vms = self.app.get_vms() if hasattr(self.app, "get_vms") else []
+        resultados = self.scheduler.run_due(vms)
+        if not resultados:
+            return
+        for resultado in resultados:
+            log.info("Programación ejecutada: %s", resultado)
+        if self.current_vm_id:
+            self._update_sched_status()
+            self.refresh_all()
 
     def _toggle_view(self):
         if self.radio_list.isChecked():

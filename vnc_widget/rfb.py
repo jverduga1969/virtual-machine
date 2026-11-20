@@ -56,9 +56,14 @@ SUPPORTED_ENCODINGS = [
     # para notificar cambios de resolucion del framebuffer sin
     # que el cliente tenga que reconectar.
     c.ENC_DESKTOPSIZE,
+    # QEMU Extended Key Event: permite enviar keycodes evdev directos
+    # (el guest aplica su propio layout; sin la traduccion keysym del
+    # server, que causa teclas equivocadas con layouts no-US).
+    c.ENC_EXT_KEY_EVENT,
 ]
 
 MAX_BUFF_SIZE: int = 10*1024*1024 # 10MB
+SOCKET_TIMEOUT = 10.0  # evita que un peer silencioso bloquee el hilo (y la GUI al cerrar)
 
 class RFBClient:
 
@@ -76,7 +81,7 @@ class RFBClient:
     _incrementalFrameBufferUpdate = True
 
     def __init__(self, host, port = 5900,
-                password: str = None, 
+                password: str = None,
                 sharedConnection = True,
                 keepRequesting = True,
                 requestIncremental = True):
@@ -95,16 +100,36 @@ class RFBClient:
         # congelado en el ultimo frame recibido).
         self._forceNonIncremental = False
 
+        # QEMU Extended Key Event: True tras el ack del server
+        # (rect con encoding -258). Mientras, fallback a keysyms.
+        self.ext_key_event_supported = False
+
         self._mainLoop: Thread = None
 
-    def __recv(self, expectedSize: int = None, maxSize=MAX_BUFF_SIZE) -> bytes:
+    def __recv(self, expectedSize: int = None, maxSize: int = None) -> bytes:
         if expectedSize == 0:
             return b""
+
+        # Los campos de longitud los controla el servidor: acotarlos evita
+        # reservar cientos de MB si la respuesta esta corrupta.
+        if maxSize is not None and expectedSize is not None and expectedSize > maxSize:
+            raise RFBUnexpectedResponse(
+                f"Longitud RFB demasiado grande: {expectedSize} > {maxSize}")
 
         if not expectedSize:
             buffer = self.connection.recv(4096)
         else:
-            buffer = self.connection.recv(expectedSize, socket.MSG_WAITALL)    
+            # MSG_WAITALL puede devolver menos bytes si el peer cierra a mitad
+            # de mensaje. Leer hasta completar o detectar EOF.
+            chunks = []
+            remaining = expectedSize
+            while remaining > 0:
+                chunk = self.connection.recv(remaining)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            buffer = b"".join(chunks)
 
         if not buffer:
             return buffer
@@ -118,18 +143,17 @@ class RFBClient:
 
     def __send(self, data: bytes):
         try:  # vnc_broken_pipe_fix_v1
-            self.connection.send(data)
-        except (BrokenPipeError, ConnectionResetError, OSError):
+            # send() puede escribir solo parte del buffer y corromper el stream.
+            self.connection.sendall(data)
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            self.log.warning(f"Error enviando a VNC: {e}")
             try:
                 self.connection.close()
             except Exception:
                 pass
-            for _attr in ("connected", "is_connected", "_connected", "running"):
-                if hasattr(self, _attr):
-                    try:
-                        setattr(self, _attr, False)
-                    except Exception:
-                        pass
+            self._stop = True
+            self._dead = True
+            self._connected = False
             return
         self.logc.debug(data.hex())
 
@@ -146,11 +170,17 @@ class RFBClient:
             if isinstance(self.host, str) and self.host.startswith("/"):
                 self.connection = socket.socket(
                     socket.AF_UNIX, socket.SOCK_STREAM)
+                self.connection.settimeout(SOCKET_TIMEOUT)
                 self.connection.connect(self.host)
             else:
                 self.connection = socket.socket(
                     socket.AF_INET, socket.SOCK_STREAM)
+                self.connection.settimeout(SOCKET_TIMEOUT)
                 self.connection.connect((self.host, self.port))
+        except socket.timeout:
+            self.log.info(f"Timeout conectando a VNC ({self.host}:{self.port})")
+            self._dead = True
+            return
         except FileNotFoundError:
             self.log.info(
                 f"Socket VNC no existe ({self.host}); VM apagada?")
@@ -211,8 +241,12 @@ class RFBClient:
         except ConnectionError:
             self._dead = True
             return
-        except Exception:
+        except Exception as e:
+            # Antes se silenciaba: un password invalido parecia una conexion
+            # colgada. Loguear el motivo facilita diagnosticar el handshake.
             self._dead = True
+            self.log.warning(f"Handshake RFB fallido: {type(e).__name__}: {e}")
+            self.log.debug("Detalle del handshake", exc_info=True)
             return
 
 
@@ -246,7 +280,8 @@ class RFBClient:
             self.__close()
             raise RFBHandshakeFailed(e)
 
-        self.desktopname = self.__recv(namelen).decode()
+        self.desktopname = self.__recv(namelen, maxSize=MAX_BUFF_SIZE).decode(
+            errors="replace")
         self.log.debug(f"Connecting to \"{self.desktopname}\"")
 
         pixformatData = s.unpack("!BBBBHHHBBBxxx", pixformat)
@@ -274,7 +309,7 @@ class RFBClient:
 
     def _handleVNCAuthResult(self, data: bytes):
         try:
-            result = es.return_uint32_val(data)
+            result = es.return_uint32_val(data, True)
         except s.error as e:
             raise VNCAuthentificationFailed(f"Authentication failed ({str(e)})")
         self.log.debug(f"Auth result {result}")
@@ -292,13 +327,13 @@ class RFBClient:
             self.log.error(f"Unknown Auth response ({result})")
 
     def _handleVNCAuthError(self, data: bytes):
-        waitfor = es.return_uint32_val(data)
+        waitfor = es.return_uint32_val(data, True)
         raise VNCAuthentificationFailed(
-            f"Authentication failed ({self.__recv(waitfor)})")
+            f"Authentication failed ({self.__recv(waitfor, maxSize=MAX_BUFF_SIZE)})")
 
     def _handleConnFailed(self, data: bytes):
-        waitfor = es.return_uint32_val(data)
-        resp = self.__recv(waitfor)
+        waitfor = es.return_uint32_val(data, True)
+        resp = self.__recv(waitfor, maxSize=MAX_BUFF_SIZE)
 
         self.__close()
         raise RFBHandshakeFailed(resp)
@@ -398,10 +433,15 @@ class RFBClient:
 
     def _handleServerCutText(self, data: bytes):
         datalength = s.unpack("!xxxI", data)[0]
-        data = self.__recv(datalength)
+        data = self.__recv(datalength, maxSize=MAX_BUFF_SIZE)
 
-        self.log.debug(f"Server clipboard: {data}")
-        # TODO: create callback
+        try:
+            text = data.decode('utf-8')
+        except UnicodeDecodeError:
+            text = data.decode('latin-1', errors='replace')
+
+        self.log.debug(f"Server clipboard: {text}")
+        self.onClipboardUpdate(text)
 
     def _handleFramebufferUpdate(self, data: bytes):
         numRectangles = s.unpack("!xH", data)[0]
@@ -420,6 +460,16 @@ class RFBClient:
         # deserializan con "I" (unsigned), llegan como 4294967073 y la
         # comparacion con las constantes negativas falla.
         xPos, yPos, width, height, encoding = s.unpack("!HHHHi", data)
+
+        # QEMU Extended Key Event ack: el server confirma que soporta
+        # keycodes evdev (mensajes type 255/sub 0). No hay pixel data
+        # detras de este pseudo-rectangulo: return antes de leer nada.
+        if encoding == c.ENC_EXT_KEY_EVENT:
+            if not self.ext_key_event_supported:
+                self.ext_key_event_supported = True
+                self.log.info("QEMU Extended Key Event soportado por el server "
+                              "(keycodes evdev directos; layout del guest aplicado)")
+            return
 
         # vnc_desktopsize_v3: deteccion implicita de cambio de
         # resolucion. Si el rectangulo excede el framebuffer que
@@ -484,7 +534,7 @@ class RFBClient:
 
     # ------------------------------------------------------------------
     ## Image decoding stuff
-    # ------------------------------------------------------------------        
+    # ------------------------------------------------------------------
 
     def _decodeRAW(self, data: bytes, rectangle: RFBRectangle):
         self.onRectangleUpdate(*rectangle.asTuple(), data)
@@ -530,6 +580,15 @@ class RFBClient:
 
         self.__send(s.pack("!BBxxI", c.CMSG_KEYEVENT, down, key))
 
+    def extKeyEvent(self, down, sym, keycode):
+        """QEMU Extended Key Event (12 bytes): type 255, sub 0, down u16,
+        sym u32, keycode evdev u32. QEMU usa el keycode directo (do_key_event):
+        el guest aplica su propio layout, sin la traduccion keysym del server
+        que causa teclas equivocadas con layouts no-US."""
+        self.log.debug(f'extKeyEvent: sym={sym}, keycode={keycode}, {"down" if down else "up"}')
+
+        self.__send(s.pack("!BBHII", c.CMSG_QEMU, 0, down, sym, keycode))
+
     def pointerEvent(self, x: int, y: int, buttommask=0):
         """
         Indicates either pointer movement or a pointer button press or release. The pointer is
@@ -540,6 +599,16 @@ class RFBClient:
 
         self.log.debug(f"pointerEvent: {x}, {y}, {buttommask}")
         self.__send(s.pack("!BBHH", c.CMSG_POINTEREVENT, buttommask, x, y))
+
+    def clientCutText(self, text: str):
+        """Envía texto del host al servidor VNC (Guest)."""
+        if not self._connected: return
+        self.log.debug(f"Enviando portapapeles al servidor: {text[:50]}...")
+        # El protocolo RFB usa ISO 8859-1 o UTF-8. Usamos UTF-8 para soportar acentos.
+        data = text.encode('utf-8')
+        # Mensaje ClientCutText: tipo (1 byte), padding (3 bytes), longitud (4 bytes)
+        self.__send(s.pack("!BxxxI", c.CMSG_CLIENTCUTTEXT, len(data)))
+        self.__send(data)
 
     # ------------------------------------------------------------------
     ## Direct Calls
@@ -555,7 +624,7 @@ class RFBClient:
         self._dead = False
         self._mainLoop = Thread(target=self.__start)
         self._mainLoop.start()
-    
+
     def sendPassword(self, password):
         if type(password) is str:
             password = password.encode("ascii")
@@ -580,7 +649,11 @@ class RFBClient:
 
         if self._mainLoop and self._mainLoop.is_alive():
             self.log.debug("waiting for main loop to exit")
-            self._mainLoop.join()
+            # Nunca esperar sin limite: si el socket esta bloqueado, la GUI
+            # se congelaria al cerrar el widget VNC.
+            self._mainLoop.join(timeout=2)
+            if self._mainLoop.is_alive():
+                self.log.warning("El hilo RFB no termino tras 2s al cerrar")
 
     # ------------------------------------------------------------------
     ## Callbacks
@@ -627,6 +700,12 @@ class RFBClient:
         """
         a bell, yes that's right a BELL
         """
+
+    def onClipboardUpdate(self, text: str):
+        """
+        called when the server sends a clipboard update
+        """
+        pass
 
     def vncRequestPassword(self):
         """

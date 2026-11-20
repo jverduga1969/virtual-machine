@@ -1,19 +1,24 @@
 import os
+import platform
 import subprocess
 import shutil
 import glob
+import sys
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QStackedWidget, QComboBox, QCheckBox, QLineEdit,
-    QFormLayout, QGroupBox, QApplication, QMessageBox, QScrollArea
+    QFormLayout, QGroupBox, QMessageBox, QScrollArea, QFileDialog
 )
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt
 from core.plugin_base import PluginBase
+from core.i18n import available_languages, install as install_translations, translate_widgets
+from core.theme import DEFAULT_THEME, apply_theme
 from services import host_passthrough
-from services.host_diagnostics import HostDiagnostics
+from services.host_diagnostics import (
+    HostDiagnostics, OVMF_LINUX_DIRS, OVMF_SECBOOT_CODE_PATTERNS, OVMF_VARS_PATTERNS,
+)
 from services.osx_kvm_updater import OSXKVMUpdater
-from ui_widgets.os_update_dialog import OSUpdateDialog  # <-- IMPORT AÑADIDO
 
 class Plugin(PluginBase):
     name = "HostConfig"
@@ -24,6 +29,7 @@ class Plugin(PluginBase):
         super().__init__(app)
         self.diag = HostDiagnostics()
         self.general_pages_added = False
+        self._diag_start_index = 0  # índice fijo donde empiezan las pestañas de diagnóstico
 
     def get_tabs(self):
         main_widget = QWidget()
@@ -52,28 +58,28 @@ class Plugin(PluginBase):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(20, 20, 20, 20)
-        
+
         self.lbl_title = QLabel("")
         self.lbl_title.setStyleSheet("font-size: 18px; font-weight: bold;")
         right_layout.addWidget(self.lbl_title)
-        
+
         self.stack = QStackedWidget()
         right_layout.addWidget(self.stack)
-        
+
         # Botones de acción inferiores (solo visibles en diagnóstico)
         btn_layout = QHBoxLayout()
         self.btn_refresh = QPushButton("🔄 Comprobar de nuevo")
         self.btn_refresh.setStyleSheet("background-color: #1976d2; color: white; padding: 8px; font-weight: bold; border-radius: 4px;")
         self.btn_refresh.clicked.connect(self.refresh_diagnostics)
-        
+
         self.btn_repair = QPushButton("🛠️ Reparar lo que falte")
         self.btn_repair.setStyleSheet("background-color: #f9a825; color: black; padding: 8px; font-weight: bold; border-radius: 4px;")
         self.btn_repair.clicked.connect(self._run_postinstall)
-        
+
         btn_layout.addWidget(self.btn_refresh)
         btn_layout.addWidget(self.btn_repair)
         right_layout.addLayout(btn_layout)
-        
+
         main_layout.addWidget(right_panel)
 
         self._build_pages()
@@ -91,26 +97,26 @@ class Plugin(PluginBase):
         # 1. Apariencia
         page_appearance = QWidget()
         layout_app = QVBoxLayout(page_appearance)
-        
+
         group_theme = QGroupBox("Tema")
         form_theme = QFormLayout(group_theme)
         self.combo_theme = QComboBox()
         self.combo_theme.addItems(["Sistema (predeterminado)", "Claro", "Oscuro"])
-        saved_theme = QSettings().value("ui/theme", "Sistema (predeterminado)")
+        saved_theme = self.app.settings.value("ui/theme", DEFAULT_THEME)
         self.combo_theme.setCurrentText(saved_theme)
         self.combo_theme.currentTextChanged.connect(self._on_theme_changed)
         form_theme.addRow("Tema de la aplicación:", self.combo_theme)
         layout_app.addWidget(group_theme)
-        
+
         group_lang = QGroupBox("Idioma")
         form_lang = QFormLayout(group_lang)
         self.combo_lang = QComboBox()
-        self.combo_lang.addItems(["Español", "English", "Português (BR)", "Deutsch", "Français", "Italiano"])
-        saved_lang = QSettings().value("ui/language", "Español")
+        self.combo_lang.addItems(available_languages())
+        saved_lang = self.app.settings.value("ui/language", "Español")
         self.combo_lang.setCurrentText(saved_lang)
         self.combo_lang.currentTextChanged.connect(self._on_lang_changed)
         form_lang.addRow("Selecciona el idioma:", self.combo_lang)
-        form_lang.addRow(QLabel("Al cambiar el idioma, la aplicación ofrecerá reiniciar para aplicar la traducción."))
+        form_lang.addRow(QLabel("El idioma se aplica al instante a toda la aplicación."))
         layout_app.addWidget(group_lang)
         layout_app.addStretch()
 
@@ -132,22 +138,22 @@ class Plugin(PluginBase):
         layout_macos = QVBoxLayout(page_macos)
         group_macos = QGroupBox("Soporte macOS (OSX-KVM)")
         layout_group = QVBoxLayout(group_macos)
-        
+
         updater = OSXKVMUpdater(Path(__file__).parent.parent.parent)
-        
+
         self.lbl_macos_version = QLabel(f"Versión actual: {updater.get_current_version()}")
         layout_group.addWidget(self.lbl_macos_version)
-        
+
         btn_update_macos = QPushButton("🔄 Actualizar OSX-KVM desde GitHub")
         btn_update_macos.setStyleSheet("background-color: #1976d2; color: white; padding: 5px;")
         btn_update_macos.clicked.connect(self._update_macos)
         layout_group.addWidget(btn_update_macos)
-        
+
         info_macos = QLabel("OSX-KVM se usa para el arranque de macOS. Se recomienda mantenerlo actualizado para compatibilidad con las últimas versiones de OpenCore.")
         info_macos.setWordWrap(True)
         info_macos.setStyleSheet("color: #888; font-size: 11px;")
         layout_group.addWidget(info_macos)
-        
+
         layout_macos.addWidget(group_macos)
         layout_macos.addStretch()
 
@@ -156,47 +162,82 @@ class Plugin(PluginBase):
         layout_ovmf = QVBoxLayout(page_ovmf)
         group_ovmf = QGroupBox("OVMF Secure Boot")
         lay_ovmf = QVBoxLayout(group_ovmf)
-        
+
         info_ovmf = QLabel("Arch Linux incluye OVMF_CODE.secboot.4m.fd pero no el VARS.secboot. Para Windows 11, basta con usar el CODE secboot del sistema + el VARS normal. Usa este botón para copiar los archivos a la carpeta OSX-KVM/.")
         info_ovmf.setWordWrap(True)
         info_ovmf.setStyleSheet("color: #888; font-size: 11px;")
         lay_ovmf.addWidget(info_ovmf)
-        
+
         btn_fix_ovmf = QPushButton("🛠️ Reparar OVMF Secure Boot")
         btn_fix_ovmf.setStyleSheet("background-color: #f9a825; color: black; padding: 8px; font-weight: bold;")
         btn_fix_ovmf.clicked.connect(self._fix_ovmf_secure_boot)
         lay_ovmf.addWidget(btn_fix_ovmf)
-        
+
         self.lbl_ovmf_status = QLabel("")
         self.lbl_ovmf_status.setStyleSheet("color: #888; font-size: 11px; padding-top: 5px;")
         self.lbl_ovmf_status.setWordWrap(True)
         lay_ovmf.addWidget(self.lbl_ovmf_status)
-        
+
         layout_ovmf.addWidget(group_ovmf)
         layout_ovmf.addStretch()
 
-        # 5. Actualizar Catálogo de SO (NUEVO)
-        page_os_updater = QWidget()
-        layout_os_up = QVBoxLayout(page_os_updater)
-        group_os = QGroupBox("Catálogo de versiones de SO")
-        lay_os = QVBoxLayout(group_os)
-        
-        info_os = QLabel(
-            "Consulta los servidores oficiales de Ubuntu, Debian, Fedora, Linux Mint y Pop!_OS "
-            "para obtener las últimas versiones disponibles.\n\n"
-            "Si no actualizas este catálogo, la aplicación usará una lista de versiones básica predefinida."
+        # 5. Rutas de almacenamiento (VMs, ISOs, Biblioteca de medios)
+        page_paths = QWidget()
+        layout_paths = QVBoxLayout(page_paths)
+        group_paths = QGroupBox("Rutas de almacenamiento de la aplicación")
+        form_paths = QFormLayout(group_paths)
+
+        def _browse(field):
+            d = QFileDialog.getExistingDirectory(self.app.parent(), "Seleccionar carpeta", field.text())
+            if d:
+                field.setText(d)
+
+        self.e_base_dir = QLineEdit()
+        self.e_base_dir.setPlaceholderText("Ej: /home/usuario/.local/share/virtual-machine")
+        self.e_base_dir.setToolTip("Carpeta raíz donde se guardan VMs, ISOs y la biblioteca de medios.")
+        row_base = QHBoxLayout(); row_base.addWidget(self.e_base_dir)
+        btn_base = QPushButton("📁"); btn_base.clicked.connect(lambda: _browse(self.e_base_dir))
+        row_base.addWidget(btn_base)
+        form_paths.addRow("Directorio base de datos:", row_base)
+
+        self.e_vms_dir = QLineEdit()
+        self.e_vms_dir.setPlaceholderText("Ej: /home/usuario/.local/share/virtual-machine/vms")
+        self.e_vms_dir.setToolTip("Carpeta donde se almacenan los archivos de disco y configuración de las VMs.")
+        row_vms = QHBoxLayout(); row_vms.addWidget(self.e_vms_dir)
+        btn_vms = QPushButton("📁"); btn_vms.clicked.connect(lambda: _browse(self.e_vms_dir))
+        row_vms.addWidget(btn_vms)
+        form_paths.addRow("Directorio de VMs:", row_vms)
+
+        self.e_isos_dir = QLineEdit()
+        self.e_isos_dir.setPlaceholderText("Ej: /home/usuario/.local/share/virtual-machine/isos")
+        self.e_isos_dir.setToolTip("Carpeta donde se descargan y guardan las imágenes ISO.")
+        row_isos = QHBoxLayout(); row_isos.addWidget(self.e_isos_dir)
+        btn_isos = QPushButton("📁"); btn_isos.clicked.connect(lambda: _browse(self.e_isos_dir))
+        row_isos.addWidget(btn_isos)
+        form_paths.addRow("Directorio de ISOs:", row_isos)
+
+        self.e_media_dir = QLineEdit()
+        self.e_media_dir.setPlaceholderText("Ej: /home/usuario/.local/share/virtual-machine/MediaLibrary")
+        self.e_media_dir.setToolTip("Carpeta de la biblioteca central de medios (ISOs, discos QCOW2, etc.).")
+        row_media = QHBoxLayout(); row_media.addWidget(self.e_media_dir)
+        btn_media = QPushButton("📁"); btn_media.clicked.connect(lambda: _browse(self.e_media_dir))
+        row_media.addWidget(btn_media)
+        form_paths.addRow("Biblioteca de medios:", row_media)
+
+        btn_save_paths = QPushButton("💾 Guardar rutas")
+        btn_save_paths.setStyleSheet("background-color: #2e7d32; color: white; padding: 8px; font-weight: bold; border-radius: 4px;")
+        btn_save_paths.clicked.connect(self._save_paths)
+        form_paths.addRow(btn_save_paths)
+
+        info_paths = QLabel(
+            "Las rutas se leen al iniciar la aplicación. Cambiarlas aquí las guarda para el próximo inicio.\n"
+            "Si cambias la ubicación mientras la app está abierta, reinicia para que surtan efecto en todos los módulos."
         )
-        info_os.setWordWrap(True)
-        info_os.setStyleSheet("color: #888; font-size: 11px;")
-        lay_os.addWidget(info_os)
-        
-        self.btn_update_os = QPushButton("🔄 Actualizar versiones de SO")
-        self.btn_update_os.setStyleSheet("background-color: #2e7d32; color: white; padding: 8px; font-weight: bold; border-radius: 4px;")
-        self.btn_update_os.clicked.connect(self._on_update_os)
-        lay_os.addWidget(self.btn_update_os)
-        
-        layout_os_up.addWidget(group_os)
-        layout_os_up.addStretch()
+        info_paths.setWordWrap(True)
+        info_paths.setStyleSheet("color: #888; font-size: 11px;")
+        layout_paths.addWidget(group_paths)
+        layout_paths.addWidget(info_paths)
+        layout_paths.addStretch()
 
         # Añadir al menú
         items = [
@@ -204,7 +245,7 @@ class Plugin(PluginBase):
             ("🔌 API REST", page_api),
             ("🍎 Soporte macOS", page_macos),
             ("🛠️ Reparar OVMF", page_ovmf),
-            ("📋 Catálogo de SO", page_os_updater),  # <-- NUEVO ITEM
+            ("📁 Rutas de almacenamiento", page_paths),
         ]
         for name, widget in items:
             self.list_menu.addItem(QListWidgetItem(name))
@@ -212,15 +253,45 @@ class Plugin(PluginBase):
             scroll.setWidgetResizable(True)
             scroll.setWidget(widget)
             self.stack.addWidget(scroll)
-        
+
+        self._load_paths()
         self.general_pages_added = True
+        # Guardar cuántas páginas generales hay para que refresh_diagnostics
+        # siempre limpie desde el índice correcto, sin importar cuántas veces se llame.
+        self._diag_start_index = self.list_menu.count()
 
     # ==========================================
-    # NUEVA FUNCIÓN PARA EL CATÁLOGO DE SO
+    # RUTAS DE ALMACENAMIENTO
     # ==========================================
-    def _on_update_os(self):
-        dlg = OSUpdateDialog(self.app.parent())
-        dlg.exec()
+    def _load_paths(self):
+        settings = self.app.settings
+        default_base = str(Path.home() / ".local" / "share" / "virtual-machine")
+        base = settings.value("paths/base_dir", default_base)
+        vms = settings.value("paths/vms_dir", str(Path(base) / "vms"))
+        isos = settings.value("paths/isos_dir", str(Path(base) / "isos"))
+        media = settings.value("paths/media_dir", str(Path(base) / "MediaLibrary"))
+        self.e_base_dir.setText(str(base))
+        self.e_vms_dir.setText(str(vms))
+        self.e_isos_dir.setText(str(isos))
+        self.e_media_dir.setText(str(media))
+
+    def _save_paths(self):
+        base = self.e_base_dir.text().strip()
+        vms = self.e_vms_dir.text().strip()
+        isos = self.e_isos_dir.text().strip()
+        media = self.e_media_dir.text().strip()
+        if not base or not vms or not isos or not media:
+            QMessageBox.warning(self.app.parent(), "Error", "Todas las rutas son obligatorias.")
+            return
+        settings = self.app.settings
+        settings.setValue("paths/base_dir", base)
+        settings.setValue("paths/vms_dir", vms)
+        settings.setValue("paths/isos_dir", isos)
+        settings.setValue("paths/media_dir", media)
+        QMessageBox.information(
+            self.app.parent(), "Guardado",
+            "Rutas guardadas.\nReinicia la aplicación para que todos los módulos usen las nuevas ubicaciones."
+        )
 
     # ==========================================
     # FUNCIONES EXISTENTES
@@ -235,54 +306,57 @@ class Plugin(PluginBase):
             QMessageBox.critical(self.app.parent(), "Error", msg)
 
     def _fix_ovmf_secure_boot(self):
-        system_dirs = [
-            "/usr/share/edk2/x64/",
-            "/usr/share/OVMF/",
-            "/usr/share/edk2/ovmf/",
-            "/usr/share/edk2-ovmf/x64/",
-        ]
-        
+        # Misma lista que usa el diagnóstico y VMRunner._find_ovmf().
+        system_dirs = list(OVMF_LINUX_DIRS)
+
         project_root = Path(__file__).parent.parent.parent
         osx_dir = project_root / "OSX-KVM"
         osx_dir.mkdir(exist_ok=True)
-        
+        system_dirs.append(str(osx_dir))
+
         code_src = None
         vars_src = None
-        
+
         for d in system_dirs:
-            if not os.path.exists(d): continue
-            # Buscar CODE secboot
-            code_candidates = glob.glob(os.path.join(d, "OVMF_CODE*.secboot*.fd"))
-            if code_candidates:
-                code_src = code_candidates[0]
-            # Buscar VARS normal (compatible con secboot)
-            vars_candidates = glob.glob(os.path.join(d, "OVMF_VARS*.4m.fd")) or glob.glob(os.path.join(d, "OVMF_VARS*.fd"))
-            if vars_candidates:
-                vars_src = vars_candidates[0]
+            if not os.path.isdir(d): continue
+            # CODE de Secure Boot (incluye los .bin de openSUSE).
+            if not code_src:
+                for pattern in OVMF_SECBOOT_CODE_PATTERNS:
+                    candidatos = sorted(glob.glob(os.path.join(d, pattern)))
+                    if candidatos:
+                        code_src = candidatos[0]
+                        break
+            # VARS normal: compatible con Secure Boot.
+            if not vars_src:
+                for pattern in OVMF_VARS_PATTERNS:
+                    candidatos = sorted(glob.glob(os.path.join(d, pattern)))
+                    if candidatos:
+                        vars_src = candidatos[0]
+                        break
             if code_src and vars_src: break
-        
+
         if not code_src:
-            self.lbl_ovmf_status.setText("❌ No se encontró OVMF_CODE.secboot en el sistema. Instala 'edk2-ovmf'.")
+            self.lbl_ovmf_status.setText("❌ No se encontró OVMF_CODE de Secure Boot. Instala 'ovmf', 'edk2-ovmf' o 'qemu-ovmf-x86_64'.")
             self.lbl_ovmf_status.setStyleSheet("color: #c62828; font-size: 11px;")
             return
-        
+
         if not vars_src:
             self.lbl_ovmf_status.setText("❌ No se encontró OVMF_VARS en el sistema.")
             self.lbl_ovmf_status.setStyleSheet("color: #c62828; font-size: 11px;")
             return
-        
+
         try:
             dest_code = osx_dir / "OVMF_CODE.secboot.4m.fd"
             dest_vars = osx_dir / "OVMF_VARS.secboot.4m.fd"
-            
+
             # Borrar vacíos si existen
             for f in (dest_code, dest_vars):
                 if f.exists() and f.stat().st_size == 0:
                     f.unlink()
-            
+
             shutil.copy2(code_src, dest_code)
             shutil.copy2(vars_src, dest_vars)
-            
+
             self.lbl_ovmf_status.setText(
                 f"✅ Archivos copiados:\n"
                 f"  - CODE: {os.path.basename(code_src)} ({os.path.getsize(code_src) // 1024} KB)\n"
@@ -296,8 +370,8 @@ class Plugin(PluginBase):
             self.lbl_ovmf_status.setStyleSheet("color: #c62828; font-size: 11px;")
 
     def refresh_diagnostics(self):
-        start_index = self.list_menu.count()
-        
+        start_index = self._diag_start_index  # siempre el mismo valor fijo
+
         # Limpiar
         while self.stack.count() > start_index:
             widget = self.stack.widget(start_index)
@@ -311,28 +385,28 @@ class Plugin(PluginBase):
         for r in results:
             categories.setdefault(r["cat"], []).append(r)
 
-        icons = {"Virtualización": "🖥️", "Python": "🐍", "Consola": "🌐", "Compartición": "📂", "Passthrough": "🔌", "Modo Kiosco": "🖥️"}
+        icons = {"Virtualización": "🖥️", "Python": "🐍", "Consola": "🌐", "Compartición": "📂", "Passthrough": "🔌"}
 
         for cat_name, items in categories.items():
             icon = icons.get(cat_name, "📁")
             self.list_menu.addItem(QListWidgetItem(f"{icon} {cat_name}"))
             scroll_w = QWidget()
             v_layout = QVBoxLayout(scroll_w)
-            
+
             for check in items:
                 row = QWidget()
                 h_layout = QHBoxLayout(row)
                 h_layout.setContentsMargins(0, 5, 0, 5)
-                
+
                 st_icon = "✅" if check["st"] == "ok" else ("⚠️" if check["st"] == "warn" else "❌")
                 color = "#2e7d32" if check["st"] == "ok" else ("#f9a825" if check["st"] == "warn" else "#c62828")
-                
+
                 lbl_icon = QLabel(st_icon)
                 lbl_name = QLabel(f"<b>{check['name']}</b>")
                 lbl_name.setFixedWidth(200)
                 lbl_desc = QLabel(check["desc"])
                 lbl_desc.setStyleSheet(f"color: {color};")
-                
+
                 h_layout.addWidget(lbl_icon); h_layout.addWidget(lbl_name); h_layout.addWidget(lbl_desc); h_layout.addStretch()
                 v_layout.addWidget(row)
             v_layout.addStretch()
@@ -344,32 +418,38 @@ class Plugin(PluginBase):
             title = self.list_menu.item(index).text().split(" ", 1)[-1]
             self.lbl_title.setText(title)
             is_general = (
-                "Apariencia" in title or 
-                "API REST" in title or 
-                "Soporte macOS" in title or 
+                "Apariencia" in title or
+                "API REST" in title or
+                "Soporte macOS" in title or
                 "Reparar OVMF" in title or
-                "Catálogo de SO" in title  # <-- Añadido para ocultar los botones de diagnóstico
+                "Rutas de almacenamiento" in title
             )
             self.btn_refresh.setVisible(not is_general)
             self.btn_repair.setVisible(not is_general)
 
     def _on_theme_changed(self, theme):
-        QSettings().setValue("ui/theme", theme)
-        app = QApplication.instance()
-        if theme == "Oscuro":
-            app.setStyleSheet("QWidget { background-color: #2b2b2b; color: white; } QLineEdit, QComboBox { background-color: #3b3b3b; color: white; }")
-        elif theme == "Claro":
-            app.setStyleSheet("QWidget { background-color: #f0f0f0; color: black; }")
-        else:
-            app.setStyleSheet("")
+        self.app.settings.setValue("ui/theme", theme)
+        apply_theme(theme)  # misma implementación que usa main.py
 
     def _on_lang_changed(self, lang):
-        QSettings().setValue("ui/language", lang)
+        self.app.settings.setValue("ui/language", lang)
+        install_translations(self.app.settings)
+        ventana = self.app.parent()
+        if ventana is not None:
+            translate_widgets(ventana)
 
     def _run_postinstall(self):
-        script_path = Path("scripts/postinstall.sh")
-        if not script_path.exists():
-            QMessageBox.critical(self.app.parent(), "Error", f"No se encontró {script_path.absolute()}")
+        # Resolver desde el paquete, no desde el directorio de trabajo: el
+        # .desktop o el instalador pueden lanzar la app desde cualquier cwd.
+        if platform.system() == "Windows":
+            self._run_postinstall_windows()
+            return
+
+        script_path = Path(__file__).resolve().parents[2] / "scripts" / "postinstall.sh"
+        if not script_path.is_file() and getattr(sys, "frozen", False):
+            script_path = Path(getattr(sys, "_MEIPASS", ".")) / "scripts" / "postinstall.sh"
+        if not script_path.is_file():
+            QMessageBox.critical(self.app.parent(), "Error", f"No se encontró {script_path}")
             return
         if not shutil.which("pkexec"):
             QMessageBox.critical(self.app.parent(), "Error", "No se encontró 'pkexec'.")
@@ -378,5 +458,42 @@ class Plugin(PluginBase):
             os.chmod(script_path, 0o755)
             subprocess.Popen(["pkexec", "bash", str(script_path.absolute())])
             QMessageBox.information(self.app.parent(), "Reparación iniciada", "Se ha lanzado el script de reparación.")
+        except Exception as e:
+            QMessageBox.critical(self.app.parent(), "Error", str(e))
+
+    def _scripts_dir_windows(self) -> Path:
+        """Directorio con los scripts del paquete (o del repo al depurar)."""
+        if getattr(sys, "frozen", False):
+            candidato = Path(getattr(sys, "_MEIPASS", ".")) / "scripts"
+            if (candidato / "postinstall.ps1").is_file():
+                return candidato
+        return Path(__file__).resolve().parents[2] / "scripts"
+
+    def _run_postinstall_windows(self):
+        """Eleva con UAC y espera a que termine el reparador de Windows."""
+        script_path = self._scripts_dir_windows() / "postinstall.ps1"
+        if not script_path.is_file():
+            QMessageBox.critical(self.app.parent(), "Error",
+                                 "No se encontró scripts/postinstall.ps1")
+            return
+
+        # Start-Process -Verb RunAs muestra el prompt de UAC aunque la app se
+        # haya iniciado como usuario normal. -Wait permite mostrar el resultado.
+        comando = (
+            "Start-Process -FilePath 'powershell.exe' "
+            "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass',"
+            f"'-File','\"{script_path}\"' "
+            "-Verb RunAs -Wait; "
+            "Write-Host ''; Write-Host 'Pulsa ENTER para cerrar...'; "
+            "$null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')"
+        )
+        try:
+            subprocess.Popen(
+                ["powershell.exe", "-NoProfile", "-Command", comando],
+                shell=False, cwd=str(script_path.parent),
+            )
+            QMessageBox.information(
+                self.app.parent(), "Reparación iniciada",
+                "Se ha lanzado el reparador con permisos de administrador.")
         except Exception as e:
             QMessageBox.critical(self.app.parent(), "Error", str(e))

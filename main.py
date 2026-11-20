@@ -2,8 +2,9 @@ import sys
 import logging
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QSettings
 from core import AppContext, PluginManager
+from core.i18n import install as install_translations
+from core.theme import DEFAULT_THEME, apply_theme
 from main_window import MainWindow
 
 def setup_logging():
@@ -12,39 +13,35 @@ def setup_logging():
         format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
     )
 
-def apply_saved_theme(app):
+def apply_saved_theme(app, settings):
     """Lee el tema guardado en QSettings y lo aplica a toda la app."""
-    theme = QSettings().value("ui/theme", "Sistema (predeterminado)")
-    if theme == "Oscuro":
-        app.setStyleSheet("QWidget { background-color: #2b2b2b; color: white; } QLineEdit, QComboBox { background-color: #3b3b3b; color: white; }")
-    elif theme == "Claro":
-        app.setStyleSheet("QWidget { background-color: #f0f0f0; color: black; }")
-    else:
-        app.setStyleSheet("") # Sistema
+    apply_theme(settings.value("ui/theme", DEFAULT_THEME), app)
 
 def main():
     setup_logging()
-    
+
     # 1. Configurar la aplicación
     app = QApplication(sys.argv)
     app.setOrganizationName("VirtualMachine")
     app.setApplicationName("VirtualMachineApp")
-    
-    # 2. Aplicar el tema guardado ANTES de crear la ventana
-    apply_saved_theme(app)
-    
-    # 3. Crear contexto y cargar plugins
+
+    # 2. Crear el contexto: expone un único QSettings compartido por toda la app
     ctx = AppContext()
-    
+
+    # 3. Aplicar tema e idioma guardados ANTES de crear la ventana
+    apply_saved_theme(app, ctx.settings)
+    install_translations(ctx.settings)
+
+    # 4. Cargar plugins
     plugins_dir = Path(__file__).parent / "plugins"
     manager = PluginManager(ctx, plugins_dir)
     manager.load_all()
-    
-    # 4. Crear ventana principal
+
+    # 5. Crear ventana principal
     window = MainWindow(ctx, manager)
     window.show()
-    
-    # 5. Ejecutar
+
+    # 6. Ejecutar
     exit_code = app.exec()
     manager.unload_all()
     sys.exit(exit_code)

@@ -13,6 +13,9 @@ from typing import Dict
 
 log = logging.getLogger(__name__)
 
+IS_WINDOWS = platform.system() == "Windows"
+IS_LINUX = platform.system() == "Linux"
+
 
 def _read(path: str, default: str = "") -> str:
     try:
@@ -50,6 +53,8 @@ def detect_kde_plasma() -> str:
 
 
 def detect_kde_frameworks() -> str:
+    if IS_WINDOWS:
+        return ""
     for binary in ("kf6-config", "kf5-config"):
         if _which(binary):
             out = _run([binary, "--version"])
@@ -73,6 +78,8 @@ def detect_kde_frameworks() -> str:
 
 
 def detect_gtk_version() -> str:
+    if IS_WINDOWS:
+        return ""
     if _which("pacman"):
         for pkg in ("gtk4", "gtk3"):
             out = _run(["pacman", "-Q", pkg])
@@ -82,13 +89,19 @@ def detect_gtk_version() -> str:
 
 
 def detect_desktop_environment() -> Dict[str, str]:
-    """Detecta dinámicamente KDE, GNOME, Cinnamon, etc."""
+    """Detecta dinámicamente el entorno de escritorio."""
     de_name = "Desconocido"
     de_version = ""
     de_extra = ""
-    
+
+    if IS_WINDOWS:
+        de_name = "Windows"
+        de_version = platform.version() or platform.release()
+        de_extra = f"Build {platform.release()}"
+        return {"name": de_name, "version": de_version, "extra": de_extra}
+
     desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").upper()
-    
+
     if "KDE" in desktop or "PLASMA" in desktop:
         de_name = "KDE Plasma"
         de_version = detect_kde_plasma()
@@ -120,7 +133,7 @@ def detect_desktop_environment() -> Dict[str, str]:
         out = _run(["mate-session", "--version"])
         m = re.search(r"(\d+\.\d+(?:\.\d+)?)", out)
         if m: de_version = m.group(1)
-        
+
     return {"name": de_name, "version": de_version, "extra": de_extra}
 
 
@@ -133,10 +146,14 @@ def detect_qt_version() -> str:
 
 
 def detect_kernel() -> str:
+    if IS_WINDOWS:
+        return platform.version() or platform.release()
     return platform.release()
 
 
 def detect_graphics_platform() -> str:
+    if IS_WINDOWS:
+        return "Windows (DirectX/DXGI)"
     session = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if session == "wayland": return "Wayland"
     if session == "x11": return "X11"
@@ -147,6 +164,11 @@ def detect_graphics_platform() -> str:
 
 def detect_distro() -> Dict[str, str]:
     result = {"pretty": "", "id": "", "version": ""}
+    if IS_WINDOWS:
+        result["pretty"] = f"Windows {platform.release()}"
+        result["id"] = "windows"
+        result["version"] = platform.version() or platform.release()
+        return result
     try:
         with open("/etc/os-release") as f:
             for line in f:
@@ -166,6 +188,21 @@ def detect_distro() -> Dict[str, str]:
 # ======================================================================
 def detect_cpu() -> Dict:
     info = {"model": "", "logical": 0, "physical": 0, "mhz": ""}
+    if IS_WINDOWS:
+        try:
+            import wmi
+            c = wmi.WMI()
+            for cpu in c.Win32_Processor():
+                info["model"] = cpu.Name.strip()
+                info["logical"] = cpu.NumberOfLogicalProcessors or 0
+                info["physical"] = cpu.NumberOfCores or 0
+                info["mhz"] = str(cpu.MaxClockSpeed or "")
+                break
+        except Exception:
+            # Fallback sin wmi
+            info["logical"] = os.cpu_count() or 0
+            info["physical"] = info["logical"] // 2 if info["logical"] else 0
+        return info
     try:
         with open("/proc/cpuinfo") as f:
             cpus = []
@@ -195,6 +232,26 @@ def detect_cpu() -> Dict:
 
 def detect_memory() -> Dict:
     info = {"total_kb": 0, "available_kb": 0, "used_kb": 0, "physical_kb": 0}
+    if IS_WINDOWS:
+        try:
+            import wmi
+            c = wmi.WMI()
+            for mem in c.Win32_PhysicalMemory():
+                info["total_kb"] += int(int(mem.Capacity) // 1024)
+            for os_info in c.Win32_OperatingSystem():
+                info["available_kb"] = int(int(os_info.FreePhysicalMemory) // 1) if os_info.FreePhysicalMemory else 0
+            info["used_kb"] = max(0, info["total_kb"] - info["available_kb"])
+        except Exception:
+            # Fallback usando psutil si está disponible
+            try:
+                import psutil
+                vm = psutil.virtual_memory()
+                info["total_kb"] = vm.total // 1024
+                info["available_kb"] = vm.available // 1024
+                info["used_kb"] = vm.used // 1024
+            except Exception:
+                pass
+        return info
     try:
         with open("/proc/meminfo") as f:
             for line in f:
@@ -216,6 +273,14 @@ def detect_memory() -> Dict:
 
 
 def detect_gpu() -> str:
+    if IS_WINDOWS:
+        try:
+            import wmi
+            c = wmi.WMI()
+            for gpu in c.Win32_VideoController():
+                return gpu.Name.strip() or "Desconocida"
+        except Exception:
+            return "Desconocida"
     if _which("lspci"):
         out = _run(["lspci", "-nn"])
         for line in out.splitlines():
@@ -228,6 +293,22 @@ def detect_gpu() -> str:
 
 
 def detect_dmi(field: str) -> str:
+    if IS_WINDOWS:
+        try:
+            import wmi
+            c = wmi.WMI()
+            if field == "sys_vendor":
+                for cs in c.Win32_ComputerSystem():
+                    return cs.Manufacturer or "—"
+            elif field == "product_name":
+                for cs in c.Win32_ComputerSystem():
+                    return cs.Model or "—"
+            elif field == "product_serial":
+                for bios in c.Win32_BIOS():
+                    return bios.SerialNumber or "—"
+        except Exception:
+            pass
+        return "—"
     return _read(f"/sys/devices/virtual/dmi/id/{field}")
 
 
@@ -294,7 +375,7 @@ def fmt_kb_to_gib(kb: int) -> str:
     return f"{kb / (1024 * 1024):.1f} GiB"
 
 
-def fmt_cpu(info: Dict) -> str:
+def fmt_cpu(info: Dict, tr=None) -> str:
     model = (info.get("cpu_model") or "").strip()
     model = re.sub(r"\s+", " ", model)
     model = model.replace("(R)", "").replace("(TM)", "").replace("(tm)", "")
@@ -302,10 +383,12 @@ def fmt_cpu(info: Dict) -> str:
     logical = info.get("cpu_logical", 0)
     if logical and model:
         return f"{logical} × {model}"
-    return model or "Desconocido"
+    if not model:
+        return tr("Desconocido") if tr else "Desconocido"
+    return model
 
 
-def fmt_memory(info: Dict) -> str:
+def fmt_memory(info: Dict, tr=None) -> str:
     total_kb = info.get("ram_total_kb", 0)
     physical_kb = info.get("ram_physical_kb", 0)
     used_kb = info.get("ram_used_kb", 0)
@@ -314,7 +397,9 @@ def fmt_memory(info: Dict) -> str:
     total_gib = total_kb / (1024 * 1024)
     used_gib = used_kb / (1024 * 1024)
 
+    plantilla = "{:.1f} GiB totales · {:.1f} GiB en uso"
     if physical_kb and physical_kb > total_kb * 1.01:
-        phys_gib = physical_kb / (1024 * 1024)
-        return f"{phys_gib:.1f} GiB de RAM ({total_gib:.1f} GiB utilizables) · {used_gib:.1f} GiB en uso"
-    return f"{total_gib:.1f} GiB totales · {used_gib:.1f} GiB en uso"
+        plantilla = "{:.1f} GiB de RAM ({:.1f} GiB utilizables) · {:.1f} GiB en uso"
+        return (tr(plantilla) if tr else plantilla).format(
+            physical_kb / (1024 * 1024), total_gib, used_gib)
+    return (tr(plantilla) if tr else plantilla).format(total_gib, used_gib)

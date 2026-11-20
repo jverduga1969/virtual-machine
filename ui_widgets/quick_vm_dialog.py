@@ -17,19 +17,23 @@ from services.vm_profiles import get_vm_profiles
 from services.os_catalog import OS_CATALOG
 from services import iso_versions
 from services import iso_sources
+from services.download_utils import HashTracker, save_checksum
 from services.macos_recovery import MacOSDownloader
 from ui_widgets.media_library_dialog import MediaLibraryDialog
+
 
 class DownloadISOThread(QThread):
     progress = pyqtSignal(int, str)
     finished_ok = pyqtSignal(str)
     error = pyqtSignal(str)
     
-    def __init__(self, url, dest_path):
+    def __init__(self, url, dest_path, expected_sha256=None):
         super().__init__()
         self.url = url
         self.dest_path = dest_path
         self._is_cancelled = False
+        self.sha256 = ""
+        self._tracker = HashTracker("sha256", expected_sha256)
 
     def stop(self):
         self._is_cancelled = True
@@ -84,6 +88,7 @@ class DownloadISOThread(QThread):
                         return
                     if chunk:
                         f.write(chunk)
+                        self._tracker.update(chunk)
                         downloaded += len(chunk)
                         
                         mb_dl = downloaded / (1024 * 1024)
@@ -103,7 +108,9 @@ class DownloadISOThread(QThread):
             if total > 0 and downloaded < total:
                 raise Exception("La descarga se interrumpió antes de terminar.")
                 
-            part_path.rename(dest_path)
+            self.sha256 = self._tracker.verify()
+            part_path.replace(dest_path)
+            save_checksum(dest_path, self.sha256)
             self.finished_ok.emit(str(dest_path))
         except Exception as e:
             if 'part_path' in locals() and part_path.exists():
@@ -111,6 +118,7 @@ class DownloadISOThread(QThread):
                 except: pass
             if not self._is_cancelled:
                 self.error.emit(str(e))
+
 
 class QuickVMDialog(QDialog):
     def __init__(self, app, parent=None):
@@ -197,15 +205,19 @@ class QuickVMDialog(QDialog):
         form_basic = QFormLayout(group_basic)
         
         self.input_name = QLineEdit("Mi máquina virtual")
+        self.input_name.setToolTip("Nombre identificador de la nueva máquina virtual")
         
         self.combo_platform = QComboBox()
+        self.combo_platform.setToolTip("Familia de sistema operativo que se instalará")
         self.combo_platform.addItems(list(OS_CATALOG.keys()))
         self.combo_platform.currentIndexChanged.connect(self._on_platform_changed)
         
         self.combo_so = QComboBox()
+        self.combo_so.setToolTip("Distribución o versión específica del sistema operativo")
         self.combo_so.currentIndexChanged.connect(self._on_so_changed)
         
         self.combo_version = QComboBox()
+        self.combo_version.setToolTip("Versión concreta de la imagen de instalación")
         self.lbl_ver = QLabel("Versión:")
         
         form_basic.addRow("Nombre:", self.input_name)
@@ -218,8 +230,11 @@ class QuickVMDialog(QDialog):
         lay_media = QVBoxLayout(group_media)
         
         self.radio_no_iso = QRadioButton("No, la selecciono luego")
+        self.radio_no_iso.setToolTip("No asignar ninguna ISO al crear la VM")
         self.radio_download = QRadioButton("Descargar automáticamente")
+        self.radio_download.setToolTip("Descargar la ISO de instalación desde internet")
         self.radio_file = QRadioButton("Seleccionar un archivo ISO")
+        self.radio_file.setToolTip("Usar un archivo ISO que ya tienes en el disco")
         self.radio_no_iso.setChecked(True)
         
         radio_group = QButtonGroup(self)
@@ -235,13 +250,16 @@ class QuickVMDialog(QDialog):
         self.input_iso = QLineEdit()
         self.input_iso.setPlaceholderText("Ruta al archivo ISO...")
         self.input_iso.setEnabled(False)
+        self.input_iso.setToolTip("Ruta al archivo de imagen ISO de instalación")
         
         self.btn_browse = QPushButton("Examinar...")
         self.btn_browse.setEnabled(False)
+        self.btn_browse.setToolTip("Buscar un archivo ISO en el disco")
         self.btn_browse.clicked.connect(self._browse_iso)
         
         self.btn_library = QPushButton("Biblioteca")
         self.btn_library.setEnabled(False)
+        self.btn_library.setToolTip("Elegir una imagen desde la biblioteca de medios")
         self.btn_library.clicked.connect(self._browse_library)
         
         file_layout.addWidget(self.input_iso)
@@ -255,6 +273,7 @@ class QuickVMDialog(QDialog):
         main_layout.addStretch()
         self.btns = QDialogButtonBox()
         self.btn_create = self.btns.addButton("✓ Crear ->", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.btn_create.setToolTip("Crear la máquina virtual con los datos configurados")
         self.btn_create.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; padding: 8px 16px; border-radius: 4px;")
         self.btn_cancel = self.btns.addButton("Cancelar", QDialogButtonBox.ButtonRole.RejectRole)
         
@@ -282,25 +301,79 @@ class QuickVMDialog(QDialog):
         self._on_so_changed()
 
     def _on_so_changed(self):
+        """Rellena combo_version con versiones dinámicas si hay internet.
+
+        Orden:
+          1. iso_versions.get_available_versions(so)  -> dinámicas (label/id)
+          2. OS_CATALOG[platform][so]                 -> estáticas (fallback)
+          3. "Automático"                              -> último recurso
+        El data de cada ítem es el id de versión (v["id"]) para las dinámicas,
+        o el propio texto para las estáticas.
+        """
         platform = self.combo_platform.currentText()
         so = self.combo_so.currentText()
-        self.combo_version.clear(); self.combo_version.setEnabled(False); self.lbl_ver.setToolTip("")
-        if not so: return
+        self.combo_version.blockSignals(True)
+        self.combo_version.clear()
+        self.combo_version.setEnabled(False)
+        self.lbl_ver.setToolTip("")
+        if not so:
+            self.combo_version.blockSignals(False)
+            return
 
         if platform == "macOS":
-            self.selected_profile["firmware_idx"] = 1; self.selected_profile["chipset_idx"] = 1
-            self.selected_profile["secure_boot"] = False; self.selected_profile["tpm"] = False
-            self.selected_profile["graphics_idx"] = 5; self.selected_profile["cores"] = 4
+            self.selected_profile["firmware_idx"] = 1
+            self.selected_profile["chipset_idx"] = 1
+            self.selected_profile["secure_boot"] = False
+            self.selected_profile["tpm"] = False
+            self.selected_profile["graphics_idx"] = 5
+            self.selected_profile["cores"] = 4
             self.selected_profile["ram"] = 8192
 
-        static_versions = OS_CATALOG.get(platform, {}).get(so, [])
-        if static_versions:
-            self.combo_version.setEnabled(True)
-            self.combo_version.addItems(static_versions)
-            ver_idx = self.combo_version.findText(self.selected_profile.get("version", ""))
-            if ver_idx >= 0: self.combo_version.setCurrentIndex(ver_idx)
-        else:
-            self.combo_version.addItem("Automático")
+        # 1) Versiones dinámicas (consulta a internet)
+        loaded_dynamic = False
+        try:
+            dynamic = iso_versions.get_available_versions(so)
+        except Exception:
+            dynamic = None
+        if dynamic:
+            for v in dynamic:
+                label = v.get("label") or str(v.get("id", ""))
+                vid = v.get("id") or label
+                self.combo_version.addItem(label, vid)
+            loaded_dynamic = True
+            self.lbl_ver.setToolTip("Versiones obtenidas en línea desde el mirror oficial.")
+
+        # 2) Fallback al catálogo estático
+        if not loaded_dynamic:
+            static_versions = OS_CATALOG.get(platform, {}).get(so, [])
+            if static_versions:
+                for sv in static_versions:
+                    self.combo_version.addItem(sv, sv)
+            else:
+                self.combo_version.addItem("Automático", "Automático")
+
+        self.combo_version.setEnabled(True)
+        self.combo_version.blockSignals(False)
+
+        # 3) Preseleccionar la versión del perfil (si existe).
+        #    Con versiones dinámicas el texto cambia (ej. perfil "24.04 LTS"
+        #    vs ítem "Ubuntu 24.04.1"), así que probamos texto -> data -> prefijo.
+        profile_ver = self.selected_profile.get("version", "")
+        if profile_ver:
+            idx = self.combo_version.findText(profile_ver)
+            if idx < 0:
+                idx = self.combo_version.findData(profile_ver)
+            if idx < 0:
+                m = re.match(r'(\d+(?:\.\d+)*)', profile_ver)
+                if m:
+                    prefix = m.group(1)
+                    for i in range(self.combo_version.count()):
+                        data = str(self.combo_version.itemData(i) or "")
+                        if data.startswith(prefix):
+                            idx = i
+                            break
+            if idx >= 0:
+                self.combo_version.setCurrentIndex(idx)
 
     def _populate_os_list(self):
         platform = self.combo_platform.currentText()
@@ -334,7 +407,7 @@ class QuickVMDialog(QDialog):
 
         vm_id = str(uuid.uuid4())
         disk_name = "disco_principal.qcow2"
-        vm_dir = self.app.data_dir / "vms" / vm_id
+        vm_dir = self.app.vms_dir / vm_id
         vm_dir.mkdir(parents=True, exist_ok=True)
         disk_path = vm_dir / disk_name
 
@@ -395,8 +468,8 @@ class QuickVMDialog(QDialog):
 
         if not url: return
 
-        iso_dir = self.app.data_dir / "isos"
-        iso_dir.mkdir(exist_ok=True)
+        iso_dir = self.app.isos_dir
+        iso_dir.mkdir(parents=True, exist_ok=True)
         
         parsed = urlparse(url)
         path_segments = [s for s in parsed.path.split("/") if s]

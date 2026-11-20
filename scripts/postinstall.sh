@@ -2,20 +2,25 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2025 Jimmy Verduga
 #
-# packaging/postinstall.sh - Instalador y reparador del host.
-# Marcador: postinstall_v1
+# scripts/postinstall.sh - Instalador y reparador del host.
+# Marcador: postinstall_v2
 #
 # Hace TODO lo que requiere root, en un solo paso idempotente:
 #   1) Instala los paquetes del sistema que la app necesita.
 #   2) Anade al usuario a los grupos kvm, video, render, tty, audio.
-#   3) Reglas udev: udmabuf (VirGL) y USB (passthrough).
-#   4) /etc/X11/Xwrapper.config (Modo kiosco).
-#   5) Wrapper sudo de Modo kiosco + /etc/sudoers.d/ + /etc/virtual-machine.conf.
+#   3) Reglas udev: udmabuf (VirGL) y USB (passthrough), como las que
+#      comprueba Configuracion Host -> "Comprobar de nuevo".
+#   4) Los binarios que "Configuracion Host -> Comprobar de nuevo" evalua
+#      (pkexec, udevadm, audio, visores, virtiofsd, samba, setxkbmap...).
+#
+# El antiguo Modo kiosco (Xorg en VT + wrapper sudo) se elimino del programa;
+# por eso este script ya no instala Xwrapper.config, /etc/sudoers.d/ ni
+# /usr/local/bin/virtual-machine-desktop.
 #
 # Uso:
-#   sudo bash packaging/postinstall.sh
-#   pkexec bash packaging/postinstall.sh           # desde la app
-#   sudo bash packaging/postinstall.sh --enable-iommu   # ademas, IOMMU en GRUB
+#   sudo bash scripts/postinstall.sh
+#   pkexec bash scripts/postinstall.sh            # desde Configuracion Host
+#   sudo bash scripts/postinstall.sh --enable-iommu   # ademas, IOMMU en GRUB
 #
 # Pensado para ser invocado por:
 #   * El instalador del paquete (.deb / .rpm / PKGBUILD) — en su postinstall.
@@ -24,7 +29,7 @@
 set -u
 
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-MARKER="postinstall_v1"
+MARKER="postinstall_v2"
 
 # Usuario objetivo: el que invoco el script, no root.
 #   pkexec -> PKEXEC_UID
@@ -47,7 +52,7 @@ for arg in "$@"; do
     case "$arg" in
         --enable-iommu) ENABLE_IOMMU=1 ;;
         --help|-h)
-            sed -n '3,25p' "$0"
+            sed -n '3,27p' "$0"
             exit 0
             ;;
     esac
@@ -76,12 +81,18 @@ require_root() {
 
 detect_pm() {
     if command -v apt-get >/dev/null 2>&1; then echo apt;    return; fi
+    # dnf5 coincide con dnf en Fedora 41+: comprobarlo primero.
+    if command -v dnf5    >/dev/null 2>&1; then echo dnf5;   return; fi
     if command -v dnf     >/dev/null 2>&1; then echo dnf;    return; fi
+    if command -v yum     >/dev/null 2>&1; then echo yum;    return; fi
     if command -v pacman  >/dev/null 2>&1; then echo pacman; return; fi
     if command -v zypper  >/dev/null 2>&1; then echo zypper; return; fi
+    if command -v apk     >/dev/null 2>&1; then echo apk;    return; fi
     echo unknown
 }
 PM="$(detect_pm)"
+DNF_BIN=dnf
+[ "$PM" = "dnf5" ] && DNF_BIN=dnf5
 log "Gestor de paquetes detectado: $PM"
 [ "$PM" = "unknown" ] && warn "Gestor desconocido. Se omitira la instalacion de paquetes."
 
@@ -90,62 +101,75 @@ log "Gestor de paquetes detectado: $PM"
 # Cada grupo es independiente: si un grupo falla, se avisa y se sigue.
 # ----------------------------------------------------------------------
 
+# Los nombres estan elegidos para que "Configuracion Host -> Comprobar de
+# nuevo" pueda marcar en verde: qemu-system-x86_64, swtpm, pkexec, udevadm,
+# spicy, vncviewer, remote-viewer, virtiofsd, smbd y pactl/pipewire.
 PKGS_APT=(
-    "qemu:qemu-system-x86,qemu-utils"
+    "qemu:qemu-system-x86,qemu-utils,qemu-system-gui"  # -display sdl/gtk
     "ovmf:ovmf"
     "swtpm:swtpm,swtpm-tools"
     "virtiofsd:virtiofsd,uidmap"
-    "polkit:policykit-1,pkexec"
-    "xinit:xinit"
-    "matchbox:matchbox-window-manager"
-    "xorg:xserver-xorg-core"
-    "spice-gtk:python3-gi,gir1.2-spiceclientgtk-3.0"
+    "polkit:policykit-1"  # incluye /usr/bin/pkexec en versiones antiguas
+    "polkit-nuevo:pkexec"  # Debian trixie / Ubuntu 24.10 lo separan
+    "sudo:sudo"
+    "system:udev,util-linux"  # lsblk/losetup
+    "xkb:x11-xkb-utils"  # setxkbmap, usado por vm_runner
+    "spice-python:python3-gi,gir1.2-spiceclientgtk-3.0"
+    "spice-client:spice-client-gtk"  # da /usr/bin/spicy
     "vncviewer:tigervnc-viewer"
     "remote-viewer:virt-viewer"
     "samba:samba"
     "dnsmasq:dnsmasq"
     "python-xlib:python3-xlib"
+    "python-psutil:python3-psutil"
     "pyqt6:python3-pyqt6"
     "requests:python3-requests"
     "packaging:python3-packaging"
+    "audio-pulse:pulseaudio-utils"
+    "audio-pipewire:pipewire-pulse"
 )
 PKGS_DNF=(
-    "qemu:qemu-kvm-core,qemu-img"
+    "qemu:qemu-kvm,qemu-img"
     "ovmf:edk2-ovmf"
     "swtpm:swtpm,swtpm-tools"
     "virtiofsd:virtiofsd,uidmap"
     "polkit:polkit"
-    "xinit:xorg-x11-xinit"
-    "matchbox:matchbox-window-manager"
-    "xorg:xorg-x11-server-Xorg"
-    "spice-gtk:python3-gobject,spice-gtk"
+    "system:sudo,util-linux"
+    "xkb:xorg-x11-xkb-utils"
+    "spice-python:python3-gobject,spice-gtk"
+    "spice-client:spice-gtk-tools"  # da /usr/bin/spicy
     "vncviewer:tigervnc"
     "remote-viewer:virt-viewer"
     "samba:samba"
     "dnsmasq:dnsmasq"
     "python-xlib:python3-xlib"
-    "pyqt6:python3-qt6"
+    "python-psutil:python3-psutil"
+    "pyqt6:python3-pyqt6"
     "requests:python3-requests"
     "packaging:python3-packaging"
+    "audio-pipewire:pipewire-pulse"
+    "audio-pulse:pulseaudio-utils"
 )
 PKGS_PACMAN=(
     "qemu:qemu-full"
     "ovmf:edk2-ovmf"
     "swtpm:swtpm"
-    "virtiofsd:virtiofsd"  # newuidmap viene en shadow
+    "virtiofsd:virtiofsd,shadow"  # newuidmap viene en shadow
     "polkit:polkit"
-    "xinit:xorg-xinit"
-    "matchbox:matchbox-window-manager"
-    "xorg:xorg-server"
-    "spice-gtk:python-gobject,spice-gtk"
+    "system:sudo,util-linux"
+    "xkb:xorg-setxkbmap"
+    "spice-gtk:python-gobject,spice-gtk"  # spice-gtk incluye spicy
     "vncviewer:tigervnc"
     "remote-viewer:virt-viewer"
     "samba:samba"
     "dnsmasq:dnsmasq"
     "python-xlib:python-xlib"
+    "python-psutil:python-psutil"
     "pyqt6:python-pyqt6"
     "requests:python-requests"
     "packaging:python-packaging"
+    "audio-pulse:pulseaudio"
+    "audio-pipewire:pipewire-pulse"
 )
 PKGS_ZYPPER=(
     "qemu:qemu-x86,qemu-tools"
@@ -153,18 +177,65 @@ PKGS_ZYPPER=(
     "swtpm:swtpm"
     "virtiofsd:virtiofsd,uidmap"
     "polkit:polkit"
-    "xinit:xinit"
-    "matchbox:matchbox-window-manager"
-    "xorg:xorg-x11-server"
-    "spice-gtk:python3-gobject,typelib-1_0-SpiceClientGtk-3_0"
+    "system:sudo,util-linux"
+    "xkb:setxkbmap,xorg-x11-xkb-utils"
+    "spice-python:python3-gobject,typelib-1_0-SpiceClientGtk-3_0"
+    "spice-client:spice-gtk"  # da /usr/bin/spicy
     "vncviewer:tigervnc"
     "remote-viewer:virt-viewer"
     "samba:samba"
     "dnsmasq:dnsmasq"
     "python-xlib:python3-xlib"
+    "python-psutil:python3-psutil"
     "pyqt6:python3-PyQt6"
     "requests:python3-requests"
     "packaging:python3-packaging"
+    "audio-pipewire:pipewire-pulse"
+    "audio-pulse:pulseaudio-utils"
+)
+# RHEL 7/8 y derivados: yum sigue presente como alias en RHEL 8.
+PKGS_YUM=(
+    "qemu:qemu-kvm,qemu-img"
+    "ovmf:edk2-ovmf"
+    "ovmf-legacy:OVMF"
+    "swtpm:swtpm,swtpm-tools"
+    "virtiofsd:virtiofsd,uidmap"
+    "polkit:polkit"
+    "system:sudo,util-linux"
+    "xkb:xorg-x11-xkb-utils"
+    "spice-gtk:spice-gtk,spice-gtk-tools"
+    "vncviewer:tigervnc"
+    "remote-viewer:virt-viewer"
+    "samba:samba"
+    "dnsmasq:dnsmasq"
+    "python-xlib:python3-xlib"
+    "python-psutil:python3-psutil"
+    "pyqt6:python3-pyqt6"
+    "requests:python3-requests"
+    "packaging:python3-packaging"
+    "audio-pipewire:pipewire-pulse"
+    "audio-pulse:pulseaudio-utils"
+)
+# Alpine: algunos nombres pueden no existir; cada grupo falla por separado.
+PKGS_APK=(
+    "qemu:qemu-system-x86,qemu-img"
+    "ovmf:ovmf"
+    "swtpm:swtpm"
+    "virtiofsd:virtiofsd,shadow"
+    "polkit:polkit"
+    "system:sudo,util-linux"
+    "xkb:setxkbmap"
+    "spice-gtk:spice-gtk,py3-gobject3"
+    "vncviewer:tigervnc"
+    "remote-viewer:virt-viewer"
+    "samba:samba"
+    "dnsmasq:dnsmasq"
+    "python-xlib:py3-xlib"
+    "python-psutil:py3-psutil"
+    "pyqt6:py3-pyqt6"
+    "requests:py3-requests"
+    "packaging:py3-packaging"
+    "audio:pulseaudio-utils"
 )
 
 # ----------------------------------------------------------------------
@@ -200,7 +271,7 @@ install_group_dnf() {
     done
     if [ ${#to_install[@]} -eq 0 ]; then return 0; fi
     log "$group: instalando ${to_install[*]}"
-    dnf install -y "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
+    "$DNF_BIN" install -y "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
         warn "$group: algunos paquetes no se pudieron instalar"
 }
 
@@ -236,6 +307,38 @@ install_group_zypper() {
         warn "$group: algunos paquetes no se pudieron instalar"
 }
 
+install_group_yum() {
+    local group="$1" pkgs="$2" IFS=','
+    local to_install=()
+    for p in $pkgs; do
+        if rpm -q "$p" >/dev/null 2>&1; then
+            ok "$group: $p ya instalado"
+        else
+            to_install+=("$p")
+        fi
+    done
+    if [ ${#to_install[@]} -eq 0 ]; then return 0; fi
+    log "$group: instalando ${to_install[*]}"
+    yum install -y "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
+        warn "$group: algunos paquetes no se pudieron instalar"
+}
+
+install_group_apk() {
+    local group="$1" pkgs="$2" IFS=','
+    local to_install=()
+    for p in $pkgs; do
+        if apk info -e "$p" >/dev/null 2>&1; then
+            ok "$group: $p ya instalado"
+        else
+            to_install+=("$p")
+        fi
+    done
+    if [ ${#to_install[@]} -eq 0 ]; then return 0; fi
+    log "$group: instalando ${to_install[*]}"
+    apk add --no-cache "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
+        warn "$group: algunos paquetes no se pudieron instalar"
+}
+
 install_packages() {
     case "$PM" in
         apt)
@@ -246,9 +349,14 @@ install_packages() {
                 install_group_apt "${entry%%:*}" "${entry#*:}"
             done
             ;;
-        dnf)
+        dnf|dnf5)
             for entry in "${PKGS_DNF[@]}"; do
                 install_group_dnf "${entry%%:*}" "${entry#*:}"
+            done
+            ;;
+        yum)
+            for entry in "${PKGS_YUM[@]}"; do
+                install_group_yum "${entry%%:*}" "${entry#*:}"
             done
             ;;
         pacman)
@@ -259,6 +367,11 @@ install_packages() {
         zypper)
             for entry in "${PKGS_ZYPPER[@]}"; do
                 install_group_zypper "${entry%%:*}" "${entry#*:}"
+            done
+            ;;
+        apk)
+            for entry in "${PKGS_APK[@]}"; do
+                install_group_apk "${entry%%:*}" "${entry#*:}"
             done
             ;;
         *)
@@ -300,23 +413,27 @@ setup_groups() {
 # Reglas udev
 # ----------------------------------------------------------------------
 
+# Estos MISMOS nombres son los que comprueba HostDiagnostics.run_all().
 UDEV_UDMABUF=/etc/udev/rules.d/60-virtual-machine-udmabuf.rules
 UDEV_USB=/etc/udev/rules.d/50-vm-manager-usb.rules
+MODULES_UDMABUF=/etc/modules-load.d/udmabuf.conf
 
 setup_udev() {
     log "Instalando reglas udev..."
-    mkdir -p /etc/udev/rules.d
+    mkdir -p /etc/udev/rules.d /etc/modules-load.d
 
-    local udmabuf_content='# udmabuf_ui_config_v1: acceso a /dev/udmabuf para la sesion
+    local udmabuf_content='# udmabuf_ui_config_v2: acceso a /dev/udmabuf para la sesion
 # grafica activa. Sin esta regla, QEMU con VirGL (virtio-vga-gl,
-# blob=true) aborta al intentar usar blob resources.
-KERNEL=="udmabuf", TAG+="uaccess"'
+# blob=on) aborta al intentar usar blob resources.
+# Mismo contenido que services/host_passthrough.py.
+KERNEL=="udmabuf", SUBSYSTEM=="misc", TAG+="uaccess"'
 
     local usb_content='# Virtual.Machine - permite passthrough USB al usuario activo.
-# Instalado por packaging/postinstall.sh. Solo se aplica a dispositivos USB.
+# Solo se aplica a dispositivos USB.
 SUBSYSTEM=="usb", ACTION=="add", TAG+="uaccess"'
 
-    if [ -f "$UDEV_UDMABUF" ] && grep -q 'KERNEL=="udmabuf"' "$UDEV_UDMABUF"; then
+    if [ -f "$UDEV_UDMABUF" ] && grep -q 'KERNEL=="udmabuf"' "$UDEV_UDMABUF" \
+       && grep -q 'SUBSYSTEM=="misc"' "$UDEV_UDMABUF"; then
         ok "regla udev udmabuf ya presente"
     else
         printf '%s\n' "$udmabuf_content" > "$UDEV_UDMABUF"
@@ -332,89 +449,25 @@ SUBSYSTEM=="usb", ACTION=="add", TAG+="uaccess"'
         ok "regla udev USB instalada"
     fi
 
+    # La regla udev solo da permisos; el modulo debe cargarse ademas.
+    # Sin esto /dev/udmabuf no existe y VirGL con blob=on falla.
+    if [ ! -f "$MODULES_UDMABUF" ] || ! grep -qx 'udmabuf' "$MODULES_UDMABUF"; then
+        printf 'udmabuf\n' > "$MODULES_UDMABUF"
+        ok "modulo udmabuf configurado para cargar en el arranque"
+    else
+        ok "modulo udmabuf ya configurado"
+    fi
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe udmabuf 2>/dev/null && ok "modulo udmabuf cargado" || \
+            warn "no se pudo cargar udmabuf ahora (se cargara en el proximo arranque)"
+    fi
+
     if command -v udevadm >/dev/null 2>&1; then
         udevadm control --reload-rules 2>/dev/null || true
         udevadm trigger --name-match=udmabuf 2>/dev/null || true
         udevadm trigger --subsystem-match=usb 2>/dev/null || true
         ok "udev recargado"
     fi
-}
-
-# ----------------------------------------------------------------------
-# Xwrapper.config (Modo kiosco)
-# ----------------------------------------------------------------------
-
-XWRAPPER=/etc/X11/Xwrapper.config
-
-setup_xwrapper() {
-    log "Configurando $XWRAPPER..."
-    mkdir -p /etc/X11
-    local tmp
-    tmp="$(mktemp)"
-    if [ -f "$XWRAPPER" ]; then
-        grep -v -E '^\s*(allowed_users|needs_root_rights)\s*=' \
-            "$XWRAPPER" > "$tmp" 2>/dev/null || : > "$tmp"
-    else
-        : > "$tmp"
-    fi
-    {
-        cat "$tmp"
-        echo "allowed_users=anybody"
-        echo "needs_root_rights=yes"
-    } > "$XWRAPPER"
-    rm -f "$tmp"
-    chmod 644 "$XWRAPPER"
-    ok "$XWRAPPER listo"
-}
-
-# ----------------------------------------------------------------------
-# Wrapper sudo + /etc/sudoers.d + /etc/virtual-machine.conf
-# ----------------------------------------------------------------------
-
-WRAPPER_SRC="$REPO_DIR/packaging/virtual-machine-desktop"
-WRAPPER_DST=/usr/local/bin/virtual-machine-desktop
-SUDOERS_FILE=/etc/sudoers.d/virtual-machine-desktop
-CONF_FILE=/etc/virtual-machine.conf
-
-setup_wrapper() {
-    if [ ! -f "$WRAPPER_SRC" ]; then
-        warn "no encontre $WRAPPER_SRC; se omite el wrapper sudo"
-        return
-    fi
-    log "Instalando wrapper sudo de Modo kiosco..."
-    install -m 0755 -o root -g root "$WRAPPER_SRC" "$WRAPPER_DST"
-    ok "wrapper instalado en $WRAPPER_DST"
-
-    if [ -f "$CONF_FILE" ] && grep -q "^REPO_DIR=" "$CONF_FILE"; then
-        sed -i "s|^REPO_DIR=.*|REPO_DIR=$REPO_DIR|" "$CONF_FILE"
-        ok "$CONF_FILE actualizado (REPO_DIR=$REPO_DIR)"
-    else
-        printf 'REPO_DIR=%s\n' "$REPO_DIR" > "$CONF_FILE"
-        [ -n "$TARGET_USER" ] && printf 'USER=%s\n' "$TARGET_USER" >> "$CONF_FILE"
-        chmod 644 "$CONF_FILE"
-        ok "$CONF_FILE creado"
-    fi
-
-    if [ -z "$TARGET_USER" ]; then
-        warn "sin usuario objetivo; se omite la regla sudoers"
-        return
-    fi
-    local tmp
-    tmp="$(mktemp)"
-    printf '%s ALL=(root) NOPASSWD: %s\n' "$TARGET_USER" "$WRAPPER_DST" > "$tmp"
-    chmod 0440 "$tmp"
-
-    if command -v visudo >/dev/null 2>&1; then
-        if ! visudo -c -f "$tmp" >/dev/null 2>&1; then
-            err "la regla sudoers nueva no pasa visudo -c; se aborta"
-            rm -f "$tmp"
-            return
-        fi
-    fi
-
-    install -m 0644 -o root -g root "$tmp" "$SUDOERS_FILE"
-    rm -f "$tmp"
-    ok "regla sudoers instalada en $SUDOERS_FILE"
 }
 
 # ----------------------------------------------------------------------
@@ -626,8 +679,6 @@ main() {
     install_packages
     setup_groups
     setup_udev
-    setup_xwrapper
-    setup_wrapper
     setup_iommu
     log "Postinstall $MARKER completado."
     echo ""
@@ -636,7 +687,7 @@ main() {
     echo "    necesitas CERRAR SESION y volver a entrar para que aplique."
     echo "  - Los cambios en reglas udev ya estan activos; si un USB"
     echo "    estaba conectado, desenchufalo y vuelve a enchufarlo."
-    echo "  - Vuelve a Configuracion Host y pulsa 'Comprobar'."
+    echo "  - Vuelve a Configuracion Host y pulsa 'Comprobar de nuevo'."
 }
 
 main "$@"
@@ -646,3 +697,5 @@ main "$@"
 # postinstall_uidmap_arch_v1
 
 # fix_grub_iommu_quotes_v1
+
+# postinstall_v2 (sin Modo kiosco: udev/VirGL + paquetes de diagnostico)

@@ -299,7 +299,9 @@ class QVNCWidget(QWidget, RFBClient):
         if text:
             cp = ord(text[0])
             if cp >= 0x20 and cp != 0x7F:
-                if cp < 0x80:
+                # Latin-1 (acentos, ñ, ¿, ¡...): keysym directo < 0x100,
+                # que es como QEMU espera recibirlos. Unicode solo para > 0xFF.
+                if cp < 0x100:
                     return cp
                 if cp <= 0x10FFFF:
                     return 0x01000000 + cp
@@ -307,6 +309,28 @@ class QVNCWidget(QWidget, RFBClient):
             return int(k)
         except Exception:
             return k if isinstance(k, int) else 0
+
+    def _qt_key_to_evdev(self, ev: QKeyEvent) -> int:
+        """Keycode evdev (Linux) de un evento Qt.
+        En Linux, nativeScanCode() es el keycode X11 (evdev + 8). Devuelve 0 si no disponible."""
+        try:
+            sc = int(ev.nativeScanCode())
+        except Exception:
+            return 0
+        if sc > 8:
+            return sc - 8
+        return 0
+
+    def _send_key(self, ev: QKeyEvent, down: int):
+        """Envia la tecla usando QEMU Extended Key Event (keycode evdev directo,
+        si el server lo soporta) o fallback a keysyms RFB clasicos."""
+        keysym = self._qt_key_to_keysym(ev)
+        if getattr(self, "ext_key_event_supported", False):
+            keycode = self._qt_key_to_evdev(ev)
+            if keycode:
+                self.extKeyEvent(down, keysym, keycode)
+                return
+        self.keyEvent(keysym, down=down)
 
     def focusNextPrevChild(self, _next: bool) -> bool:
         return False
@@ -341,7 +365,7 @@ class QVNCWidget(QWidget, RFBClient):
             ev.accept()
             return
 
-        self.keyEvent(self._qt_key_to_keysym(ev), down=1)
+        self._send_key(ev, 1)
 
     def keyReleaseEvent(self, ev: QKeyEvent):
         if self.readOnly:
@@ -353,4 +377,4 @@ class QVNCWidget(QWidget, RFBClient):
             ev.accept()
             return
 
-        self.keyEvent(self._qt_key_to_keysym(ev), down=0)
+        self._send_key(ev, 0)

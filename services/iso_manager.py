@@ -4,12 +4,27 @@ import requests
 import re
 from pathlib import Path
 
+from services.download_utils import HashTracker
+
+try:
+    from PyQt6.QtCore import QSettings
+    _HAS_QSETTINGS = True
+except ImportError:
+    QSettings = None
+    _HAS_QSETTINGS = False
+
 log = logging.getLogger(__name__)
 
 class ISOManager:
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
-        self.iso_dir = self.data_dir / "isos"
+        saved = ""
+        if _HAS_QSETTINGS:
+            try:
+                saved = QSettings().value("paths/isos_dir", "")
+            except Exception:
+                saved = ""
+        self.iso_dir = Path(saved) if saved else self.data_dir / "isos"
         self.iso_dir.mkdir(parents=True, exist_ok=True)
 
     def get_download_url(self, platform: str, os_name: str, version: str) -> str:
@@ -39,7 +54,8 @@ class ISOManager:
     def _get_macos_url(self, version: str) -> str:
         return "macos_recovery_script"
 
-    def start_download(self, url: str, filename: str, progress_callback=None) -> Path:
+    def start_download(self, url: str, filename: str, progress_callback=None,
+                       expected_sha256: str = None) -> Path:
         target_path = self.iso_dir / filename
         
         # NUEVO: Si el archivo existe pero es basura (HTML), lo borramos antes de descargar
@@ -86,11 +102,13 @@ class ISOManager:
 
                 temp_path = target_path.with_suffix(".part")
                 downloaded = 0
+                tracker = HashTracker("sha256", expected_sha256)
                 
                 with open(temp_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=1024*1024):
                         if chunk:
                             f.write(chunk)
+                            tracker.update(chunk)
                             downloaded += len(chunk)
                             if progress_callback and total_size:
                                 progress_callback(downloaded, total_size)
@@ -99,8 +117,11 @@ class ISOManager:
                     temp_path.unlink()
                     raise RuntimeError(f"La descarga falló o es un archivo inválido. Tamaño: {downloaded} bytes.")
                 
-                temp_path.rename(target_path)
-                log.info(f"Descarga completada con éxito: {target_path}")
+                # Si la fuente anunció un hash, un fallback a HTML/otra ISO
+                # se detecta aquí antes de sustituir el archivo bueno.
+                digest = tracker.verify()
+                temp_path.replace(target_path)
+                log.info(f"Descarga completada: {target_path} (sha256={digest})")
                 return target_path
                 
         except Exception as e:

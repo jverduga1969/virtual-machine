@@ -4,10 +4,20 @@ from PyQt6.QtWidgets import (
     QTextEdit, QComboBox, QCheckBox, QLineEdit
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
-from PyQt6.QtGui import QTextCursor, QColor, QTextCharFormat
+from PyQt6.QtGui import QTextCursor, QColor, QTextCharFormat, QKeySequence, QTextDocument, QShortcut
 from core.plugin_base import PluginBase
 import logging
 log = logging.getLogger(__name__)
+
+
+def _find_flag_case():
+    """Devuelve el flag FindCaseSensitively de QTextDocument."""
+    return QTextDocument.FindFlag.FindCaseSensitively
+
+
+def QTextDocument_FindFlags(case_sensitive: bool):
+    """Helper — devuelve los flags de búsqueda según opciones."""
+    return QTextDocument.FindFlag.FindCaseSensitively if case_sensitive else QTextDocument.FindFlag(0)
 
 
 
@@ -63,34 +73,77 @@ class Plugin(PluginBase):
         # Filtro de Nivel
         toolbar.addWidget(QLabel("Nivel:"))
         self.combo_level = QComboBox()
+        self.combo_level.setToolTip("Filtrar mensajes por nivel de severidad")
         self.combo_level.addItems(["Todo", "Avisos+", "Errores"])
         self.combo_level.currentIndexChanged.connect(self._refresh_view)
         toolbar.addWidget(self.combo_level)
 
-        # Buscador
-        self.input_search = QLineEdit()
-        self.input_search.setPlaceholderText("🔍 Filtrar...")
-        self.input_search.setFixedWidth(150)
-        self.input_search.textChanged.connect(self._refresh_view)
-        toolbar.addWidget(self.input_search)
-
         # Auto-scroll
         self.check_autoscroll = QCheckBox("Auto-scroll")
         self.check_autoscroll.setChecked(True)
+        self.check_autoscroll.setToolTip("Seguir automáticamente la última línea del registro")
         toolbar.addWidget(self.check_autoscroll)
 
         toolbar.addStretch()
 
         # Botones
         btn_clear = QPushButton("Limpiar consola")
+        btn_clear.setToolTip("Borrar todo el registro de mensajes")
         btn_clear.clicked.connect(self._clear_console)
         toolbar.addWidget(btn_clear)
         
         btn_export = QPushButton("💾 Exportar log")
+        btn_export.setToolTip("Guardar el registro de mensajes en un archivo de texto")
         btn_export.clicked.connect(self._export_log)
         toolbar.addWidget(btn_export)
 
         layout.addLayout(toolbar)
+
+        # --- Barra de búsqueda con navegación (Ctrl+F) ---
+        self._search_bar = QWidget()
+        search_layout = QHBoxLayout(self._search_bar)
+        search_layout.setContentsMargins(0, 2, 0, 2)
+        search_layout.setSpacing(4)
+
+        search_layout.addWidget(QLabel("Buscar:"))
+
+        self._input_find = QLineEdit()
+        self._input_find.setPlaceholderText("Texto a buscar…")
+        self._input_find.setFixedWidth(200)
+        self._input_find.returnPressed.connect(self._find_next)
+        self._input_find.textChanged.connect(self._find_highlight)
+        search_layout.addWidget(self._input_find)
+
+        self._btn_prev = QPushButton("▲ Anterior")
+        self._btn_prev.setToolTip("Ir a la ocurrencia anterior (Shift+F3)")
+        self._btn_prev.setFixedWidth(90)
+        self._btn_prev.clicked.connect(self._find_prev)
+        search_layout.addWidget(self._btn_prev)
+
+        self._btn_next = QPushButton("▼ Siguiente")
+        self._btn_next.setToolTip("Ir a la siguiente ocurrencia (F3 / Enter)")
+        self._btn_next.setFixedWidth(90)
+        self._btn_next.clicked.connect(self._find_next)
+        search_layout.addWidget(self._btn_next)
+
+        self._lbl_match = QLabel("")
+        self._lbl_match.setStyleSheet("color: #94a3b8; min-width: 80px;")
+        search_layout.addWidget(self._lbl_match)
+
+        self._check_case = QCheckBox("Aa")
+        self._check_case.setToolTip("Distinguir mayúsculas/minúsculas")
+        self._check_case.stateChanged.connect(self._find_highlight)
+        search_layout.addWidget(self._check_case)
+
+        btn_close_search = QPushButton("✕")
+        btn_close_search.setToolTip("Limpiar búsqueda")
+        btn_close_search.setFixedWidth(28)
+        btn_close_search.clicked.connect(self._close_search_bar)
+        search_layout.addWidget(btn_close_search)
+
+        search_layout.addStretch()
+        self._search_bar.setVisible(True)   # siempre visible
+        layout.addWidget(self._search_bar)
 
         # --- Área de Texto ---
         self.text_console = QTextEdit()
@@ -106,21 +159,135 @@ class Plugin(PluginBase):
         """)
         layout.addWidget(self.text_console)
 
+        # Atajos de teclado
+        QShortcut(QKeySequence("Ctrl+F"),   main_widget).activated.connect(self._focus_search)
+        QShortcut(QKeySequence("F3"),       main_widget).activated.connect(self._find_next)
+        QShortcut(QKeySequence("Shift+F3"), main_widget).activated.connect(self._find_prev)
+
+        # Estado interno de búsqueda
+        self._find_positions = []   # lista de posiciones (int) de ocurrencias
+        self._find_current  = -1    # índice actual en _find_positions
+
         # --- Conexiones ---
-        # Escuchar los logs internos de la app
         self.app.log_message.connect(self._append_log)
-        # Escuchar cuando se inicia un proceso QEMU
         self.app.process_started.connect(self._on_process_started)
 
         return [("Consola de Progreso", main_widget)]
 
+    # ------------------------------------------------------------------ #
+    # Búsqueda con navegación                                              #
+    # ------------------------------------------------------------------ #
+    def _focus_search(self):
+        self._input_find.setFocus()
+        self._input_find.selectAll()
+
+    # _open_search_bar y _close_search_bar ya no se usan (barra siempre visible)
+    def _open_search_bar(self):
+        self._focus_search()
+
+    def _close_search_bar(self):
+        self._find_positions = []
+        self._find_current   = -1
+        self._lbl_match.setText("")
+        self._clear_highlights()
+        self.text_console.setFocus()
+
+    def _find_highlight(self):
+        """Resalta todas las ocurrencias y actualiza la lista de posiciones."""
+        self._clear_highlights()
+        self._find_positions = []
+        self._find_current   = -1
+        self._lbl_match.setText("")
+
+        query = self._input_find.text()
+        if not query:
+            return
+
+        doc   = self.text_console.document()
+        case_sensitive = self._check_case.isChecked()
+        flags = QTextDocument.FindFlag.FindCaseSensitively if case_sensitive else QTextDocument.FindFlag(0)
+
+        # Color de resaltado
+        hi_fmt = QTextCharFormat()
+        hi_fmt.setBackground(QColor("#facc15"))   # amarillo
+        hi_fmt.setForeground(QColor("#0a0e17"))   # texto oscuro
+
+        cursor = QTextCursor(doc)
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+
+        while True:
+            cursor = doc.find(query, cursor, flags)
+            if cursor.isNull():
+                break
+            self._find_positions.append(cursor.anchor())
+            cursor.mergeCharFormat(hi_fmt)
+
+        total = len(self._find_positions)
+        self._lbl_match.setText(f"0 / {total}" if total else "Sin resultados")
+        self._lbl_match.setStyleSheet(
+            "color: #94a3b8;" if total else "color: #ef4444;"
+        )
+        if total:
+            self._find_current = 0
+            self._scroll_to_match(0)
+
+    def _find_next(self):
+        if not self._find_positions:
+            self._find_highlight()
+            return
+        self._find_current = (self._find_current + 1) % len(self._find_positions)
+        self._scroll_to_match(self._find_current)
+
+    def _find_prev(self):
+        if not self._find_positions:
+            self._find_highlight()
+            return
+        self._find_current = (self._find_current - 1) % len(self._find_positions)
+        self._scroll_to_match(self._find_current)
+
+    def _scroll_to_match(self, idx):
+        query = self._input_find.text()
+        pos   = self._find_positions[idx]
+        doc   = self.text_console.document()
+
+        # Resaltado activo (naranja) sobre el actual, amarillo en el resto
+        active_fmt  = QTextCharFormat()
+        active_fmt.setBackground(QColor("#f97316"))  # naranja
+        active_fmt.setForeground(QColor("#ffffff"))
+
+        normal_fmt  = QTextCharFormat()
+        normal_fmt.setBackground(QColor("#facc15"))  # amarillo
+        normal_fmt.setForeground(QColor("#0a0e17"))
+
+        for i, p in enumerate(self._find_positions):
+            c = QTextCursor(doc)
+            c.setPosition(p)
+            c.setPosition(p + len(query), QTextCursor.MoveMode.KeepAnchor)
+            c.mergeCharFormat(active_fmt if i == idx else normal_fmt)
+
+        # Mover el cursor visible a la posición activa
+        c = QTextCursor(doc)
+        c.setPosition(pos)
+        c.setPosition(pos + len(query), QTextCursor.MoveMode.KeepAnchor)
+        self.text_console.setTextCursor(c)
+        self.text_console.ensureCursorVisible()
+
+        self._lbl_match.setText(f"{idx + 1} / {len(self._find_positions)}")
+
+    def _clear_highlights(self):
+        """Elimina todos los resaltados de búsqueda restaurando el color por nivel."""
+        self.text_console.blockSignals(True)
+        self._refresh_view()          # reconstruye el texto con colores originales
+        self.text_console.blockSignals(False)
+
     def _on_process_started(self, vm_id, process):
-        # Añadir mensaje de sistema
+        # Limpiar hilos terminados para que la lista no crezca indefinidamente
+        self.reader_threads = [t for t in self.reader_threads if t.isRunning()]
+
         vm = self.app.get_vm(vm_id)
         vm_name = vm.get("name", "Desconocida") if vm else "Desconocida"
         self._append_log("info", f"--- Iniciando proceso QEMU para: {vm_name} ---")
 
-        # Lanzar el hilo lector
         thread = QEMUReaderThread(process)
         thread.new_line.connect(self._append_log)
         thread.start()
@@ -140,14 +307,8 @@ class Plugin(PluginBase):
     def _matches_filter(self, level, text):
         # Filtro de nivel
         idx = self.combo_level.currentIndex()
-        if idx == 1 and level == "info": return False # Avisos+
-        if idx == 2 and level != "error": return False # Errores
-        
-        # Filtro de texto
-        search_text = self.input_search.text().lower()
-        if search_text and search_text not in text.lower():
-            return False
-            
+        if idx == 1 and level == "info": return False
+        if idx == 2 and level != "error": return False
         return True
 
     def _append_to_ui(self, level, text):

@@ -7,10 +7,14 @@ Incluye fallbacks para Windows usando Fido, la API de Microsoft y msdl.
 """
 import os
 import re
+import sys
+import platform
 import subprocess
 import logging
 import shutil
 import locale
+import tempfile
+from pathlib import Path
 from datetime import date, timedelta
 from urllib.parse import urlparse, unquote
 
@@ -19,7 +23,8 @@ from packaging import version
 
 log = logging.getLogger(__name__)
 
-# Sesión HTTP con cabeceras de navegador real
+IS_WINDOWS = platform.system() == "Windows"
+
 _session = requests.Session()
 _session.headers.update({
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -35,14 +40,10 @@ SUPPORTED_AUTODETECT = {
     "Bliss OS", "Android-x86",
 }
 
-
 def supports_auto_download(distro: str) -> bool:
-    """Devuelve True si la app sabe cómo descargar la ISO de esta distro."""
     return distro in SUPPORTED_AUTODETECT
 
-
 def get_latest_iso_url(distro: str) -> str:
-    """Devuelve la URL de la ISO más reciente para una distro soportada."""
     handlers = {
         "Ubuntu": _latest_ubuntu,
         "Debian": _latest_debian,
@@ -69,7 +70,6 @@ def get_latest_iso_url(distro: str) -> str:
         raise ValueError(f"Auto-detección no soportada para: {distro}")
     return fn()
 
-
 # =========================================================
 # LINUX: Funciones de descarga
 # =========================================================
@@ -89,7 +89,6 @@ def _latest_ubuntu() -> str:
         raise RuntimeError(f"No se encontró ISO de escritorio para Ubuntu {latest}.")
     return base + latest + "/" + m.group(0)
 
-
 def _latest_debian() -> str:
     base = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/"
     html = _session.get(base, timeout=15).text
@@ -98,24 +97,47 @@ def _latest_debian() -> str:
         raise RuntimeError("No se encontró ISO de Debian en el índice actual.")
     return base + m.group(0)
 
-
 def _latest_fedora() -> str:
+    # 1. Intentar JSON API
     try:
         r = _session.get("https://fedoraproject.org/releases.json", timeout=15)
         r.raise_for_status()
         data = r.json()
         candidates = [
-            r for r in data
-            if r.get("variant") == "Workstation" and r.get("arch") == "x86_64"
-            and str(r.get("link", "")).endswith(".iso")
+            item for item in data
+            if item.get("variant") == "Workstation" and item.get("arch") == "x86_64"
+            and str(item.get("link", "")).endswith(".iso")
         ]
-        if candidates:
-            latest = max(candidates, key=lambda r: version.parse(str(r["version"])))
-            return latest["link"]
-    except Exception:
-        pass
-    raise RuntimeError("No se pudo obtener la ISO de Fedora. Revisa manualmente.")
-
+        if not candidates:
+            raise ValueError("No Fedora Workstation ISOs found in JSON")
+        
+        def vkey(x):
+            v = str(x.get("version", ""))
+            m = re.search(r'(\d+)', v)
+            return int(m.group(1)) if m else 0
+            
+        latest = max(candidates, key=vkey)
+        return latest["link"]
+    except Exception as e:
+        log.warning(f"Fedora JSON API failed: {e}. Falling back to HTML parsing.")
+        
+    # 2. Fallback: Parsear HTML
+    try:
+        base = "https://download.fedoraproject.org/pub/fedora/linux/releases/"
+        html = _session.get(base, timeout=15).text
+        versions = re.findall(r'href="(\d+)/"', html)
+        if not versions:
+            raise RuntimeError("No se encontraron versiones de Fedora.")
+        latest = max(versions, key=lambda v: int(v))
+        
+        iso_dir = f"{base}{latest}/Workstation/x86_64/iso/"
+        idx = _session.get(iso_dir, timeout=15).text
+        m = re.search(r'Fedora-Workstation-Live-x86_64-[\d.]+\.iso', idx)
+        if not m:
+            raise RuntimeError(f"No se encontró ISO para Fedora {latest}.")
+        return iso_dir + m.group(0)
+    except Exception as e2:
+        raise RuntimeError(f"No se pudo obtener la ISO de Fedora. Revisa manualmente. Error: {e2}")
 
 def _latest_arch() -> str:
     today = date.today()
@@ -129,7 +151,6 @@ def _latest_arch() -> str:
         if m:
             return url + m.group(0)
     raise RuntimeError("No se encontró ISO de Arch Linux en el mirror.")
-
 
 def _latest_mint() -> str:
     base = "https://mirrors.edge.kernel.org/linuxmint/stable/"
@@ -146,7 +167,6 @@ def _latest_mint() -> str:
         raise RuntimeError(f"No se encontró ISO para Linux Mint {latest}.")
     return base + latest + "/" + m.group(0)
 
-
 def _latest_manjaro() -> str:
     r = _session.get(
         "https://sourceforge.net/projects/manjarolinux/files/xfce/latest/download",
@@ -156,7 +176,6 @@ def _latest_manjaro() -> str:
     if not r.url.lower().endswith(".iso"):
         raise RuntimeError("No se pudo resolver la última ISO de Manjaro.")
     return r.url
-
 
 def _latest_opensuse() -> str:
     base = "https://download.opensuse.org/distribution/leap/"
@@ -172,7 +191,6 @@ def _latest_opensuse() -> str:
         raise RuntimeError(f"No se encontró ISO para openSUSE Leap {latest}.")
     return iso_dir + m.group(0)
 
-
 def _latest_popos() -> str:
     base = "https://iso.pop-os.org/"
     html = _session.get(base, timeout=15).text
@@ -185,7 +203,6 @@ def _latest_popos() -> str:
     if not m:
         raise RuntimeError(f"No se encontró ISO para Pop!_OS {latest}.")
     return base + latest + "/amd64/intel/" + m.group(0)
-
 
 def _latest_almalinux() -> str:
     base = "https://repo.almalinux.org/almalinux/"
@@ -201,7 +218,6 @@ def _latest_almalinux() -> str:
         raise RuntimeError(f"No se encontró ISO para AlmaLinux {latest}.")
     return iso_dir + m.group(0)
 
-
 def _latest_rocky() -> str:
     base = "https://download.rockylinux.org/pub/rocky/"
     html = _session.get(base, timeout=15).text
@@ -216,7 +232,6 @@ def _latest_rocky() -> str:
         raise RuntimeError(f"No se encontró ISO para Rocky Linux {latest}.")
     return iso_dir + m.group(0)
 
-
 def _latest_flavor(flavor: str) -> str:
     base = f"https://cdimage.ubuntu.com/{flavor}/releases/"
     html = _session.get(base, timeout=15).text
@@ -230,11 +245,9 @@ def _latest_flavor(flavor: str) -> str:
         raise RuntimeError(f"No se encontró ISO para {flavor} {latest}.")
     return base + latest + "/release/" + m.group(0)
 
-
 def _latest_kubuntu() -> str: return _latest_flavor("kubuntu")
 def _latest_xubuntu() -> str: return _latest_flavor("xubuntu")
 def _latest_lubuntu() -> str: return _latest_flavor("lubuntu")
-
 
 def _latest_kali() -> str:
     base = "https://cdimage.kali.org/current/"
@@ -245,7 +258,6 @@ def _latest_kali() -> str:
     if not m:
         raise RuntimeError("No se encontró ISO de Kali Linux.")
     return base + m.group(0)
-
 
 def _latest_garuda() -> str:
     base = "https://iso.builds.garudalinux.org/iso/garuda/"
@@ -260,7 +272,6 @@ def _latest_garuda() -> str:
             return sub_url + isos[0]
     raise RuntimeError("No se encontró ISO de Garuda Linux.")
 
-
 def _latest_endeavouros() -> str:
     url = "https://api.github.com/repos/endeavouros-team/ISO/releases/latest"
     r = _session.get(url, timeout=15)
@@ -270,7 +281,6 @@ def _latest_endeavouros() -> str:
         if asset["name"].endswith(".iso"):
             return asset["browser_download_url"]
     raise RuntimeError("No se encontró la ISO en las releases de EndeavourOS.")
-
 
 def _latest_elementary() -> str:
     url = "https://api.github.com/repos/elementary/os/releases/latest"
@@ -282,29 +292,21 @@ def _latest_elementary() -> str:
             return asset["browser_download_url"]
     raise RuntimeError("No se encontró ISO en las releases de elementary OS.")
 
-
 # =========================================================
 # ANDROID: Bliss OS y Android-x86
 # =========================================================
 
 def _latest_bliss_os() -> str:
-    """Devuelve la URL de descarga directa de la última ISO de Bliss OS."""
-    # Usamos downloads.sourceforge.net para saltarnos la página de espera HTML
     return "https://downloads.sourceforge.net/project/blissos-x86/Official/BlissOS16/Gapps/Generic/Bliss-v16.9.6-x86_64-OFFICIAL-gapps-20240220.iso"
 
-
 def _latest_android_x86() -> str:
-    """Devuelve la URL de descarga directa de Android-x86 (9.0-r2)."""
-    # Usamos downloads.sourceforge.net para saltarnos la página de espera HTML
     return "https://downloads.sourceforge.net/project/android-x86/Release%209.0/android-x86_64-9.0-r2.iso"
-
 
 # =========================================================
 # WINDOWS: Fido + API + msdl
 # =========================================================
 
 def _patch_fido_for_linux(fido_path: str) -> None:
-    """Parchea Fido para que funcione en Linux."""
     with open(fido_path, "r", encoding="utf-8-sig") as f:
         content = f.read()
     marker = "# --- patched-for-linux ---"
@@ -320,9 +322,7 @@ def _patch_fido_for_linux(fido_path: str) -> None:
     with open(fido_path, "w", encoding="utf-8") as f:
         f.write(patched)
 
-
 def get_host_language() -> str:
-    """Mapea el locale del host a los nombres de idioma de Fido."""
     try:
         loc = locale.getdefaultlocale()[0] or os.environ.get('LANG', 'en_US.UTF-8')
         code = loc.split('.')[0].split('_')[0].lower()
@@ -339,9 +339,7 @@ def get_host_language() -> str:
     except Exception:
         return 'English'
 
-
 def get_windows_url_via_api(win_ver: str, lang_name: str) -> str:
-    """Fallback 1: Obtiene el enlace directamente de la API de Microsoft."""
     import uuid
     lang_map = {
         "Spanish": "Spanish", "English": "English (United States)",
@@ -375,13 +373,13 @@ def get_windows_url_via_api(win_ver: str, lang_name: str) -> str:
     except (KeyError, IndexError):
         raise RuntimeError("La API de Microsoft no devolvió un enlace válido.")
 
-
 def get_windows_url_via_msdl(win_ver: str, lang_name: str) -> str:
-    """Fallback 2: Obtiene la URL usando la herramienta externa 'msdl'."""
     if not shutil.which("msdl"):
+        instalacion = ("winget install --id starkSV.msdl" if IS_WINDOWS
+                       else "yay -S msdl-bin")
         raise RuntimeError(
             "La herramienta 'msdl' no está instalada.\n"
-            "Instálala con: yay -S msdl-bin\n"
+            f"Instálala con: {instalacion}\n"
             "O descarga el binario desde https://github.com/starkSV/windows-iso-downloader/releases"
         )
 
@@ -408,48 +406,75 @@ def get_windows_url_via_msdl(win_ver: str, lang_name: str) -> str:
     except subprocess.TimeoutExpired:
         raise RuntimeError("msdl tardó más de 60 segundos en responder.")
 
+def _resolve_fido_path(fido_path: str = "Fido.ps1") -> str:
+    """Localiza Fido.ps1 también cuando la app se ejecuta empaquetada."""
+    base = Path(__file__).resolve().parent
+    candidatos = [Path(fido_path), base / "Fido.ps1", base.parent / "Fido.ps1"]
+    if getattr(sys, "frozen", False):
+        candidatos.insert(0, Path(getattr(sys, "_MEIPASS", base)) / "Fido.ps1")
+    for candidato in candidatos:
+        if candidato.is_file():
+            return str(candidato)
+
+    # El directorio de trabajo suele ser de solo lectura (Program Files), así
+    # que en Windows descargamos siempre al temporal del usuario.
+    destino = (Path(tempfile.gettempdir()) / "Fido.ps1" if IS_WINDOWS
+               else Path(fido_path))
+    try:
+        r = _session.get("https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1",
+                         timeout=20)
+        r.raise_for_status()
+        destino.write_bytes(r.content)
+    except Exception as e:
+        log.warning(f"No se pudo descargar Fido: {e}")
+    return str(destino)
+
+
+def _powershell_candidates() -> list[str]:
+    # Windows 10/11 incluyen powershell.exe 5.1, pero no pwsh (PowerShell 7).
+    return (["powershell.exe", "powershell", "pwsh"] if IS_WINDOWS
+            else ["pwsh", "powershell"])
+
 
 def get_latest_windows_iso_url(win_ver: str, fido_path: str = "Fido.ps1") -> str:
-    """Obtiene la URL de Windows probando Fido -> API -> msdl."""
     win_num = "11" if "11" in win_ver else "10"
 
-    # 1. Intentar con Fido
-    if not os.path.isfile(fido_path):
-        try:
-            r = _session.get("https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1", timeout=20)
-            r.raise_for_status()
-            with open(fido_path, "wb") as f:
-                f.write(r.content)
-        except Exception as e:
-            log.warning(f"No se pudo descargar Fido: {e}")
-
-    _patch_fido_for_linux(fido_path)
+    fido_path = _resolve_fido_path(fido_path)
+    # El parche fuerza Windows 10 porque Fido no detecta bien la versión bajo
+    # pwsh en Linux. En Windows se ejecuta tal cual.
+    if not IS_WINDOWS:
+        _patch_fido_for_linux(fido_path)
     lang = get_host_language()
 
     def _run_fido(lang_arg):
-        cmd = ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fido_path,
-               "-Win", win_num, "-Rel", "Latest", "-Ed", "Pro", "-Arch", "x64",
-               "-PlatformArch", "x64"]
+        argumentos = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fido_path,
+                      "-Win", win_num, "-Rel", "Latest", "-Ed", "Pro", "-Arch", "x64",
+                      "-PlatformArch", "x64"]
         if lang_arg:
-            cmd.extend(["-Lang", lang_arg])
-        cmd.append("-GetUrl")
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                return False, result.stderr.strip() or result.stdout.strip()
-            lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-            url_lines = [l for l in lines if l.startswith("http")]
-            if not url_lines:
-                return False, f"No se pudo extraer la URL: {result.stdout}"
-            return True, url_lines[-1]
-        except FileNotFoundError:
-            return False, "PowerShell (pwsh) no está instalado."
-        except subprocess.TimeoutExpired:
-            return False, "Fido tardó más de 60 segundos."
-        except Exception as e:
-            return False, str(e)
+            argumentos.extend(["-Lang", lang_arg])
+        argumentos.append("-GetUrl")
+        ultimo_error = "PowerShell no está instalado."
+        for shell in _powershell_candidates():
+            try:
+                result = subprocess.run([shell] + argumentos,
+                                        capture_output=True, text=True, timeout=60)
+                if result.returncode != 0:
+                    ultimo_error = result.stderr.strip() or result.stdout.strip()
+                    continue
+                lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+                url_lines = [l for l in lines if l.startswith("http")]
+                if not url_lines:
+                    ultimo_error = f"No se pudo extraer la URL: {result.stdout}"
+                    continue
+                return True, url_lines[-1]
+            except FileNotFoundError:
+                continue
+            except subprocess.TimeoutExpired:
+                ultimo_error = "Fido tardó más de 60 segundos."
+            except Exception as e:
+                ultimo_error = str(e)
+        return False, ultimo_error
 
-    # Intentar Fido (local -> inglés -> sin idioma)
     if lang != "English":
         success, result = _run_fido(lang)
         if success: return result
@@ -459,7 +484,6 @@ def get_latest_windows_iso_url(win_ver: str, fido_path: str = "Fido.ps1") -> str
     success, result = _run_fido(None)
     if success: return result
 
-    # 2. Fallback: API de Microsoft
     api_err = "No intentado"
     log.warning("Fido falló. Intentando con la API directa de Microsoft...")
     try:
@@ -468,7 +492,6 @@ def get_latest_windows_iso_url(win_ver: str, fido_path: str = "Fido.ps1") -> str
         api_err = str(e)
         log.warning(f"API de Microsoft falló: {api_err}")
 
-    # 3. Fallback final: msdl
     msdl_err = "No intentado"
     log.warning("API falló. Intentando con msdl...")
     try:

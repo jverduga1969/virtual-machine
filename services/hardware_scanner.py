@@ -1,10 +1,17 @@
 import os
+import platform
 import logging
 
 log = logging.getLogger(__name__)
 
+IS_WINDOWS = platform.system() == "Windows"
+
+
 def scan_pci_devices():
-    """Lee los dispositivos PCI reales de /sys/bus/pci/devices/"""
+    """Lee los dispositivos PCI reales de /sys/bus/pci/devices/ (solo Linux)."""
+    if IS_WINDOWS:
+        # En Windows no existe /sys/bus/pci; devolver lista vacía
+        return []
     devices = []
     pci_path = "/sys/bus/pci/devices"
     if not os.path.exists(pci_path):
@@ -17,10 +24,10 @@ def scan_pci_devices():
                 vendor = f.read().strip()
             with open(os.path.join(dev_dir, "device"), "r") as f:
                 device = f.read().strip()
-            
+
             # Formato: 8086:1234
             full_id = f"{vendor.replace('0x','')}:{device.replace('0x','')}"
-            
+
             # Comprobar grupo IOMMU
             iommu_group = "Sin grupo IOMMU"
             if os.path.exists(os.path.join(dev_dir, "iommu_group")):
@@ -38,8 +45,11 @@ def scan_pci_devices():
             continue
     return devices
 
+
 def scan_usb_devices():
-    """Lee los dispositivos USB reales de /sys/bus/usb/devices/"""
+    """Lee los dispositivos USB reales de /sys/bus/usb/devices/ (solo Linux)."""
+    if IS_WINDOWS:
+        return []
     devices = []
     usb_path = "/sys/bus/usb/devices"
     if not os.path.exists(usb_path):
@@ -52,14 +62,14 @@ def scan_usb_devices():
             product_path = os.path.join(dev_dir, "idProduct")
             if not os.path.exists(vendor_path) or not os.path.exists(product_path):
                 continue
-                
+
             with open(vendor_path, "r") as f:
                 vendor = f.read().strip()
             with open(product_path, "r") as f:
                 product = f.read().strip()
-                
+
             full_id = f"{vendor}:{product}"
-            
+
             # Intentar leer el nombre
             name = "Dispositivo USB"
             prod_name = os.path.join(dev_dir, "product")

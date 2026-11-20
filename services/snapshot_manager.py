@@ -43,11 +43,12 @@ class QMPClient:
         return self._recv_response()
 
 class SnapshotManager:
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, vms_dir=None):
         self.data_dir = data_dir
+        self.vms_dir = vms_dir if vms_dir else os.path.join(str(data_dir), "vms")
 
     def _get_vm_dir(self, vm: dict) -> str:
-        return os.path.join(self.data_dir, "vms", vm.get("id", "unknown"))
+        return os.path.join(str(self.vms_dir), vm.get("id", "unknown"))
 
     def _get_metadata_file(self, vm: dict) -> str:
         return os.path.join(self._get_vm_dir(vm), "snapshots_meta.json")

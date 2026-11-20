@@ -4,7 +4,7 @@
 
 OS_CATALOG = {
     "Microsoft Windows": {
-        "Windows 11": ["24H2", "23H2", "22H2", "21H2"],
+        "Windows 11": ["27H2", "26H2", "25H2", "24H2", "23H2", "22H2", "21H2"],
         "Windows 10": ["22H2", "21H2", "20H2", "1909", "1809"],
         "Windows 8.1": ["Update 1"],
         "Windows 8": ["Standard"],

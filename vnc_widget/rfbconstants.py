@@ -1,5 +1,5 @@
 
-from PyQt5.QtCore import Qt
+from PyQt6.QtCore import Qt
 
 ## Encoding Type for SetEncodings()
 # publicly documented
@@ -13,6 +13,7 @@ ENC_ZRLE     = 16 # ZRLE
 # pseudo-encodings
 ENC_CURSOR      = -239 # Cursor position pseudo-encoding
 ENC_DESKTOPSIZE = -223 # DesktopSize pseudo-encoding
+ENC_EXT_KEY_EVENT = -258 # QEMU Extended Key Event (ack del server: keycodes evdev)
 
 # additional
 ENC_CORRE   = 4
@@ -163,3 +164,4 @@ CMSG_FBUPDATEREQ = 		3
 CMSG_KEYEVENT =			4
 CMSG_POINTEREVENT =		5
 CMSG_CLIENTCUTTEXT =	6
+CMSG_QEMU =			255 # Mensaje QEMU (subtipo 0 = extended key event)

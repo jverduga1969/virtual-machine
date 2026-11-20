@@ -1,4 +1,7 @@
 import os
+import re
+import sys
+import platform
 import logging
 import subprocess
 from pathlib import Path
@@ -6,9 +9,9 @@ from PyQt6.QtCore import QObject, QProcess, QProcessEnvironment, pyqtSignal
 
 log = logging.getLogger(__name__)
 
+IS_WINDOWS = platform.system() == "Windows"
+
 # Mapeo de nuestras opciones a los números del menú de fetch-macOS-v2.py
-# Las opciones 1, 2 y 3 (High Sierra, Mojave, Catalina) han sido eliminadas
-# porque son sistemas antiguos (2017-2019) y muy problemáticos con QEMU 11+.
 MACOS_VERSIONS_MAP = {
     "Big Sur (11.7)": "4",
     "Monterey (12.6)": "5",
@@ -30,19 +33,34 @@ class MacOSDownloader(QObject):
         self.data_dir = Path(data_dir)
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        
+
+    def _get_safe_name(self):
+        """Limpia el nombre de la versión para usarlo en el archivo (ej. 'Big_Sur_11.7')"""
+        # Elimina emojis, corchetes y caracteres no alfanuméricos (deja letras, números, espacios y guiones)
+        safe = re.sub(r'[^\w\s-]', '', self.version_label)
+        # Reemplaza espacios por guiones bajos y quita espacios extra
+        safe = re.sub(r'\s+', '_', safe.strip())
+        return safe
+
     def start(self):
-        # El archivo oficial es un .img en RAW, no qcow2
-        img_path = self.dest_dir / "BaseSystem.img"
+        # El archivo oficial es un .img en RAW, no qcow2. Ahora usamos el nombre de la versión.
+        safe_name = self._get_safe_name()
+        img_path = self.dest_dir / f"BaseSystem-{safe_name}.img"
+        dmg_path = self.dest_dir / f"BaseSystem-{safe_name}.dmg"
+        
+        # Si ya existe el IMG final para esta versión, saltamos la descarga
         if img_path.exists() and img_path.stat().st_size > 100 * 1024 * 1024:
-            log.info(f"BaseSystem.img ya existe y es válido. Saltando descarga.")
+            log.info(f"{img_path.name} ya existe y es válido. Saltando descarga.")
             self.finished.emit(str(img_path))
             return
 
         project_root = Path(__file__).parent.parent
         cwd = Path.cwd()
         
-        search_paths = [
+        search_paths = []
+        if getattr(sys, "frozen", False):
+            search_paths.append(Path(getattr(sys, "_MEIPASS", project_root)) / "OSX-KVM")
+        search_paths += [
             project_root / "OSX-KVM",
             self.data_dir / "OSX-KVM",
             cwd / "OSX-KVM",
@@ -72,9 +90,10 @@ class MacOSDownloader(QObject):
         
         self.dest_dir.mkdir(parents=True, exist_ok=True)
         
-        dmg_path = self.dest_dir / "BaseSystem.dmg"
+        # El script de Apple siempre guarda "BaseSystem.dmg" temporalmente
+        temp_dmg = self.dest_dir / "BaseSystem.dmg"
         
-        for p in (dmg_path, img_path):
+        for p in (temp_dmg, dmg_path, img_path):
             if p.exists():
                 try: p.unlink()
                 except: pass
@@ -83,14 +102,17 @@ class MacOSDownloader(QObject):
         
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
-        env.insert("TERM", "xterm-256color")
+        if not IS_WINDOWS:
+            env.insert("TERM", "xterm-256color")
         self.process.setProcessEnvironment(env)
         
         self.process.readyReadStandardOutput.connect(self._read_output)
         self.process.finished.connect(self._on_finished)
         
         self.progress.emit(f"macOS {self.version_label}\nConectando con Apple...")
-        self.process.start("python3", [str(script_path)])
+        # En el paquete no hay un `python3` garantizado: usamos el intérprete
+        # que ya está ejecutando la aplicación.
+        self.process.start(sys.executable, [str(script_path)])
         
         if self.process.waitForStarted(5000):
             self.process.write(f"{option_num}\n".encode())
@@ -114,21 +136,36 @@ class MacOSDownloader(QObject):
             self.error.emit(f"fetch-macos.py falló con código {exitCode}.")
             return
             
-        dmg_path = self.dest_dir / "BaseSystem.dmg"
-        img_path = self.dest_dir / "BaseSystem.img"
+        safe_name = self._get_safe_name()
+        temp_dmg = self.dest_dir / "BaseSystem.dmg"
+        final_dmg = self.dest_dir / f"BaseSystem-{safe_name}.dmg"
+        final_img = self.dest_dir / f"BaseSystem-{safe_name}.img"
         
-        if not dmg_path.exists():
+        if not temp_dmg.exists():
             self.error.emit("No se generó BaseSystem.dmg.")
             return
             
         self.progress.emit("Convirtiendo a formato RAW (IMG)...\n(Esto puede tardar un poco)")
         
         try:
-            # Convertir a RAW (formato .img)
-            subprocess.run(["qemu-img", "convert", "-f", "dmg", "-O", "raw", str(dmg_path), str(img_path)], check=True, capture_output=True)
-            try: dmg_path.unlink()
-            except: pass
-            self.finished.emit(str(img_path))
+            # 1. Renombrar el DMG para que no se pierda el original de la versión
+            if final_dmg.exists():
+                final_dmg.unlink()
+            temp_dmg.rename(final_dmg)
+            
+            # 2. Convertir a RAW (formato .img) usando el nombre único
+            subprocess.run(
+                ["qemu-img", "convert", "-f", "dmg", "-O", "raw", str(final_dmg), str(final_img)], 
+                check=True, capture_output=True
+            )
+            
+            # 3. Borrar el DMG temporal tras una conversión exitosa para ahorrar espacio
+            try: 
+                final_dmg.unlink()
+            except: 
+                pass
+                
+            self.finished.emit(str(final_img))
         except Exception as e:
             self.error.emit(f"Error convirtiendo a IMG: {e}")
 

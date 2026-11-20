@@ -14,12 +14,12 @@ class MediaLibraryDialog(QDialog):
         self.selected_path = None
         self.app = app
         self.file_filters = file_filters or []
-        
+
         # Conectar directamente con la base de datos de la biblioteca
-        self.media_mgr = MediaLibraryManager(app.data_dir) if app else None
+        self.media_mgr = MediaLibraryManager(app.data_dir, app.settings) if app else None
 
         layout = QVBoxLayout(self)
-        
+
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Nombre", "Tipo", "SO", "Tamaño"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -28,23 +28,26 @@ class MediaLibraryDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.doubleClicked.connect(self.accept)
+        self.table.setToolTip("Lista de medios disponibles en la biblioteca")
+        self.table.doubleClicked.connect(self._on_row_double_clicked)
         layout.addWidget(self.table)
 
         btn_layout = QHBoxLayout()
         btn_refresh = QPushButton("🔄 Refrescar")
+        btn_refresh.setToolTip("Volver a leer la biblioteca de medios")
         btn_refresh.clicked.connect(self._load_files)
         btn_layout.addWidget(btn_refresh)
         btn_layout.addStretch()
-        
+
         btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         btn_box.button(QDialogButtonBox.StandardButton.Ok).setText("Seleccionar")
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setToolTip("Seleccionar el medio marcado en la lista")
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         btn_layout.addWidget(btn_box)
-        
+
         layout.addLayout(btn_layout)
-        
+
         self._load_files()
 
     def _load_files(self):
@@ -67,17 +70,17 @@ class MediaLibraryDialog(QDialog):
 
             row = self.table.rowCount()
             self.table.insertRow(row)
-            
+
             # Nombre del archivo (o el nombre lógico que le hayas puesto en la biblioteca)
             display_name = media.get("name", os.path.basename(path))
             self.table.setItem(row, 0, QTableWidgetItem(display_name))
-            
+
             # Tipo (ISO, Disco duro, etc.)
             self.table.setItem(row, 1, QTableWidgetItem(media.get("type", "-")))
-            
+
             # SO
             self.table.setItem(row, 2, QTableWidgetItem(media.get("os", "Other")))
-            
+
             # Tamaño real
             size_str = media.get("size_real", "")
             if not size_str:
@@ -90,9 +93,15 @@ class MediaLibraryDialog(QDialog):
                 except Exception:
                     size_str = "?"
             self.table.setItem(row, 3, QTableWidgetItem(size_str))
-            
+
             # Guardar la ruta real oculta
             self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, path)
+
+    def _on_row_double_clicked(self, index):
+        # Usar la fila clickeada, no currentRow(): con selección extendida
+        # pueden divergir y se abría la ISO equivocada.
+        self.table.selectRow(index.row())
+        self.accept()
 
     def accept(self):
         row = self.table.currentRow()
