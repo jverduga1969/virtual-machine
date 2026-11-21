@@ -352,12 +352,13 @@ class VMRunner:
             tpm_device = "tpm-crb" if q35 else "tpm-tis"
             return ["-tpmdev", "emulator,id=tpm0", "-device", f"{tpm_device},tpmdev=tpm0"]
         vm_id = vm["id"]
-        tpm_dir = os.path.join(str(self.vms_dir), vm_id, "tpm")
-        os.makedirs(tpm_dir, exist_ok=True)
         # pkill -f interpreta el patrón como regex: un vm_id con metacaracteres
-        # podría matar procesos ajenos. Solo identificadores seguros.
+        # podría matar procesos ajenos. Validar ANTES de crear nada: en Windows
+        # los caracteres prohibidos hacen que makedirs falle primero.
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(vm_id)):
             raise ValueError(f"ID de VM inválido para swtpm: {vm_id!r}")
+        tpm_dir = os.path.join(str(self.vms_dir), vm_id, "tpm")
+        os.makedirs(tpm_dir, exist_ok=True)
         sock_path = f"/tmp/swtpm-{vm_id}.sock"
         try:
             subprocess.run(

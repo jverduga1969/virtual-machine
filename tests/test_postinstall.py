@@ -1,5 +1,6 @@
 """El postinstall de Linux cubre lo que Configuración Host comprueba."""
 
+import os
 import shutil
 import subprocess
 
@@ -16,7 +17,8 @@ PASSTHROUGH = ROOT / "services" / "host_passthrough.py"
 def test_script_valido_y_sin_restos_del_antiguo_modo_kiosco():
     texto = SCRIPT.read_text(encoding="utf-8")
 
-    if shutil.which("bash"):
+    # `bash` en Windows suele ser Git Bash, que no entiende las rutas D:\...
+    if os.name == "posix" and shutil.which("bash"):
         proc = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
         assert proc.returncode == 0, proc.stderr
 

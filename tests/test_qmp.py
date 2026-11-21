@@ -142,3 +142,5 @@ def test_setup_tpm_rechaza_vm_id_con_metacaracteres(runner, monkeypatch, tmp_pat
 
     with pytest.raises(ValueError, match="ID de VM inválido"):
         runner._setup_tpm({"id": "vm; rm -rf /"}, q35=True)
+    # La validación va antes de makedirs: no debe crear ningún directorio.
+    assert list(tmp_path.iterdir()) == []
