@@ -4,7 +4,7 @@
 #define MyAppName "Virtual.Machine"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Jimmy Verduga"
-#define MyAppURL "https://github.com/jimmyverduga/NVM_harness_test"
+#define MyAppURL "https://github.com/jverduga1969/virtual-machine"
 #define MyAppExeName "VirtualMachine.exe"
 
 [Setup]
@@ -29,7 +29,7 @@ WizardStyle=modern
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Tasks]
-Name: "desktopicon"; DescrString: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalTasks}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalTasks}"; Flags: unchecked
 
 [Files]
 ; PyInstaller genera un único ejecutable (EXE con a.binaries/a.datas incluidos).
