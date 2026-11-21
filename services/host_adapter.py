@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import shutil
 import logging
 import platform
@@ -56,21 +57,44 @@ class HostAdapter:
             return False
         return os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.R_OK | os.W_OK)
 
-    def _check_whpx(self) -> bool:
-        """Comprueba si WHPX está disponible (Windows)."""
-        if not IS_WINDOWS:
+    def _qemu_accepts_accel(self, accel: str) -> bool:
+        """Pregunta al propio QEMU si acepta un acelerador.
+
+        `sc query WHvSvc` no sirve: WHPX es una característica opcional de
+        Windows, no un servicio con ese nombre. La única comprobación fiable es
+        arrancar QEMU con `-accel <accel> -machine none` y mirar el resultado.
+        """
+        if not self.qemu_path:
             return False
-        # WHPX se detecta intentando arrancar qemu con -accel whpx o comprobando
-        # la presencia del controlador. Aquí hacemos una comprobación ligera.
         try:
             import subprocess
-            result = subprocess.run(
-                ["sc", "query", "WHvSvc"],
-                capture_output=True, text=True, timeout=3
+            resultado = subprocess.run(
+                [self.qemu_path, "-accel", accel, "-machine", "none",
+                 "-display", "none", "-monitor", "none", "-serial", "none"],
+                capture_output=True, text=True, timeout=10,
             )
-            return "RUNNING" in result.stdout.upper()
-        except Exception:
+            salida = f"{resultado.stdout or ''}\n{resultado.stderr or ''}"
+            if resultado.returncode != 0:
+                log.info("QEMU no acepta %s: %s", accel, salida.strip()[:300])
+                return False
+            # Algunas versiones devuelven 0 pero avisan de que el acelerador
+            # no está disponible; no damos el acelerador por bueno en ese caso.
+            if re.search(
+                rf"{accel}.*(not available|not supported|no disponible|"
+                rf"failed|error)", salida, re.IGNORECASE,
+            ):
+                log.info("QEMU avisa de que %s no está disponible", accel)
+                return False
+            return True
+        except Exception as e:
+            log.warning("No se pudo comprobar %s con QEMU: %s", accel, e)
             return False
+
+    def _check_whpx(self) -> bool:
+        """Comprueba de verdad si QEMU acepta WHPX en Windows."""
+        if not IS_WINDOWS:
+            return False
+        return self._qemu_accepts_accel("whpx")
 
     def _check_haxm(self) -> bool:
         """Comprueba si Intel HAXM está instalado (Windows)."""

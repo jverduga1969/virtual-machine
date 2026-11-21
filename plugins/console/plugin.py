@@ -90,7 +90,18 @@ class Plugin(PluginBase):
 
         host = getattr(self.app, "host", None)
         if getattr(host, "acceleration", "") == "tcg":
-            banner = QLabel("⚠️ Sin KVM: esta VM corre con TCG (emulación, ~2–5 % de velocidad). Instala KVM (/dev/kvm) para acelerarla.")
+            if getattr(host, "is_windows", False):
+                texto = (
+                    "⚠️ Sin aceleración de hardware: esta VM corre con TCG "
+                    "(emulación, ~2–5 % de velocidad). Activa WHPX (Plataforma "
+                    "de hipervisor de Windows) y reinicia la app."
+                )
+            else:
+                texto = (
+                    "⚠️ Sin KVM: esta VM corre con TCG (emulación, ~2–5 % de "
+                    "velocidad). Instala KVM (/dev/kvm) para acelerarla."
+                )
+            banner = QLabel(self.app.tr(texto))
             banner.setWordWrap(True)
             banner.setStyleSheet("background-color: #92400e; color: #fef3c7; padding: 6px 10px; font-weight: bold;")
             layout.addWidget(banner)

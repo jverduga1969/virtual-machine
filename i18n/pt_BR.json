@@ -738,6 +738,7 @@
   "Ubicación del disco:": "Localização do disco:",
   "sudo no está disponible; no se puede cargar el módulo nbd automáticamente.": "sudo não está disponível; não é possível carregar o módulo nbd automaticamente.",
   "⚠️ Sin KVM: esta VM corre con TCG (emulación, ~2–5 % de velocidad). Instala KVM (/dev/kvm) para acelerarla.": "⚠️ Sem KVM: esta VM roda com TCG (emulação, ~2–5% de velocidade). Instale KVM (/dev/kvm) para acelerá-la.",
+  "⚠️ Sin aceleración de hardware: esta VM corre con TCG (emulación, ~2–5 % de velocidad). Activa WHPX (Plataforma de hipervisor de Windows) y reinicia la app.": "⚠️ Sem aceleração de hardware: esta VM roda com TCG (emulação, ~2–5% de velocidade). Ative o WHPX (Plataforma de Hipervisor do Windows) e reinicie o app.",
   "❌ No se encontró OVMF_CODE de Secure Boot. Instala 'ovmf', 'edk2-ovmf' o 'qemu-ovmf-x86_64'.": "❌ OVMF_CODE de Secure Boot não encontrado. Instale 'ovmf', 'edk2-ovmf' ou 'qemu-ovmf-x86_64'.",
   "❌ No se encontró OVMF_VARS en el sistema.": "❌ OVMF_VARS não encontrado no sistema.",
   "Módulos VirtIO": "Módulos VirtIO",
