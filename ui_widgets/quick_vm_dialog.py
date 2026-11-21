@@ -18,6 +18,7 @@ from services.os_catalog import OS_CATALOG
 from services import iso_versions
 from services import iso_sources
 from services.download_utils import HashTracker, save_checksum
+from services.qemu_paths import qemu_cmd
 from services.macos_recovery import MacOSDownloader
 from ui_widgets.media_library_dialog import MediaLibraryDialog
 
@@ -413,7 +414,7 @@ class QuickVMDialog(QDialog):
 
         try:
             subprocess.run(
-                ["qemu-img", "create", "-f", "qcow2", str(disk_path), self.selected_profile["disk_size"]],
+                qemu_cmd("qemu-img", "create", "-f", "qcow2", str(disk_path), self.selected_profile["disk_size"]),
                 check=True, capture_output=True
             )
         except Exception as e:

@@ -76,16 +76,33 @@ $qemuPaths = @(
 )
 
 $qemuFound = $false
+$qemuExe = $null
 foreach ($p in $qemuPaths) {
     if ($p -and (Test-Path $p)) {
         Write-Host "✓ QEMU encontrado en: $p"
         $qemuFound = $true
+        $qemuExe = $p
         break
     }
 }
 
 if (-not $qemuFound) {
     Write-Warning "QEMU no encontrado en rutas comunes. Instálalo manualmente o verifica el PATH."
+} else {
+    # QEMU no siempre añade su carpeta al PATH (winget/MSI/descompresión manual).
+    $qemuDir = Split-Path $qemuExe -Parent
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -notlike "*$qemuDir*") {
+        [Environment]::SetEnvironmentVariable("Path", "$userPath;$qemuDir", "User")
+        $env:Path += ";$qemuDir"
+        Write-Host "✓ Añadido al PATH del usuario: $qemuDir"
+    }
+    $imgExe = Join-Path $qemuDir "qemu-img.exe"
+    if (Test-Path $imgExe) {
+        Write-Host "✓ qemu-img.exe encontrado en: $imgExe"
+    } else {
+        Write-Warning "No se encontró qemu-img.exe junto a $qemuExe. La app lo buscará en esa carpeta de todas formas."
+    }
 }
 
 # ----------------------------------------------------------------------

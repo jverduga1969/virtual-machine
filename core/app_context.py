@@ -11,6 +11,7 @@ from .i18n import tr as translate_text
 from services.vm_repository import VMRepository
 from services.host_adapter import HostAdapter, IS_WINDOWS
 from services.vm_runner import VMRunner
+from services.qemu_paths import set_qemu_dir
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,8 @@ class AppContext(QObject):
         # así que todos los módulos leerán y escribirán el mismo archivo.
         self.settings = QSettings()
         settings = self.settings
+        # Directorio de QEMU configurable (útil en Windows sin PATH).
+        set_qemu_dir(settings.value("paths/qemu_dir", ""))
         if IS_WINDOWS:
             default_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "VirtualMachine"
         else:

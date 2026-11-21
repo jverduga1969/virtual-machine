@@ -731,9 +731,10 @@ class Plugin(PluginBase):
 
     @staticmethod
     def _qemu_img(args):
-        exe = shutil.which("qemu-img")
+        from services.qemu_paths import find_qemu_binary
+        exe = find_qemu_binary("qemu-img")
         if not exe:
-            raise RuntimeError("No se encontró qemu-img. Instala 'qemu-img' (paquete qemu-utils).")
+            raise RuntimeError("No se encontró qemu-img. Instala QEMU o indica su ruta con QEMU_DIR.")
         r = subprocess.run([exe] + list(args), capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(f"qemu-img falló: {(r.stderr or r.stdout or '').strip()}")

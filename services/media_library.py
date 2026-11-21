@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 
 from services.json_store import atomic_write_json, quarantine, read_json
+from services.qemu_paths import qemu_cmd
 
 log = logging.getLogger(__name__)
 try:
@@ -81,7 +82,7 @@ class MediaLibraryManager:
             return os.path.getsize(path)
         try:
             result = subprocess.run(
-                ["qemu-img", "info", "--output=json", path],
+                qemu_cmd("qemu-img", "info", "--output=json", path),
                 capture_output=True, text=True, check=True
             )
             info = json.loads(result.stdout)
@@ -289,10 +290,122 @@ class MediaLibraryManager:
                         added += 1
         return added
 
+    def rebuild_from_vms(self, vm_repo):
+        """Rebuild the media library from VM repository data.
+
+        - Iterates VMRepository.get_all(), extracts disk_path, iso_path,
+          floppy_path, and additional/optical drives per VM.
+        - Sets used_by to the VM name(s) using each media file.
+        - Drops media entries whose file no longer exists on disk.
+        - Adds media entries for files referenced by VM configs but absent
+          from the library.
+        - Writes last_used as %Y-%m-%d %H:%M:%S (full datetime).
+        Idempotent: preserves media entries not tied to any VM as long as
+        the file still exists.
+        """
+        with self._lock:
+            from pathlib import Path
+
+            all_vms = vm_repo.get_all()
+
+            # Build a mapping: file_path -> set of VM names that reference it
+            path_to_vms: dict[str, set[str]] = {}
+            for vm in all_vms:
+                vm_name = vm.get("name", "Unknown") or vm.get("id", "unknown") or "VM"
+
+                # Disk path
+                disk_path = vm.get("disk_path")
+                if disk_path:
+                    abs_path = str(Path(disk_path).resolve())
+                    path_to_vms.setdefault(abs_path, set()).add(vm_name)
+
+                # ISO path
+                iso_path = vm.get("iso_path")
+                if iso_path:
+                    abs_path = str(Path(iso_path).resolve())
+                    path_to_vms.setdefault(abs_path, set()).add(vm_name)
+
+                # Floppy path
+                floppy_path = vm.get("floppy_path")
+                if floppy_path:
+                    abs_path = str(Path(floppy_path).resolve())
+                    path_to_vms.setdefault(abs_path, set()).add(vm_name)
+
+                # Additional optical drives
+                optical_drives = vm.get("optical_drives") or []
+                if isinstance(optical_drives, list):
+                    for drive in optical_drives:
+                        od_path = drive.get("path") or drive.get("file") or drive.get("source")
+                        if od_path:
+                            abs_path = str(Path(od_path).resolve())
+                            path_to_vms.setdefault(abs_path, set()).add(vm_name)
+
+            # Get current media entries, normalized by path
+            current_by_path: dict[str, dict] = {}
+            for m in self._media:
+                p = self._normalize_path(m.get("path", ""))
+                if p:
+                    current_by_path[p] = m
+
+            # Track which paths are touched by VMs
+            touched_paths: set[str] = set()
+
+            # Process paths referenced by VMs
+            for abs_path, vm_names in path_to_vms.items():
+                touched_paths.add(abs_path)
+                file_exists = os.path.isfile(abs_path)
+
+                # If file no longer exists, remove the media entry
+                if not file_exists:
+                    # Remove from library
+                    norm = self._normalize_path(abs_path)
+                    self._media = [m for m in self._media if self._normalize_path(m.get("path", "")) != norm]
+                    continue
+
+                # If media entry exists, update used_by; otherwise create it
+                if abs_path in current_by_path:
+                    m = current_by_path[abs_path]
+                    existing_used_by = m.get("used_by", "")
+                    # Build used_by list: append VM name if not already listed
+                    if existing_used_by:
+                        used_list = [name.strip() for name in existing_used_by.split(",") if name.strip()]
+                    else:
+                        used_list = []
+                    if vm_name not in used_list:
+                        used_list.append(vm_name)
+                    m["used_by"] = ", ".join(used_list)
+                    # Update last_used to now
+                    m["last_used"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    # Create new media entry for file referenced by VM but not in library
+                    m = self._make_item(
+                        os.path.basename(abs_path), abs_path,
+                        "ISO" if abs_path.lower().endswith(".iso") else "Disco duro",
+                        "-", "-", "Other", "x86_64", "ISO",
+                        used_by=vm_name,
+                        last_used=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    )
+                    self._media.append(m)
+
+            # Remove media entries whose files no longer exist
+            # (those not referenced by any VM and whose files are gone)
+            original_count = len(self._media)
+            self._media = [
+                m for m in self._media
+                if os.path.isfile(m.get("path", ""))
+            ]
+            if len(self._media) != original_count:
+                self.save()
+
+            # Save the updated library
+            self.save()
+
+            return len(touched_paths)
+
     def create_disk(self, name, size, fmt="qcow2", path=None):
         if not path:
             path = self.media_dir / f"{name}.{fmt}"
-        cmd = ["qemu-img", "create", "-f", fmt, str(path), size]
+        cmd = qemu_cmd("qemu-img", "create", "-f", fmt, str(path), size)
         try:
             subprocess.run(cmd, check=True, capture_output=True)
             self.add_media(name, str(path), "Disco duro", "-", size_vm=size, fmt=fmt.upper())
@@ -312,7 +425,7 @@ class MediaLibraryManager:
             return True, "El tamaño es el mismo, no se requiere cambios."
 
         try:
-            cmd = ["qemu-img", "resize", path, new_size_str]
+            cmd = qemu_cmd("qemu-img", "resize", path, new_size_str)
             subprocess.run(cmd, check=True, capture_output=True)
             return True, f"Disco redimensionado a {new_size_str}."
         except Exception as e:
@@ -333,7 +446,7 @@ class MediaLibraryManager:
             return False, "Solo se pueden compactar discos QCOW2."
         tmp_path = f"{path}.tmp"
         try:
-            cmd = ["qemu-img", "convert", "-O", "qcow2", "-c", path, tmp_path]
+            cmd = qemu_cmd("qemu-img", "convert", "-O", "qcow2", "-c", path, tmp_path)
             subprocess.run(cmd, check=True, capture_output=True)
             os.replace(tmp_path, path)
             return True, "Compactado con éxito."

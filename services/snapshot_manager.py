@@ -6,6 +6,8 @@ import socket
 import json
 from typing import List, Dict
 
+from services.qemu_paths import qemu_cmd
+
 log = logging.getLogger(__name__)
 
 class QMPClient:
@@ -103,7 +105,7 @@ class SnapshotManager:
             info["writable"] = "Sí" if os.access(disk_path, os.W_OK) else "No"
 
             if vm.get("state") != "Running":
-                result = subprocess.run(["qemu-img", "info", "--output=json", disk_path], capture_output=True, text=True, check=True)
+                result = subprocess.run(qemu_cmd("qemu-img", "info", "--output=json", disk_path), capture_output=True, text=True, check=True)
                 q_info = json.loads(result.stdout)
                 info["virtual_size"] = self._format_size(q_info.get("virtual-size", 0))
             else:
@@ -150,7 +152,7 @@ class SnapshotManager:
         # Si está apagada, usamos qemu-img
         else:
             try:
-                result = subprocess.run(["qemu-img", "snapshot", "-l", disk_path], capture_output=True, text=True, check=True)
+                result = subprocess.run(qemu_cmd("qemu-img", "snapshot", "-l", disk_path), capture_output=True, text=True, check=True)
                 lines = result.stdout.strip().splitlines()
                 if len(lines) > 1:
                     for line in lines[1:]:
@@ -204,7 +206,7 @@ class SnapshotManager:
             disk_path = self._get_disk_path(vm)
             if not disk_path: return False, "No se encontró disco."
             try:
-                subprocess.run(["qemu-img", "snapshot", "-c", name, disk_path], check=True, capture_output=True)
+                subprocess.run(qemu_cmd("qemu-img", "snapshot", "-c", name, disk_path), check=True, capture_output=True)
                 success = True
             except subprocess.CalledProcessError as e:
                 return False, str(e)
@@ -230,7 +232,7 @@ class SnapshotManager:
         else:
             disk_path = self._get_disk_path(vm)
             try:
-                subprocess.run(["qemu-img", "snapshot", "-a", name, disk_path], check=True, capture_output=True)
+                subprocess.run(qemu_cmd("qemu-img", "snapshot", "-a", name, disk_path), check=True, capture_output=True)
                 return True, f"Snapshot '{name}' restaurado."
             except subprocess.CalledProcessError as e:
                 return False, str(e)
@@ -238,7 +240,7 @@ class SnapshotManager:
     def delete_snapshot(self, vm: dict, name: str) -> tuple[bool, str]:
         disk_path = self._get_disk_path(vm)
         try:
-            subprocess.run(["qemu-img", "snapshot", "-d", name, disk_path], check=True, capture_output=True)
+            subprocess.run(qemu_cmd("qemu-img", "snapshot", "-d", name, disk_path), check=True, capture_output=True)
             meta = self._load_metadata(vm)
             if name in meta:
                 # Borrar thumbnail si existe

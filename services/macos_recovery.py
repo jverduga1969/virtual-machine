@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from PyQt6.QtCore import QObject, QProcess, QProcessEnvironment, pyqtSignal
 
+from services.qemu_paths import qemu_cmd
+
 log = logging.getLogger(__name__)
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -155,7 +157,7 @@ class MacOSDownloader(QObject):
             
             # 2. Convertir a RAW (formato .img) usando el nombre único
             subprocess.run(
-                ["qemu-img", "convert", "-f", "dmg", "-O", "raw", str(final_dmg), str(final_img)], 
+                qemu_cmd("qemu-img", "convert", "-f", "dmg", "-O", "raw", str(final_dmg), str(final_img)), 
                 check=True, capture_output=True
             )
             

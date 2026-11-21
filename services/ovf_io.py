@@ -788,12 +788,14 @@ def _qemu_img_convert(src, dest, fmt, extra_opts=None,
         if log_emit:
             try: log_emit(m)
             except Exception: pass
-    if not shutil.which("qemu-img"):
-        raise RuntimeError("qemu-img no esta en el PATH.")
+    from services.qemu_paths import find_qemu_binary
+    if not find_qemu_binary("qemu-img"):
+        raise RuntimeError("qemu-img no encontrado. Instala QEMU o indica su ruta con QEMU_DIR.")
     if os.path.exists(dest):
         try: os.remove(dest)
         except OSError: pass
-    cmd = ["qemu-img", "convert", "-p", "-O", fmt]
+    from services.qemu_paths import qemu_cmd
+    cmd = qemu_cmd("qemu-img", "convert", "-p", "-O", fmt)
     if extra_opts:
         cmd += extra_opts
     cmd += [src, dest]

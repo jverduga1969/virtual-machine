@@ -224,6 +224,16 @@ class Plugin(PluginBase):
         row_media.addWidget(btn_media)
         form_paths.addRow("Biblioteca de medios:", row_media)
 
+        self.e_qemu_dir = QLineEdit()
+        self.e_qemu_dir.setPlaceholderText(r"Ej: C:\Program Files\qemu")
+        self.e_qemu_dir.setToolTip(
+            "Carpeta que contiene qemu-img.exe y qemu-system-x86_64.exe. "
+            "Se usa en Windows cuando QEMU no está en el PATH.")
+        row_qemu = QHBoxLayout(); row_qemu.addWidget(self.e_qemu_dir)
+        btn_qemu = QPushButton("📁"); btn_qemu.clicked.connect(lambda: _browse(self.e_qemu_dir))
+        row_qemu.addWidget(btn_qemu)
+        form_paths.addRow("Directorio de QEMU (qemu-img.exe):", row_qemu)
+
         btn_save_paths = QPushButton("💾 Guardar rutas")
         btn_save_paths.setStyleSheet("background-color: #2e7d32; color: white; padding: 8px; font-weight: bold; border-radius: 4px;")
         btn_save_paths.clicked.connect(self._save_paths)
@@ -270,16 +280,19 @@ class Plugin(PluginBase):
         vms = settings.value("paths/vms_dir", str(Path(base) / "vms"))
         isos = settings.value("paths/isos_dir", str(Path(base) / "isos"))
         media = settings.value("paths/media_dir", str(Path(base) / "MediaLibrary"))
+        qemu = settings.value("paths/qemu_dir", "")
         self.e_base_dir.setText(str(base))
         self.e_vms_dir.setText(str(vms))
         self.e_isos_dir.setText(str(isos))
         self.e_media_dir.setText(str(media))
+        self.e_qemu_dir.setText(str(qemu))
 
     def _save_paths(self):
         base = self.e_base_dir.text().strip()
         vms = self.e_vms_dir.text().strip()
         isos = self.e_isos_dir.text().strip()
         media = self.e_media_dir.text().strip()
+        qemu = self.e_qemu_dir.text().strip()
         if not base or not vms or not isos or not media:
             QMessageBox.warning(self.app.parent(), "Error", "Todas las rutas son obligatorias.")
             return
@@ -288,6 +301,10 @@ class Plugin(PluginBase):
         settings.setValue("paths/vms_dir", vms)
         settings.setValue("paths/isos_dir", isos)
         settings.setValue("paths/media_dir", media)
+        settings.setValue("paths/qemu_dir", qemu)
+        # Que surta efecto sin reiniciar.
+        from services.qemu_paths import set_qemu_dir
+        set_qemu_dir(qemu)
         QMessageBox.information(
             self.app.parent(), "Guardado",
             "Rutas guardadas.\nReinicia la aplicación para que todos los módulos usen las nuevas ubicaciones."

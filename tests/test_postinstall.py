@@ -9,6 +9,7 @@ import pytest
 from conftest import ROOT
 
 SCRIPT = ROOT / "scripts" / "postinstall.sh"
+SCRIPT_WIN = ROOT / "scripts" / "postinstall.ps1"
 PLUGIN = ROOT / "plugins" / "host_config" / "plugin.py"
 DIAG = ROOT / "services" / "host_diagnostics.py"
 PASSTHROUGH = ROOT / "services" / "host_passthrough.py"
@@ -43,6 +44,13 @@ def test_paquetes_clave_en_todos_los_gestores():
     # Gestores añadidos en esta revisión.
     for gestor in ("dnf5", "yum", "apk"):
         assert f'echo {gestor}' in texto or f'command -v {gestor}' in texto
+
+
+def test_postinstall_windows_anade_qemu_al_path_y_comprueba_qemu_img():
+    texto = SCRIPT_WIN.read_text(encoding="utf-8")
+
+    assert 'SetEnvironmentVariable("Path"' in texto
+    assert "qemu-img.exe" in texto
 
 
 def test_reglas_udev_coinciden_con_el_diagnostico():

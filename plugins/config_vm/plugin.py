@@ -28,6 +28,7 @@ from services.os_catalog import OS_CATALOG
 from services import iso_versions
 from services import iso_sources
 from services import host_passthrough
+from services.qemu_paths import qemu_cmd
 from services.download_utils import HashTracker, save_checksum
 from ui_widgets.media_library_dialog import MediaLibraryDialog
 
@@ -1835,7 +1836,7 @@ pause
                         progress.setCancelButton(None)
                         progress.show()
                         proc = subprocess.Popen(
-                            ["qemu-img", "resize", disk_path, new_size],
+                            qemu_cmd("qemu-img", "resize", disk_path, new_size),
                             stderr=subprocess.PIPE, text=True)
                         while proc.poll() is None:
                             QApplication.processEvents(); time.sleep(0.1)
@@ -2785,7 +2786,7 @@ pause
         """Detecta el formato real de una imagen de disco usando qemu-img info."""
         import subprocess
         try:
-            r = subprocess.run(["qemu-img", "info", path],
+            r = subprocess.run(qemu_cmd("qemu-img", "info", path),
                                capture_output=True, text=True, timeout=15)
             if r.returncode == 0:
                 for line in r.stdout.splitlines():
@@ -3351,7 +3352,7 @@ pause
                             disk_type = item.data(2, Qt.ItemDataRole.UserRole + 2) or "Expandible (dinámico)"
                             is_fixed = "Fijo" in original_key(disk_type)
 
-                            cmd = ["qemu-img", "create", "-f", fmt]
+                            cmd = qemu_cmd("qemu-img", "create", "-f", fmt)
                             if is_fixed:
                                 if fmt in ["vpc", "vhdx"]: cmd.extend(["-o", "subformat=fixed"])
                                 elif fmt == "qcow2": cmd.extend(["-o", "preallocation=full"])

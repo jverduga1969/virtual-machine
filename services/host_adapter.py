@@ -26,32 +26,9 @@ class HostAdapter:
 
     def _find_binary(self, name: str) -> Optional[str]:
         """Busca un binario en PATH y en rutas comunes de Windows."""
-        # En Windows, QEMU puede venir con .exe
-        candidates = [name]
-        if IS_WINDOWS:
-            if not name.lower().endswith(".exe"):
-                candidates.append(name + ".exe")
-            # Rutas comunes de instalación de QEMU en Windows
-            program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
-            qemu_common_dirs = [
-                Path(program_files) / "qemu",
-                Path(program_files) / "QEMU",
-                Path(program_files) / "qemu-64-bit",
-                Path(os.environ.get("LOCALAPPDATA", "")) / "qemu",
-            ]
-            for d in qemu_common_dirs:
-                for cand in candidates:
-                    p = d / cand
-                    if p.exists():
-                        return str(p)
+        from services.qemu_paths import find_qemu_binary
 
-        path = shutil.which(name)
-        if not path:
-            for cand in candidates:
-                p = shutil.which(cand)
-                if p:
-                    path = p
-                    break
+        path = find_qemu_binary(name)
         if not path:
             log.warning(f"Dependencia no encontrada en el sistema: {name}")
         return path

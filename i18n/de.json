@@ -795,6 +795,8 @@
   "Directorio de VMs:": "VM-Verzeichnis:",
   "Directorio de ISOs:": "ISO-Verzeichnis:",
   "Biblioteca de medios:": "Medienbibliothek:",
+  "Directorio de QEMU (qemu-img.exe):": "QEMU-Verzeichnis (qemu-img.exe):",
+  "Carpeta que contiene qemu-img.exe y qemu-system-x86_64.exe. Se usa en Windows cuando QEMU no está en el PATH.": "Ordner mit qemu-img.exe und qemu-system-x86_64.exe. Wird unter Windows verwendet, wenn QEMU nicht im PATH liegt.",
   "Desactivado": "Deaktiviert",
   "Activado": "Aktiviert",
   "Red": "Netzwerk",

@@ -173,7 +173,11 @@ class Plugin(PluginBase):
         btn_refresh.setToolTip("Quitar medios que ya no existen y añadir los archivos nuevos de la biblioteca y la carpeta de ISOs")
         btn_refresh.clicked.connect(self._refresh_library)
         
-        for b in (btn_add, btn_create, btn_download_iso, btn_scan_dir, btn_scan_vms, btn_refresh): 
+        btn_rebuild = QPushButton("🔧 Reconstruir desde VMs")
+        btn_rebuild.setToolTip("Actualizar la biblioteca: quitar medios huérfanos y agregar los referenciados por las VMs. Marca la hora exacta.")
+        btn_rebuild.clicked.connect(self._rebuild_from_vms)
+        
+        for b in (btn_add, btn_create, btn_download_iso, btn_scan_dir, btn_scan_vms, btn_refresh, btn_rebuild): 
             toolbar_layout.addWidget(b)
             
         toolbar_layout.addStretch()
@@ -255,6 +259,31 @@ class Plugin(PluginBase):
             QMessageBox.information(
                 self.app.parent(), "Biblioteca actualizada",
                 "No hay cambios: la biblioteca ya estaba sincronizada."
+            )
+
+    def _rebuild_from_vms(self):
+        """Rebuild the media library from VM repository data.
+
+        Calls the MediaLibraryManager.rebuild_from_vms() method and then
+        reloads the table.
+        """
+        repo = getattr(self.app, "vm_repo", None)
+        if repo is None:
+            QMessageBox.warning(self.app.parent(), "Sin repositorio",
+                "No se puede reconstruir: no hay repositorio de VMs disponible.")
+            return
+        try:
+            self.media_mgr.rebuild_from_vms(repo)
+            QMessageBox.information(
+                self.app.parent(), "Biblioteca reconstruida",
+                "La biblioteca de medios ha sido reconstruida desde la configuración de las VMs."
+            )
+            self._load_table()
+        except Exception as e:
+            log.error(f"Error al reconstruir biblioteca desde VMs: {e}")
+            QMessageBox.critical(
+                self.app.parent(), "Error",
+                f"Error al reconstruir la biblioteca:\n{e}"
             )
 
     def _refresh_table(self):
