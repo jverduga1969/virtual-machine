@@ -1,5 +1,7 @@
 """Traducciones reales: 6 idiomas y aplicación en caliente."""
 
+import logging
+
 import pytest
 
 from core import i18n
@@ -344,3 +346,6 @@ def test_contenido_ayuda_y_diagnostico_en_vivo(qapp):
         ventana.close()
     finally:
         gestor.unload_all()
+        # AppContext instala un handler global: retirarlo antes de que el
+        # QObject se destruya (si no, emitir un log afterwards segfaulta).
+        logging.getLogger().removeHandler(ctx._log_handler)
