@@ -180,8 +180,10 @@ def test_generador_iso_funciona_sin_herramientas_externas(tmp_path):
     listado = subprocess.run(["7z", "l", str(iso)], capture_output=True,
                              text=True, timeout=30)
     assert listado.returncode == 0
-    assert "linux/install-qga-debian.sh" in listado.stdout
-    assert "windows/install-qga.bat" in listado.stdout
+    # 7-Zip usa `\\` en Windows y `/` en Linux.
+    normalizado = listado.stdout.replace("\\", "/")
+    assert "linux/install-qga-debian.sh" in normalizado
+    assert "windows/install-qga.bat" in normalizado
 
     salida = tmp_path / "extraido"
     salida.mkdir()
