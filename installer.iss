@@ -26,7 +26,7 @@ SolidCompression=Yes
 WizardStyle=modern
 
 [Languages]
-Name: "spanish"; MessagesFile: "compiler:Spanish.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Tasks]
 Name: "desktopicon"; DescrString: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalTasks}"; Flags: unchecked
