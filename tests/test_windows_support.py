@@ -207,6 +207,22 @@ def test_graficos_3d_no_usan_dev_dri_en_windows(monkeypatch):
         assert "-display" in args
 
 
+def test_ovmf_windows_no_hace_glob_recursivo(tmp_path, monkeypatch):
+    import services.host_diagnostics as hd
+
+    monkeypatch.setattr(hd, "IS_WINDOWS", True)
+    monkeypatch.setattr(hd.glob, "glob",
+                        lambda *a, **k: pytest.fail("No debe buscar en todo Program Files"))
+    for variable in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+        monkeypatch.setenv(variable, str(tmp_path))
+
+    fd = tmp_path / "qemu" / "share" / "qemu" / "OVMF.fd"
+    fd.parent.mkdir(parents=True)
+    fd.write_bytes(b"F" * (1024 * 1024 + 1))
+
+    assert hd.find_ovmf_windows() == str(fd)
+
+
 def test_diagnostico_windows_comprueba_acelerador_y_admin(monkeypatch):
     import services.host_diagnostics as hd
 

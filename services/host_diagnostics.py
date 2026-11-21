@@ -66,19 +66,26 @@ def find_ovmf_windows() -> str | None:
     """Busca el OVMF.fd que distribuyen los paquetes de QEMU para Windows."""
     if not IS_WINDOWS:
         return None
-    raices = [os.environ.get("ProgramFiles", r"C:\Program Files"),
-              os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-              os.environ.get("LOCALAPPDATA", "")]
-    for raiz in raices:
+    # Un `glob` recursivo sobre Program Files puede tardar minutos en equipos
+    # con muchos programas. Los paquetes de QEMU para Windows dejan el firmware
+    # siempre en estas rutas, así que las comprobamos directamente.
+    candidatos = []
+    for variable in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+        raiz = os.environ.get(variable, "")
         if not raiz:
             continue
-        for patron in ("**/share/qemu/OVMF.fd", "**/OVMF.fd"):
-            for path in sorted(glob.glob(os.path.join(raiz, patron), recursive=True)):
-                try:
-                    if os.path.getsize(path) > 1024 * 1024:
-                        return path
-                except OSError:
-                    continue
+        candidatos += [
+            os.path.join(raiz, "qemu", "share", "qemu", "OVMF.fd"),
+            os.path.join(raiz, "QEMU", "share", "qemu", "OVMF.fd"),
+            os.path.join(raiz, "qemu", "OVMF.fd"),
+            os.path.join(raiz, "QEMU", "OVMF.fd"),
+        ]
+    for path in candidatos:
+        try:
+            if os.path.isfile(path) and os.path.getsize(path) > 1024 * 1024:
+                return path
+        except OSError:
+            continue
     return None
 
 
