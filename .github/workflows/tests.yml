@@ -3,6 +3,7 @@ name: Tests
 on:
   push:
     branches: [main, master, windows-port]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -46,6 +47,9 @@ jobs:
     name: EXE + instalador (windows-latest)
     runs-on: windows-latest
     timeout-minutes: 20
+    # Necesario para crear el Release cuando el workflow se dispara por un tag.
+    permissions:
+      contents: write
     # No depende de `pytest`: el propio job ejecuta la suite en Windows y así
     # un fallo aislado en Ubuntu no bloquea la generación del artefacto.
     env:
@@ -89,3 +93,12 @@ jobs:
             dist\VirtualMachine.exe
             installer\VirtualMachine-Setup-*.exe
           if-no-files-found: error
+
+      - name: Publicar Release con los ejecutables
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist\VirtualMachine.exe
+            installer\VirtualMachine-Setup-*.exe
+          generate_release_notes: true

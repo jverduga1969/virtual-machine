@@ -404,6 +404,8 @@ def test_ci_compila_instalador_en_windows():
     assert "ISCC.exe" in workflow
     assert "virtualmachine.spec" in workflow
     assert "upload-artifact" in workflow
+    assert "tags: ['v*']" in workflow
+    assert "softprops/action-gh-release@v2" in workflow
 
 
 def test_guest_tools_usa_generador_python_sin_mkisofs(qapp, tmp_path, monkeypatch):
