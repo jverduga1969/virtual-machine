@@ -11,6 +11,7 @@ hiddenimports = [
     "PyQt6.QtCore",
     "PyQt6.QtGui",
     "PyQt6.QtWidgets",
+    "psutil",
     "services.host_adapter",
     "services.qemu_paths",
     "services.host_diagnostics",

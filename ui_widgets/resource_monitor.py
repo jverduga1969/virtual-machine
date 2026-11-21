@@ -165,7 +165,16 @@ class ResourceMonitor(QWidget):
             import multiprocessing
             cores = multiprocessing.cpu_count()
             model = "—"
-            if not IS_WINDOWS:
+            ram_total = None
+            if IS_WINDOWS:
+                # Windows no tiene /proc: platform y psutil dan los datos reales.
+                model = platform.processor() or "CPU"
+                try:
+                    import psutil
+                    ram_total = psutil.virtual_memory().total
+                except Exception:
+                    pass
+            else:
                 try:
                     with open("/proc/cpuinfo") as f:
                         for line in f:
@@ -174,15 +183,17 @@ class ResourceMonitor(QWidget):
                                 break
                 except Exception:
                     pass
+                try:
+                    with open("/proc/meminfo") as f:
+                        for line in f:
+                            if line.startswith("MemTotal:"):
+                                ram_total = int(line.split()[1]) * 1024
+                                break
+                except Exception:
+                    pass
             self.lbl_host_cpu_model.setText(f"{model} ({cores} núcleos)")
-
-            if not IS_WINDOWS:
-                with open("/proc/meminfo") as f:
-                    for line in f:
-                        if line.startswith("MemTotal:"):
-                            kb = int(line.split()[1])
-                            self.lbl_host_ram_total.setText(f"{kb / 1024 / 1024:.1f} GB")
-                            break
+            if ram_total is not None:
+                self.lbl_host_ram_total.setText(f"{ram_total / 1024 ** 3:.1f} GB")
         except Exception:
             pass
 
@@ -247,11 +258,11 @@ class ResourceMonitor(QWidget):
                 "Configurado" if vm.get("guest_agent") else "No configurado")
 
     def _update_host_stats(self):
+        now = time.time()
         if IS_WINDOWS:
+            self._update_host_stats_psutil(now)
             return
         try:
-            now = time.time()
-
             # CPU global (/proc/stat)
             with open("/proc/stat") as f:
                 cpu_line = f.readline().split()
@@ -319,6 +330,56 @@ class ResourceMonitor(QWidget):
             self._host_prev_disk = disk_bytes
             self._host_prev_time = now
 
+        except Exception:
+            pass
+
+    def _update_host_stats_psutil(self, now):
+        """Métricas del host en Windows (y fallback donde no existe /proc)."""
+        try:
+            import psutil
+        except Exception:
+            return
+
+        try:
+            self.graph_host_cpu.add_value(psutil.cpu_percent(interval=None))
+            mem = psutil.virtual_memory()
+            self.graph_host_ram.add_value(mem.percent)
+
+            uptime = max(0, int(now - psutil.boot_time()))
+            h, rem = divmod(uptime, 3600)
+            m, s = divmod(rem, 60)
+            self.lbl_host_uptime.setText(f"{h}h {m}m {s}s")
+
+            try:
+                load = os.getloadavg()
+                self.lbl_host_load.setText(
+                    f"{load[0]:.2f}  {load[1]:.2f}  {load[2]:.2f}")
+            except Exception:
+                # Windows no expone load average; el gráfico de CPU ya muestra
+                # la carga real, así que no dejamos el campo en blanco.
+                self.lbl_host_load.setText(f"CPU {mem.percent:.0f}%")
+
+            net = psutil.net_io_counters()
+            if net is not None:
+                net_bytes = net.bytes_sent + net.bytes_recv
+                if self._host_prev_net is not None and self._host_prev_time is not None:
+                    dt = now - self._host_prev_time
+                    if dt > 0:
+                        self.graph_host_net.add_value(
+                            (net_bytes - self._host_prev_net) / 1024 / 1024 / dt)
+                self._host_prev_net = net_bytes
+
+            disk = psutil.disk_io_counters()
+            if disk is not None:
+                disk_bytes = disk.read_bytes + disk.write_bytes
+                if self._host_prev_disk is not None and self._host_prev_time is not None:
+                    dt = now - self._host_prev_time
+                    if dt > 0:
+                        self.graph_host_dsk.add_value(
+                            (disk_bytes - self._host_prev_disk) / 1024 / 1024 / dt)
+                self._host_prev_disk = disk_bytes
+
+            self._host_prev_time = now
         except Exception:
             pass
 
