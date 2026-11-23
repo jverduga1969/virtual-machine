@@ -15,6 +15,13 @@ class FakeHost:
 
 
 def _command(vm, tmp_path, monkeypatch):
+    # En un checkout limpio (CI) no existe el submódulo OSX-KVM. El runner
+    # busca OpenCore.qcow2 también en data_dir, así que basta con crear un
+    # fichero vacío para que construya el comando sin depender del entorno.
+    opencore = tmp_path / "OSX-KVM" / "OpenCore" / "OpenCore.qcow2"
+    opencore.parent.mkdir(parents=True, exist_ok=True)
+    opencore.touch()
+
     runner = vr.VMRunner(FakeHost(), tmp_path, tmp_path)
     monkeypatch.setattr(runner, "_find_free_hostfwd_port", lambda start=2222, attempts=200: 2222)
     monkeypatch.setattr(runner, "_find_free_vnc_port", lambda exclude=None: 5900)
