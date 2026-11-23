@@ -306,21 +306,30 @@ def _latest_android_x86() -> str:
 # WINDOWS: Fido + API + msdl
 # =========================================================
 
-def _patch_fido_for_linux(fido_path: str) -> None:
-    with open(fido_path, "r", encoding="utf-8-sig") as f:
-        content = f.read()
-    marker = "# --- patched-for-linux ---"
-    if marker in content:
-        return
-    patched = content.replace(
-        "$winver = Get-Platform-Version",
-        f"$winver = 10.0 {marker}",
-        1,
-    )
-    if patched == content:
-        raise RuntimeError("No se encontró la línea esperada en Fido.ps1 para aplicar el parche.")
-    with open(fido_path, "w", encoding="utf-8") as f:
-        f.write(patched)
+def _patch_fido_for_linux(fido_path: str) -> str:
+    """Devuelve un Fido ejecutable desde Linux/macOS, sin tocar el original.
+
+    El parche fuerza `$winver = 10.0` porque Fido no detecta la versión de
+    Windows cuando corre bajo pwsh en otro sistema. La copia canónica ya lo
+    lleva aplicado; si no es así, se escribe en el temporal porque la ruta
+    instalada puede ser de solo lectura.
+    """
+    ruta = Path(fido_path)
+    contenido = ruta.read_text(encoding="utf-8-sig")
+    marcador = "# --- patched-for-linux ---"
+    if marcador in contenido:
+        return str(ruta)
+
+    original = "$winver = Get-Platform-Version"
+    if original in contenido:
+        contenido = contenido.replace(original, f"$winver = 10.0 {marcador}", 1)
+    else:
+        log.warning("No se encontró la línea de versión en Fido.ps1; se usa tal cual.")
+
+    destino = Path(tempfile.gettempdir()) / "Fido-patched.ps1"
+    if destino.resolve() != ruta.resolve() or not destino.is_file():
+        destino.write_text(contenido, encoding="utf-8")
+    return str(destino)
 
 def get_host_language() -> str:
     try:
@@ -406,15 +415,28 @@ def get_windows_url_via_msdl(win_ver: str, lang_name: str) -> str:
     except subprocess.TimeoutExpired:
         raise RuntimeError("msdl tardó más de 60 segundos en responder.")
 
-def _resolve_fido_path(fido_path: str = "Fido.ps1") -> str:
-    """Localiza Fido.ps1 también cuando la app se ejecuta empaquetada."""
+def _resolve_fido_path(fido_path: str = "Fido.ps1", download: bool = True) -> str:
+    """Localiza Fido.ps1 también cuando la app se ejecuta empaquetada.
+
+    ``download=False`` lo usa el diagnóstico: nunca debe provocar una
+    descarga de red solo por comprobar el estado del host.
+    """
     base = Path(__file__).resolve().parent
-    candidatos = [Path(fido_path), base / "Fido.ps1", base.parent / "Fido.ps1"]
+    # Una sola fuente canónica (v1.71); 'services/Fido.ps1' (v1.70, con otro
+    # catálogo) ya no existe. En desarrollo se respeta una ruta explícita, pero
+    # en el exe gana siempre la copia empaquetada.
+    candidatos = []
     if getattr(sys, "frozen", False):
-        candidatos.insert(0, Path(getattr(sys, "_MEIPASS", base)) / "Fido.ps1")
+        candidatos.append(Path(getattr(sys, "_MEIPASS", base)) / "Fido.ps1")
+    if fido_path != "Fido.ps1" or Path(fido_path).is_absolute():
+        candidatos.append(Path(fido_path))
+    candidatos += [base.parent / "Fido.ps1", Path(fido_path)]
     for candidato in candidatos:
         if candidato.is_file():
             return str(candidato)
+
+    if not download:
+        return ""
 
     # El directorio de trabajo suele ser de solo lectura (Program Files), así
     # que en Windows descargamos siempre al temporal del usuario.
@@ -443,7 +465,7 @@ def get_latest_windows_iso_url(win_ver: str, fido_path: str = "Fido.ps1") -> str
     # El parche fuerza Windows 10 porque Fido no detecta bien la versión bajo
     # pwsh en Linux. En Windows se ejecuta tal cual.
     if not IS_WINDOWS:
-        _patch_fido_for_linux(fido_path)
+        fido_path = _patch_fido_for_linux(fido_path)
     lang = get_host_language()
 
     def _run_fido(lang_arg):

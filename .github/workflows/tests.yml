@@ -38,7 +38,14 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Comprobar sintaxis
-        run: python -m compileall -q core services plugins ui_widgets vnc_widget main.py main_window.py
+        run: python -m compileall -q core services plugins ui_widgets vnc_widget tests main.py main_window.py
+
+      - name: Validar scripts de shell (Linux)
+        if: runner.os == 'Linux'
+        run: bash -n scripts/postinstall.sh
+
+      - name: Validar repositorio (ASCII, i18n, instalador y spec)
+        run: python scripts/verify_repo.py
 
       - name: Ejecutar tests headless
         run: python -m pytest
@@ -70,6 +77,9 @@ jobs:
 
       - name: Verificación rápida en Windows
         run: python -m pytest -q
+
+      - name: Validar repositorio antes de compilar
+        run: python scripts/verify_repo.py
 
       - name: Generar ejecutable con PyInstaller
         run: python -m PyInstaller --noconfirm --clean virtualmachine.spec

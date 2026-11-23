@@ -231,17 +231,17 @@ def test_estados_vm_y_texto_dinamico(qapp):
 
     i18n.install(FakeSettings("English"))
     etiqueta = QLabel("Prueba [Apagada]")
-    version = QLabel("Versión 59.0.0 · documentación del sistema")
+    version = QLabel("Versión 1.0.0 · documentación del sistema")
     i18n.translate_widgets(etiqueta)
     i18n.translate_widgets(version)
     assert etiqueta.text() == "Prueba [Off]"
-    assert version.text() == "Version 59.0.0 · system documentation"
+    assert version.text() == "Version 1.0.0 · system documentation"
 
     i18n.install(FakeSettings("Español"))
     i18n.translate_widgets(etiqueta)
     i18n.translate_widgets(version)
     assert etiqueta.text() == "Prueba [Apagada]"
-    assert version.text() == "Versión 59.0.0 · documentación del sistema"
+    assert version.text() == "Versión 1.0.0 · documentación del sistema"
 
 
 def test_dialogo_creado_despues_se_traduce_al_mostrarse(qapp):
@@ -314,6 +314,13 @@ def test_contenido_ayuda_y_diagnostico_en_vivo(qapp):
         assert "Common problems" in titulos
         assert not any("Problemas frecuentes" in t for t in titulos)
 
+        def _texto_de(titulo):
+            fila = next(i for i in range(lista.count())
+                        if lista.item(i).text() == titulo)
+            lista.setCurrentRow(fila)
+            qapp.processEvents()
+            return navegador.toPlainText()
+
         for fila in range(lista.count()):
             lista.setCurrentRow(fila)
             qapp.processEvents()
@@ -321,10 +328,11 @@ def test_contenido_ayuda_y_diagnostico_en_vivo(qapp):
             assert "Inicio rápido" not in texto
             assert "Pestañas del sistema" not in texto
             assert "Problemas frecuentes" not in texto
-            if fila == 11:
-                assert "The VM does not start" in texto
-            if fila == 10:
-                assert "TPM 2.0 (Windows 11 requirement)" in texto
+
+        # Seleccionar por titulo, no por indice: el tema de API REST puede
+        # insertarse en cualquier posicion sin romper esta comprobacion.
+        assert "TPM 2.0 (Windows 11 requirement)" in _texto_de("System requirements")
+        assert "The VM does not start" in _texto_de("Common problems")
 
         # El diagnóstico se genera bajo demanda y debe mostrarse traducido.
         boton = next(b for b in ventana.findChildren(QPushButton)

@@ -25,6 +25,7 @@ hiddenimports = [
     "services.os_catalog",
     "services.iso_versions",
     "services.iso_sources",
+    "services.rest_api",
     "services.iso_writer",
     "services.snapshot_manager",
     "services.media_library",
@@ -60,7 +61,6 @@ hiddenimports = [
 datas = [
     ("scripts", "scripts"),
     ("Fido.ps1", "."),
-    ("services/Fido.ps1", "services"),
     ("i18n", "i18n"),
     ("requirements.txt", "."),
 ]

@@ -1,0 +1,4 @@
+# Todos los archivos de texto se almacenan y se entregan con LF, tambien en
+# Windows. Asi los scripts .ps1 siguen siendo ASCII estricto y verify_repo.py
+# puede comprobar los finales de linea en cualquier runner de CI.
+* text=auto eol=lf

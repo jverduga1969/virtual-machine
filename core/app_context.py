@@ -29,6 +29,14 @@ class QtLogHandler(logging.Handler):
             self.signal.emit(level, msg)
         except Exception: pass
 
+
+def default_base_dir() -> Path:
+    """Directorio de datos por defecto, compartido con Configuración Host."""
+    if IS_WINDOWS:
+        return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "VirtualMachine"
+    return Path.home() / ".local" / "share" / "virtual-machine"
+
+
 class AppContext(QObject):
     vm_selection_changed = pyqtSignal(str)
     vm_state_changed = pyqtSignal(str, str)
@@ -48,10 +56,7 @@ class AppContext(QObject):
         settings = self.settings
         # Directorio de QEMU configurable (útil en Windows sin PATH).
         set_qemu_dir(settings.value("paths/qemu_dir", ""))
-        if IS_WINDOWS:
-            default_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "VirtualMachine"
-        else:
-            default_dir = Path.home() / ".local" / "share" / "virtual-machine"
+        default_dir = default_base_dir()
         self.data_dir = Path(settings.value("paths/base_dir", str(default_dir)))
         self.vms_dir = Path(settings.value("paths/vms_dir", str(self.data_dir / "vms")))
         self.isos_dir = Path(settings.value("paths/isos_dir", str(self.data_dir / "isos")))

@@ -27,6 +27,7 @@
 #   * El boton "Reparar lo que falte" de Configuracion Host (via pkexec).
 
 set -u
+set -o pipefail
 
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 MARKER="postinstall_v2"
@@ -66,6 +67,14 @@ log()   { printf '==> %s\n'  "$*"; }
 warn()  { printf '[AVISO] %s\n' "$*"; }
 ok()    { printf '✓ %s\n'    "$*"; }
 err()   { printf '[ERROR] %s\n' "$*" >&2; }
+
+# Los fallos de pasos imprescindibles (paquetes, grupos) cuentan: al final el
+# script devuelve 1 si hubo alguno, para que Configuración Host no finja éxito.
+ERRORES=0
+fallo() {
+    err "$*"
+    ERRORES=$((ERRORES + 1))
+}
 
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
@@ -238,6 +247,18 @@ PKGS_APK=(
     "audio:pulseaudio-utils"
 )
 
+# Utilidades que el programa invoca directamente (lsof, git, tar, xdg-open y
+# notify-send). Van en un grupo aparte: si algun nombre no existe en un
+# repositorio concreto se avisa, pero no se marca el postinstall como fallido.
+PKGS_SUPPORT=""
+case "$PM" in
+    apt)         PKGS_SUPPORT="lsof,git,tar,xdg-utils,libnotify-bin" ;;
+    dnf|dnf5|yum) PKGS_SUPPORT="lsof,git,tar,xdg-utils,libnotify" ;;
+    pacman)      PKGS_SUPPORT="lsof,git,tar,xdg-utils,libnotify" ;;
+    zypper)      PKGS_SUPPORT="lsof,git,tar,xdg-utils,libnotify-tools" ;;
+    apk)         PKGS_SUPPORT="lsof,git,tar,xdg-utils,libnotify" ;;
+esac
+
 # ----------------------------------------------------------------------
 # Instalacion de paquetes
 # ----------------------------------------------------------------------
@@ -256,7 +277,7 @@ install_group_apt() {
     log "$group: instalando ${to_install[*]}"
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
-        warn "$group: algunos paquetes no se pudieron instalar"
+        fallo "$group: algunos paquetes no se pudieron instalar"
 }
 
 install_group_dnf() {
@@ -272,7 +293,7 @@ install_group_dnf() {
     if [ ${#to_install[@]} -eq 0 ]; then return 0; fi
     log "$group: instalando ${to_install[*]}"
     "$DNF_BIN" install -y "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
-        warn "$group: algunos paquetes no se pudieron instalar"
+        fallo "$group: algunos paquetes no se pudieron instalar"
 }
 
 install_group_pacman() {
@@ -288,7 +309,7 @@ install_group_pacman() {
     if [ ${#to_install[@]} -eq 0 ]; then return 0; fi
     log "$group: instalando ${to_install[*]}"
     pacman -S --noconfirm --needed "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
-        warn "$group: algunos paquetes no se pudieron instalar"
+        fallo "$group: algunos paquetes no se pudieron instalar"
 }
 
 install_group_zypper() {
@@ -304,7 +325,7 @@ install_group_zypper() {
     if [ ${#to_install[@]} -eq 0 ]; then return 0; fi
     log "$group: instalando ${to_install[*]}"
     zypper --non-interactive install "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
-        warn "$group: algunos paquetes no se pudieron instalar"
+        fallo "$group: algunos paquetes no se pudieron instalar"
 }
 
 install_group_yum() {
@@ -320,7 +341,7 @@ install_group_yum() {
     if [ ${#to_install[@]} -eq 0 ]; then return 0; fi
     log "$group: instalando ${to_install[*]}"
     yum install -y "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
-        warn "$group: algunos paquetes no se pudieron instalar"
+        fallo "$group: algunos paquetes no se pudieron instalar"
 }
 
 install_group_apk() {
@@ -336,7 +357,25 @@ install_group_apk() {
     if [ ${#to_install[@]} -eq 0 ]; then return 0; fi
     log "$group: instalando ${to_install[*]}"
     apk add --no-cache "${to_install[@]}" 2>&1 | sed 's/^/    /' || \
-        warn "$group: algunos paquetes no se pudieron instalar"
+        fallo "$group: algunos paquetes no se pudieron instalar"
+}
+
+# Un paquete opcional ausente no debe convertir el reparador en un fracaso:
+# se instala igual, pero se devuelve el contador de errores a su valor previo.
+instalar_opcional() {
+    local grupo="$1" pkgs="$2" antes="$ERRORES"
+    case "$PM" in
+        apt)         install_group_apt "$grupo" "$pkgs" ;;
+        dnf|dnf5)    install_group_dnf "$grupo" "$pkgs" ;;
+        yum)         install_group_yum "$grupo" "$pkgs" ;;
+        pacman)      install_group_pacman "$grupo" "$pkgs" ;;
+        zypper)      install_group_zypper "$grupo" "$pkgs" ;;
+        apk)         install_group_apk "$grupo" "$pkgs" ;;
+    esac
+    if [ "$ERRORES" -ne "$antes" ]; then
+        ERRORES="$antes"
+        warn "Algunas utilidades de apoyo no estan disponibles en este repositorio (no es fatal)."
+    fi
 }
 
 install_packages() {
@@ -378,6 +417,9 @@ install_packages() {
             warn "Sin gestor conocido; se omite la instalacion de paquetes."
             ;;
     esac
+    if [ -n "$PKGS_SUPPORT" ]; then
+        instalar_opcional "soporte" "$PKGS_SUPPORT"
+    fi
 }
 
 # ----------------------------------------------------------------------
@@ -395,7 +437,7 @@ ensure_group_membership() {
         return
     fi
     log "anadiendo '$user' al grupo '$group'"
-    usermod -aG "$group" "$user" || warn "no se pudo anadir a '$group'"
+    usermod -aG "$group" "$user" || fallo "no se pudo anadir a '$group'"
 }
 
 setup_groups() {
@@ -680,6 +722,10 @@ main() {
     setup_groups
     setup_udev
     setup_iommu
+    if [ "$ERRORES" -gt 0 ]; then
+        err "Postinstall $MARKER termino con $ERRORES error(es)."
+        return 1
+    fi
     log "Postinstall $MARKER completado."
     echo ""
     echo "Notas:"

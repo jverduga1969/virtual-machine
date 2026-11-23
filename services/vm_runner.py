@@ -263,7 +263,14 @@ class VMRunner:
             search_dirs.extend([Path(d) for d in OVMF_LINUX_DIRS])
             search_dirs.append(self.data_dir)
         else:
-            # Windows: buscar en Program Files y junto al ejecutable de QEMU
+            # Windows: los mismos directorios que usa Configuración Host,
+            # incluidas las instalaciones de winget/chocolatey/scoop y el
+            # data_dir donde la reparación copia CODE+VARS de Secure Boot.
+            from services.host_diagnostics import find_ovmf_windows, find_ovmf_vars_windows
+            code_win = find_ovmf_windows()
+            for ruta in (code_win, find_ovmf_vars_windows(code_win)):
+                if ruta and Path(ruta).parent not in search_dirs:
+                    search_dirs.insert(0, Path(ruta).parent)
             program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
             search_dirs.extend([
                 Path(program_files) / "qemu",

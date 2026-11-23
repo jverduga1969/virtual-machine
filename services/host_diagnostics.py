@@ -5,9 +5,11 @@ import shutil
 import subprocess
 import logging
 import platform
+from pathlib import Path
 from typing import List, Dict, Any
 
 from .qemu_paths import find_qemu_binary
+from .host_adapter import qemu_supports_tpm
 
 log = logging.getLogger(__name__)
 
@@ -48,20 +50,51 @@ OVMF_VARS_PATTERNS = (
     "ovmf-x86_64-4m-vars.bin",
 )
 
+# La UI añade aquí el data_dir de la app, para que diagnóstico, reparación y
+# VMRunner busquen exactamente en los mismos sitios.
+OVMF_EXTRA_DIRS: tuple[str, ...] = ()
+
+
+def _ovmf_dirs() -> tuple[str, ...]:
+    dirs = list(OVMF_LINUX_DIRS) + list(OVMF_EXTRA_DIRS)
+    proyecto = Path(__file__).resolve().parents[1] / "OSX-KVM"
+    dirs.append(str(proyecto))
+    return tuple(dict.fromkeys(dirs))
+
+
+def _find_ovmf(patterns, min_bytes: int = 1024 * 1024) -> str | None:
+    for directory in _ovmf_dirs():
+        for pattern in patterns:
+            for path in sorted(glob.glob(os.path.join(directory, pattern))):
+                try:
+                    if os.path.getsize(path) > min_bytes:
+                        return path
+                except OSError:
+                    continue
+    return None
+
 
 def find_ovmf_code() -> str | None:
     """Devuelve un OVMF_CODE utilizable o None si no hay ninguno."""
     if not IS_LINUX:
         return None
-    for directory in OVMF_LINUX_DIRS:
-        for pattern in OVMF_SECBOOT_CODE_PATTERNS + OVMF_CODE_PATTERNS:
-            for path in sorted(glob.glob(os.path.join(directory, pattern))):
-                try:
-                    if os.path.getsize(path) > 1024 * 1024:
-                        return path
-                except OSError:
-                    continue
-    return None
+    return _find_ovmf(OVMF_SECBOOT_CODE_PATTERNS + OVMF_CODE_PATTERNS)
+
+
+def find_ovmf_vars() -> str | None:
+    """Devuelve un OVMF_VARS utilizable o None si no hay ninguno."""
+    if not IS_LINUX:
+        return None
+    # Los VARS son mucho más pequeños que el CODE: 10 KB basta para descartar
+    # ficheros vacíos sin rechazar los que distribuyen las distros.
+    return _find_ovmf(OVMF_VARS_PATTERNS, min_bytes=10 * 1024)
+
+
+def find_ovmf_secboot_code() -> str | None:
+    """Solo el CODE con Secure Boot, que es lo que exige Windows 11."""
+    if not IS_LINUX:
+        return None
+    return _find_ovmf(OVMF_SECBOOT_CODE_PATTERNS)
 
 
 def find_ovmf_windows() -> str | None:
@@ -91,6 +124,25 @@ def find_ovmf_windows() -> str | None:
     return None
 
 
+def find_ovmf_vars_windows(code_path: str | None) -> str | None:
+    """Busca el VARS junto al CODE de Windows devuelto por find_ovmf_windows()."""
+    if not IS_WINDOWS or not code_path:
+        return None
+    directorio = os.path.dirname(code_path)
+    nombres = (
+        "OVMF_VARS.fd", "OVMF_VARS_4M.fd", "OVMF_VARS.4m.fd",
+        "ovmf-x86_64-vars.bin", os.path.basename(code_path).replace("CODE", "VARS"),
+    )
+    for nombre in dict.fromkeys(nombres):
+        candidato = os.path.join(directorio, nombre)
+        try:
+            if os.path.isfile(candidato) and os.path.getsize(candidato) > 10 * 1024:
+                return candidato
+        except OSError:
+            continue
+    return None
+
+
 def _windows_accel_status(qemu_bin: str | None) -> tuple[str, str]:
     """Comprueba de verdad qué acelerador hay disponible en Windows."""
     from services.host_adapter import qemu_accepts_accel, windows_whpx_available
@@ -104,6 +156,24 @@ def _windows_accel_status(qemu_bin: str | None) -> tuple[str, str]:
     if qemu_accepts_accel(qemu_bin, "hax"):
         return "warn", "WHPX no disponible; se usará HAX"
     return "warn", "WHPX no disponible; se usará TCG (emulación lenta)"
+
+
+def check_fido() -> tuple[str, str]:
+    """Verifica la copia canónica de Fido sin descargar nada de la red."""
+    from services.iso_sources import _resolve_fido_path
+
+    ruta = _resolve_fido_path("Fido.ps1", download=False)
+    if not ruta or not os.path.isfile(ruta):
+        return "err", "No encontrado"
+    try:
+        texto = Path(ruta).read_text(encoding="utf-8-sig")
+    except OSError:
+        return "err", "No legible"
+    if "Fido v1.71" not in texto:
+        return "warn", "Versión antigua (se espera v1.71)"
+    if "# --- patched-for-linux ---" not in texto:
+        return "warn", "Falta el parche multiplataforma"
+    return "ok", ruta
 
 
 def _is_windows_admin() -> bool:
@@ -127,8 +197,13 @@ class HostDiagnostics:
         checks = []
 
         # --- 1. Virtualización Básica ---
-        qemu_bin = shutil.which("qemu-system-x86_64") or shutil.which("qemu-system-x86_64.exe")
+        # Usar el mismo resolvedor que el runner: si el usuario configuró
+        # paths/qemu_dir sin PATH, el diagnóstico no debe dar un falso negativo.
+        qemu_bin = find_qemu_binary("qemu-system-x86_64")
         checks.append({"cat": "Virtualización", "name": "QEMU", "st": "ok" if qemu_bin else "err", "desc": qemu_bin or "No instalado"})
+
+        qemu_img = find_qemu_binary("qemu-img")
+        checks.append({"cat": "Virtualización", "name": "qemu-img", "st": "ok" if qemu_img else "err", "desc": qemu_img or "No instalado"})
 
         if IS_LINUX:
             checks.append({"cat": "Virtualización", "name": "KVM (/dev/kvm)", "st": "ok" if os.access("/dev/kvm", os.R_OK | os.W_OK) else "err", "desc": "/dev/kvm accesible" if os.path.exists("/dev/kvm") else "No existe"})
@@ -138,7 +213,27 @@ class HostDiagnostics:
                 "st": "ok" if ovmf_code else "warn",
                 "desc": ovmf_code or "No encontrado (ovmf / edk2-ovmf / qemu-ovmf-x86_64)",
             })
-            checks.append({"cat": "Virtualización", "name": "TPM 2.0 (swtpm)", "st": "ok" if shutil.which("swtpm") else "warn", "desc": shutil.which("swtpm") or "No instalado"})
+            ovmf_vars = find_ovmf_vars()
+            checks.append({
+                "cat": "Virtualización", "name": "OVMF VARS",
+                "st": "ok" if ovmf_vars else "warn",
+                "desc": ovmf_vars or "No encontrado",
+            })
+            ovmf_secboot = find_ovmf_secboot_code()
+            checks.append({
+                "cat": "Virtualización", "name": "OVMF Secure Boot",
+                "st": "ok" if ovmf_secboot else "warn",
+                "desc": ovmf_secboot or "No encontrado",
+            })
+            swtpm = shutil.which("swtpm")
+            if swtpm and qemu_supports_tpm(qemu_bin):
+                tpm_st, tpm_desc = "ok", swtpm
+            elif swtpm:
+                tpm_st, tpm_desc = "warn", "QEMU sin backend emulator"
+            else:
+                tpm_st, tpm_desc = "warn", "No instalado"
+            checks.append({"cat": "Virtualización", "name": "TPM 2.0 (swtpm)",
+                           "st": tpm_st, "desc": tpm_desc})
             checks.append({"cat": "Virtualización", "name": "Módulos VirtIO", "st": "ok" if os.path.exists("/sys/module/virtio") else "warn", "desc": "Presentes" if os.path.exists("/sys/module/virtio") else "No cargados"})
             checks.append({"cat": "Virtualización", "name": "Audio del host", "st": "ok" if shutil.which("pactl") or shutil.which("pipewire") else "warn", "desc": "PulseAudio/PipeWire detectado"})
         else:
@@ -148,8 +243,29 @@ class HostDiagnostics:
             checks.append({"cat": "Virtualización", "name": "Firmware UEFI (OVMF)",
                            "st": "ok" if ovmf_win else "warn",
                            "desc": ovmf_win or "No encontrado (instala QEMU con OVMF)"})
-            checks.append({"cat": "Virtualización", "name": "TPM 2.0", "st": "ok", "desc": "Emulado por QEMU"})
+            ovmf_win_vars = find_ovmf_vars_windows(ovmf_win)
+            checks.append({"cat": "Virtualización", "name": "OVMF VARS",
+                           "st": "ok" if ovmf_win_vars else "warn",
+                           "desc": ovmf_win_vars or "No encontrado"})
+            # En Windows el runner usa `-tpmdev emulator` dentro de QEMU.
+            # Preguntamos a QEMU si ofrece ese backend antes de marcarlo ok.
+            if qemu_supports_tpm(qemu_bin):
+                tpm_st, tpm_desc = "ok", "Emulado por QEMU (verificado)"
+            else:
+                tpm_st, tpm_desc = "warn", "QEMU sin soporte de TPM verificado"
+            checks.append({"cat": "Virtualización", "name": "TPM 2.0", "st": tpm_st, "desc": tpm_desc})
             checks.append({"cat": "Virtualización", "name": "Audio del host", "st": "warn", "desc": "Usar audio de Windows nativo"})
+
+        fido_st, fido_desc = check_fido()
+        checks.append({"cat": "Virtualización", "name": "Fido (ISOs Windows)",
+                       "st": fido_st, "desc": fido_desc})
+
+        if IS_LINUX:
+            faltan = [h for h in ("lsof", "notify-send", "xdg-open", "git", "tar")
+                      if not shutil.which(h)]
+            checks.append({"cat": "Python", "name": "Utilidades de apoyo",
+                           "st": "ok" if not faltan else "warn",
+                           "desc": "Disponibles" if not faltan else "Faltan: " + ", ".join(faltan)})
 
         # --- 2. Python Dependencies ---
         for modulo in ("PyQt6", "requests", "packaging"):
@@ -168,14 +284,17 @@ class HostDiagnostics:
                            "desc": "Elevación de UAC activa" if admin else "Sin elevación: algunas reparaciones fallarán"})
 
         # --- 3. Consola (VNC / SPICE) ---
-        checks.append({"cat": "Consola", "name": "Cliente VNC embebido", "st": "ok", "desc": "vnc_widget importable"})
+        vnc_embed = _module_available("vnc_widget")
+        checks.append({"cat": "Consola", "name": "Cliente VNC embebido",
+                       "st": "ok" if vnc_embed else "err",
+                       "desc": "vnc_widget importable" if vnc_embed else "No instalado"})
 
         if IS_LINUX:
             checks.append({"cat": "Consola", "name": "Spice-gtk (binding Python)", "st": "ok" if shutil.which("spicy") else "warn", "desc": "Disponible" if shutil.which("spicy") else "No instalado"})
             checks.append({"cat": "Consola", "name": "Visor VNC externo", "st": "ok" if shutil.which("vncviewer") else "warn", "desc": shutil.which("vncviewer") or "No instalado"})
             checks.append({"cat": "Consola", "name": "Visor SPICE externo", "st": "ok" if shutil.which("remote-viewer") else "warn", "desc": shutil.which("remote-viewer") or "No instalado"})
         else:
-            vnc = shutil.which("vncviewer.exe") or shutil.which("vncviewer")
+            vnc = find_qemu_binary("vncviewer")
             spice = find_qemu_binary("remote-viewer")
             checks.append({"cat": "Consola", "name": "Visor VNC externo",
                            "st": "ok" if vnc else "warn", "desc": vnc or "TigerVNC para Windows"})
@@ -187,16 +306,33 @@ class HostDiagnostics:
             checks.append({"cat": "Compartición", "name": "VirtioFSD", "st": "ok" if shutil.which("virtiofsd") else "warn", "desc": shutil.which("virtiofsd") or "No instalado"})
             checks.append({"cat": "Compartición", "name": "Samba (smbd)", "st": "ok" if shutil.which("smbd") else "warn", "desc": shutil.which("smbd") or "No instalado"})
         else:
-            checks.append({"cat": "Compartición", "name": "Samba (SMB)", "st": "ok", "desc": "Usar compartir de archivos de Windows"})
+            checks.append({"cat": "Compartición", "name": "Samba (SMB)", "st": "warn", "desc": "SMB requiere smbd en el host; no disponible en Windows"})
             checks.append({"cat": "Compartición", "name": "VirtioFSD", "st": "warn", "desc": "No disponible nativamente en Windows"})
 
         # --- 5. Passthrough ---
         if IS_LINUX:
-            checks.append({"cat": "Passthrough", "name": "IOMMU en Kernel", "st": "warn", "desc": "Requiere reinicio"})
-            checks.append({"cat": "Passthrough", "name": "Grupos IOMMU", "st": "warn", "desc": "Sin grupos visibles"})
+            # Antes eran dos textos fijos. Ahora se lee /proc/cmdline y
+            # /sys/kernel/iommu_groups con la misma función que usa la UI.
+            from services import host_passthrough
+            iommu = host_passthrough.check_iommu()
+            grupos = iommu["groups"]
+            if iommu["enabled"]:
+                iommu_st, iommu_desc = "ok", "Activo"
+            elif iommu["needs_reboot"]:
+                iommu_st, iommu_desc = "warn", "Requiere reinicio"
+            else:
+                iommu_st, iommu_desc = "warn", "No activado en /proc/cmdline"
+            checks.append({"cat": "Passthrough", "name": "IOMMU en Kernel", "st": iommu_st, "desc": iommu_desc})
+            checks.append({"cat": "Passthrough", "name": "Grupos IOMMU",
+                           "st": "ok" if grupos else "warn",
+                           "desc": "Con grupos visibles" if grupos else "Sin grupos visibles"})
             checks.append({"cat": "Passthrough", "name": "Regla udev udmabuf", "st": "ok" if os.path.exists("/etc/udev/rules.d/60-virtual-machine-udmabuf.rules") else "warn", "desc": "Instalada" if os.path.exists("/etc/udev/rules.d/60-virtual-machine-udmabuf.rules") else "Falta"})
             checks.append({"cat": "Passthrough", "name": "Regla udev USB", "st": "ok" if os.path.exists("/etc/udev/rules.d/50-vm-manager-usb.rules") else "warn", "desc": "Instalada" if os.path.exists("/etc/udev/rules.d/50-vm-manager-usb.rules") else "Falta"})
         else:
             checks.append({"cat": "Passthrough", "name": "PCI/USB Passthrough", "st": "warn", "desc": "No soportado en Windows"})
+            # QEMU usb-host usa libusb en Windows: sin WinUSB/libusbK el
+            # device_add falla aunque el dispositivo aparezca en el sistema.
+            checks.append({"cat": "Passthrough", "name": "Driver USB (WinUSB/libusbK)",
+                           "st": "warn", "desc": "Instalar con Zadig para usb-host"})
 
         return checks

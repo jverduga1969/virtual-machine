@@ -16,7 +16,7 @@ from core.i18n import translate_html, tr
 log = logging.getLogger(__name__)
 
 APP_NAME = "Virtual Machine"
-APP_VERSION = "59.0.0"
+APP_VERSION = "1.0.0"
 
 CSS = """
 <style>
@@ -74,7 +74,7 @@ _register(
   <tr><th>Pestaña</th><th>Qué encontrarás</th></tr>
   <tr><td><b>Resumen</b></td><td>Ficha de la VM seleccionada y datos del host; acciones clonar, importar, exportar, notas y eliminar.</td></tr>
   <tr><td><b>Configuración VM</b></td><td>Editor de la VM: sistema, procesador, memoria, pantalla, almacenamiento, red, dispositivos, passthrough y compartición.</td></tr>
-  <tr><td><b>Configuración Host</b></td><td>Apariencia, API REST, soporte macOS, OVMF, rutas de almacenamiento y diagnóstico/reparación del anfitrión.</td></tr>
+  <tr><td><b>Configuración Host</b></td><td>Apariencia, API REST, soporte macOS, OVMF, USB (Windows), rutas de almacenamiento y diagnóstico/reparación del anfitrión.</td></tr>
   <tr><td><b>Snapshots</b></td><td>Puntos de restauración: crear, restaurar, eliminar y snapshots automáticos programados.</td></tr>
   <tr><td><b>Medios</b></td><td>Biblioteca de ISOs y discos: añadir, crear, verificar, compactar y ver qué VM los usa.</td></tr>
   <tr><td><b>Consola Gráfica</b></td><td>Visor de la pantalla de la VM (VNC embebido), con zoom y pantalla completa.</td></tr>
@@ -168,14 +168,54 @@ _register(
 <p>Ajustes globales del anfitrión, con un menú lateral:</p>
 <table>
   <tr><th>Sección</th><th>Contenido</th></tr>
-  <tr><td><b>🎨 Apariencia</b></td><td>Tema de la aplicación (Sistema, Claro, Oscuro) e idioma (Español, English, Português, Deutsch, Français, Italiano). El cambio de idioma se aplica al instante a toda la interfaz, sin reiniciar.</td></tr>
-  <tr><td><b>🔌 API REST</b></td><td>API HTTP local para controlar VMs desde scripts (puerto por defecto <code>8730</code>).</td></tr>
+  <tr><td><b>🎨 Apariencia</b></td><td>Tema de la aplicación (Sistema, Claro, Oscuro) e idioma (Español, English, Português (BR), Deutsch, Français, Italiano). El cambio se aplica al instante a toda la interfaz, sin reiniciar.</td></tr>
+  <tr><td><b>🔌 API REST</b></td><td>Servicio HTTP real enlazado a <code>127.0.0.1</code> (puerto <code>8730</code> por defecto). Muestra el token Bearer, permite arrancarlo y pararlo, y expone <code>/health</code>, <code>/vms</code> y <code>POST /vms/&lt;id&gt;/start|stop</code>. Consulta el tema <b>API REST local</b> para ver ejemplos.</td></tr>
   <tr><td><b>🍎 Soporte macOS</b></td><td>Versión instalada de OSX-KVM y botón <i>🔄 Actualizar OSX-KVM desde GitHub</i>.</td></tr>
-  <tr><td><b>🛠️ Reparar OVMF</b></td><td>Repara el firmware UEFI con Secure Boot (<code>OVMF_CODE.secboot.4m.fd</code>).</td></tr>
+  <tr><td><b>🛠️ Reparar OVMF</b></td><td>Copia el firmware UEFI con Secure Boot (<code>OVMF_CODE.secboot*.fd</code>) y sus VARS al directorio de datos, tanto en Linux como en Windows. Es lo que necesita Windows 11.</td></tr>
+  <tr><td><b>🔌 USB (Windows)</b></td><td>Explica que <code>usb-host</code> necesita WinUSB o libusbK y ofrece un botón para abrir Zadig. En Linux las reglas udev se instalan con el reparador general.</td></tr>
   <tr><td><b>📁 Rutas de almacenamiento</b></td><td>Define las carpetas para las VMs (discos y configuraciones), las descargas de ISOs y la biblioteca central de medios. Requiere reiniciar la aplicación.</td></tr>
   <tr><td><b>Diagnóstico</b></td><td>Comprobaciones de Virtualización, Python, Consola, Compartición y Passthrough, con botones <i>🔄 Comprobar de nuevo</i> y <i>🛠️ Reparar lo que falte</i> (ejecuta el script de post-instalación con permisos de administrador).</td></tr>
 </table>
-<p class="muted">Si algo falta en tu equipo, empieza por este diagnóstico; desde Ayuda también puedes lanzar una comprobación rápida.</p>
+<h3>Qué comprueba el diagnóstico</h3>
+<ul>
+  <li><b>QEMU y qemu-img</b>: el motor y la herramienta de discos (imprescindible para snapshots, ISOs y OVF).</li>
+  <li><b>Firmware</b>: CODE y VARS de OVMF, con tamaño mínimo de 10 KB para los VARS; distingue Secure Boot.</li>
+  <li><b>Aceleración</b>: KVM en Linux y WHPX real en Windows (se activa desde el postinstall; si no, avisa de TCG).</li>
+  <li><b>IOMMU</b>: estado real del kernel (<code>intel_iommu</code>/<code>amd_iommu</code>), no solo la BIOS.</li>
+  <li><b>TPM 2.0</b>: se pregunta a QEMU si ofrece el backend <code>emulator</code>, además de <code>swtpm</code> en Linux. Un "emulado" supuesto ya no se marca como OK.</li>
+  <li><b>Fido</b>: versión v1.71 y marcador multiplataforma de la copia incluida, sin descargar nada de la red.</li>
+  <li><b>Utilidades de apoyo</b>: <code>lsof</code>, <code>git</code>, <code>tar</code>, <code>xdg-open</code> y <code>notify-send</code>.</li>
+  <li><b>Consola</b>: VNC embebido y visores externos; <b>Compartición</b>: Samba solo con <code>smbd</code> presente.</li>
+</ul>
+<h3>IOMMU en Linux</h3>
+<p>Al reparar, la casilla <b>Habilitar IOMMU en el arranque (Linux)</b> añade <code>intel_iommu=on</code> o <code>amd_iommu=on</code> al gestor de arranque con <code>--enable-iommu</code>. Necesita VT-d/AMD-Vi en la BIOS y <b>reiniciar</b> para que el cambio surta efecto.</p>
+<p class="muted">Si algo falta en tu equipo, empieza por este diagnóstico; desde Ayuda también puedes lanzar una comprobación rápida. Los avisos no bloquean la aplicación: indican funciones opcionales no disponibles.</p>
+""",
+)
+
+_register(
+    "api_rest", "API REST local",
+    """
+<p>La pestaña <b>Configuración Host → 🔌 API REST</b> arranca un servidor HTTP en <code>127.0.0.1</code> (nunca en todas las interfaces). No sustituye a la interfaz: permite listar y controlar VMs desde un script.</p>
+<h3>Activación</h3>
+<ol>
+  <li>Abre <b>Configuración Host → API REST</b>.</li>
+  <li>Revisa o cambia el puerto (por defecto <code>8730</code>; debe estar entre 1024 y 65535).</li>
+  <li>Marca <b>Activar API REST local</b>. El campo <b>Token</b> muestra el valor que se generó una sola vez y se guarda en los ajustes.</li>
+</ol>
+<p>Todas las peticiones (salvo que se diga lo contrario) requieren la cabecera <code>Authorization: Bearer &lt;token&gt;</code>. El token se compara en tiempo constante y no se envía en la URL.</p>
+<h3>Endpoints</h3>
+<table>
+  <tr><th>Método</th><th>Ruta</th><th>Respuesta</th></tr>
+  <tr><td>GET</td><td><code>/health</code></td><td><code>{"ok": true, "service": "virtual-machine"}</code></td></tr>
+  <tr><td>GET</td><td><code>/vms</code></td><td>Lista de VMs con su estado.</td></tr>
+  <tr><td>GET</td><td><code>/vms/&lt;id&gt;</code></td><td>Una VM; 404 si no existe.</td></tr>
+  <tr><td>POST</td><td><code>/vms/&lt;id&gt;/start</code></td><td>Arranca o reanuda la VM (202).</td></tr>
+  <tr><td>POST</td><td><code>/vms/&lt;id&gt;/stop</code></td><td>Apaga la VM (202).</td></tr>
+</table>
+<h3>Ejemplo con curl</h3>
+<p><code>curl -H "Authorization: Bearer TU_TOKEN" http://127.0.0.1:8730/vms</code></p>
+<p class="muted">El servicio se detiene al desmarcar la casilla y no deja hilos ni puertos abiertos. Es local: no expongas el puerto a Internet ni compartas el token.</p>
 """,
 )
 
@@ -287,18 +327,21 @@ _register(
 _register(
     "requisitos", "Requisitos del sistema",
     """
-<p>La aplicación está pensada para Linux con virtualización por hardware:</p>
+<p>La aplicación funciona en <b>Linux</b> y en <b>Windows 10/11 de 64 bits</b>. La aceleración por hardware cambia según el sistema:</p>
 <table>
-  <tr><th>Componente</th><th>Uso</th><th>Estado</th></tr>
-  <tr><td>KVM (<code>/dev/kvm</code>)</td><td>Aceleración de la virtualización</td><td>Obligatorio</td></tr>
-  <tr><td><code>qemu-system-x86_64</code></td><td>Motor de la VM</td><td>Obligatorio</td></tr>
-  <tr><td>Firmware OVMF/UEFI</td><td>Arranque UEFI de las VMs</td><td>Recomendado</td></tr>
-  <tr><td><code>swtpm</code></td><td>TPM 2.0 (requisito de Windows 11)</td><td>Recomendado</td></tr>
-  <tr><td>PyQt6</td><td>Interfaz gráfica</td><td>Obligatorio</td></tr>
-  <tr><td>Visor VNC/SPICE</td><td>Consola gráfica y ventanas externas</td><td>Opcional</td></tr>
-  <tr><td><code>virtiofsd</code> / Samba</td><td>Compartición de archivos con la VM</td><td>Opcional</td></tr>
+  <tr><th>Componente</th><th>Linux</th><th>Windows</th><th>Uso</th></tr>
+  <tr><td>Aceleración</td><td>KVM (<code>/dev/kvm</code>)</td><td>WHPX (Plataforma de hipervisor de Windows)</td><td>Obligatoria para ir rápido; sin ella se usa TCG (2–5 % de velocidad).</td></tr>
+  <tr><td><code>qemu-system-x86_64</code></td><td>Obligatorio</td><td>Obligatorio (lo instala el postinstall)</td><td>Motor de la VM.</td></tr>
+  <tr><td><code>qemu-img</code></td><td>Obligatorio</td><td>Obligatorio (junto al ejecutable)</td><td>Snapshots, conversión de discos, ISOs y OVF.</td></tr>
+  <tr><td>Firmware OVMF/UEFI</td><td>Paquetes del sistema</td><td>Lo copia el reparador</td><td>Arranque UEFI y Secure Boot (Windows 11).</td></tr>
+  <tr><td>TPM 2.0 (requisito de Windows 11)</td><td><code>swtpm</code> + backend <code>emulator</code></td><td>Backend <code>emulator</code> de QEMU</td><td>Se verifica preguntando al QEMU instalado.</td></tr>
+  <tr><td>Visor VNC/SPICE</td><td><code>xtigervncviewer</code> / <code>remote-viewer</code></td><td><code>remote-viewer.exe</code></td><td>Consola externa; la VNC embebida no necesita visor.</td></tr>
+  <tr><td>Compartición</td><td><code>virtiofsd</code> o Samba con <code>smbd</code></td><td>Samba con <code>smbd</code></td><td>Carpetas compartidas con el invitado.</td></tr>
+  <tr><td>Utilidades de apoyo</td><td><code>lsof</code>, <code>git</code>, <code>tar</code>, <code>xdg-utils</code>, <code>libnotify</code></td><td>Incluidas en el sistema</td><td>Detección de puertos, import/export y notificaciones.</td></tr>
+  <tr><td>USB passthrough</td><td>Reglas udev (reparador)</td><td>WinUSB/libusbK con Zadig</td><td>Dispositivos <code>usb-host</code>.</td></tr>
+  <tr><td>Fido v1.71</td><td colspan="2">Copia incluida y parcheada en la aplicación</td><td>Resolución de URLs de ISOs de Windows; no se descarga.</td></tr>
 </table>
-<p class="muted">La pestaña <b>Ayuda → Diagnóstico del sistema</b> comprueba todo esto en tu equipo y señala lo que falta.</p>
+<p class="muted">El instalador de Windows es autocontenido: no necesita Python ni Git para ejecutarse. La pestaña <b>Ayuda → Diagnóstico del sistema</b> comprueba todo esto en tu equipo y señala lo que falta.</p>
 """,
 )
 
@@ -307,12 +350,13 @@ _register(
     """
 <h2>La VM no arranca</h2>
 <ul>
-  <li>Comprueba <b>KVM</b>: <code>ls -l /dev/kvm</code> debe existir y ser accesible para tu usuario (grupo <code>kvm</code>).</li>
+  <li>En Linux comprueba <b>KVM</b>: <code>ls -l /dev/kvm</code> debe existir y ser accesible para tu usuario (grupo <code>kvm</code>).</li>
+  <li>En Windows abre <b>Configuración Host → Diagnóstico</b>: si WHPX figures como aviso, ejecuta <b>Reparar lo que falte</b> y reinicia. Mientras tanto la app usa TCG y la pantalla puede tardar bastante en aparecer.</li>
   <li>Revisa la pestaña <b>Consola de Progreso</b>: ahí aparece el error exacto que devuelve QEMU.</li>
   <li>Confirma que la configuración se guardó con <b>💾 Guardar configuración</b>.</li>
 </ul>
 <h2>Windows 11 exige TPM y Secure Boot</h2>
-<p>En <b>Configuración VM → Sistema</b> selecciona firmware <b>UEFI (OVMF)</b> y activa <b>Secure Boot</b> y <b>TPM 2.0</b> (requiere <code>swtpm</code>). El diagnóstico indica si falta.</p>
+<p>En <b>Configuración VM → Sistema</b> selecciona firmware <b>UEFI (OVMF)</b> y activa <b>Secure Boot</b> y <b>TPM 2.0</b>. En Linux hace falta <code>swtpm</code>; en Windows QEMU usa su backend <code>emulator</code>. El diagnóstico pregunta al QEMU instalado si ofrece ese backend y solo lo marca como OK cuando responde. Si el VARS de Secure Boot falta, usa <b>Configuración Host → Reparar OVMF</b>.</p>
 <h2>No veo la pantalla de la VM</h2>
 <ul>
   <li>La VM debe estar <b>encendida</b>; si no, la consola muestra "Esperando que la VM se encienda...".</li>
@@ -336,11 +380,19 @@ _register(
 <h2>No hay sonido</h2>
 <p>Elige un dispositivo de audio en <b>Configuración VM → Dispositivos</b> (Intel HDA es el recomendado) y comprueba que el host tenga PulseAudio o PipeWire (<code>pactl</code>).</p>
 <h2>Los USB no aparecen en la VM</h2>
-<p>En Linux instala las reglas udev (botón <b>🛠️ Reparar lo que falte</b> en <b>Configuración Host</b>) y vuelve a enchufar el dispositivo. En Windows usa <b>🔌 Conectar Hardware (Hotplug) → Dispositivos USB</b>: QEMU necesita el driver <code>WinUSB/libusbK</code> (instalado con Zadig) y un puntero USB en Configuración VM para crear el bus XHCI. En ambos casos el passthrough USB usa <code>usb-host</code>.</p>
+<p>En Linux instala las reglas udev (botón <b>🛠️ Reparar lo que falte</b> en <b>Configuración Host</b>) y vuelve a enchufar el dispositivo. En Windows abre <b>Configuración Host → 🔌 USB (Windows)</b> y pulsa <b>Abrir Zadig</b> para instalar <code>WinUSB</code> o <code>libusbK</code> al dispositivo elegido; además necesitas un puntero USB en <b>Configuración VM → Dispositivos</b> para crear el bus XHCI. Luego usa <b>🔌 Conectar Hardware (Hotplug) → Dispositivos USB</b>. En ambos casos el passthrough usa <code>usb-host</code>.</p>
 <h2>Las carpetas compartidas no se montan</h2>
 <p>Instala <b>QEMU Guest Agent</b> dentro del sistema invitado y activa el canal en <b>Configuración VM → Compartición → Guest Tools</b>.</p>
+<h2>WHPX no se activa en Windows</h2>
+<p>El postinstall consulta <code>Get-WindowsOptionalFeature -FeatureName HypervisorPlatform</code> y, si está desactivada, ejecuta <code>Enable-WindowsOptionalFeature ... -NoRestart</code>. Si no tiene permisos, avisa y sigue (la app funciona con TCG). Para activarlo a mano: *Activar o desactivar características de Windows* → <b>Plataforma de hipervisor de Windows</b> y reiniciar. WHPX no convive bien con VirtualBox, VMware ni HAXM activos.</p>
+<h2>El firewall bloquea la consola</h2>
+<p>Las consolas VNC/SPICE escuchan solo en <code>127.0.0.1</code>. El postinstall elimina las reglas antiguas que abrían <code>5900-6000</code> y <code>5930-6000</code> a todos los perfiles y crea una regla por ejecutable: <b>VM-Manager QEMU local</b>, perfil <i>Privado</i> y solo subred local. Si usas una red pública, elige el perfil <i>Privado</i> en Windows o desactiva temporalmente la regla. El desinstalador retira esta regla.</p>
+<h2>La API REST no responde</h2>
+<p>Comprueba que la casilla <b>Activar API REST local</b> esté marcada y que el mensaje bajo el token diga <i>API activa</i>. Usa siempre <code>Authorization: Bearer &lt;token&gt;</code>; sin esa cabecera la respuesta es <code>401</code>. El puerto debe estar libre y entre 1024 y 65535. El servicio solo escucha en <code>127.0.0.1</code>: intentar acceder desde otro equipo no funcionará.</p>
+<h2>Fido no encuentra la ISO de Windows</h2>
+<p>El diagnóstico verifica que la copia incluida sea <b>v1.71</b> y conserve el marcador <code># --- patched-for-linux ---</code>. No se descarga nada durante la comprobación. Si el estado es aviso, reinstala la aplicación para recuperar la copia canónica; en Windows se ejecuta tal cual y en Linux se parchea en un archivo temporal, nunca sobre la copia original.</p>
 <h2>Algo más falla</h2>
-<p>Ejecuta <b>🩺 Ejecutar diagnóstico</b> (parte superior de esta pestaña), corrige lo marcado en rojo y, si el problema continúa, usa <b>📋 Copiar información de soporte</b> para enviar el reporte completo.</p>
+<p>Ejecuta <b>🩺 Ejecutar diagnóstico</b> (parte superior de esta pestaña), corrige lo marcado en rojo y, si el problema continúa, usa <b>📋 Copiar información de soporte</b> para enviar el reporte completo (incluye versión, rutas, número de VMs y el estado de todos los componentes).</p>
 """,
 )
 
@@ -349,27 +401,29 @@ _register(
     """
 <p>Por defecto, los datos se guardan en tu directorio de usuario:</p>
 <table>
-  <tr><th>Contenido</th><th>Ruta</th></tr>
-  <tr><td>Datos generales</td><td><code>~/.local/share/virtual-machine</code></td></tr>
-  <tr><td>Máquinas virtuales</td><td><code>~/.local/share/virtual-machine/vms</code></td></tr>
-  <tr><td>ISOs e imágenes</td><td><code>~/.local/share/virtual-machine/isos</code></td></tr>
-  <tr><td>Ajustes de la aplicación</td><td>Registro del sistema (<code>QSettings</code>, organización <code>VirtualMachine</code>)</td></tr>
+  <tr><th>Contenido</th><th>Linux</th><th>Windows</th></tr>
+  <tr><td>Datos generales</td><td><code>~/.local/share/virtual-machine</code></td><td><code>%LOCALAPPDATA%\\VirtualMachine</code></td></tr>
+  <tr><td>Máquinas virtuales</td><td><code>.../vms</code></td><td><code>...\\vms</code></td></tr>
+  <tr><td>ISOs e imágenes</td><td><code>.../isos</code></td><td><code>...\\isos</code></td></tr>
+  <tr><td>Biblioteca de medios</td><td><code>.../MediaLibrary</code></td><td><code>...\\MediaLibrary</code></td></tr>
+  <tr><td>Historial de PATH (postinstall)</td><td>—</td><td><code>postinstall-paths.txt</code> en la carpeta de datos</td></tr>
+  <tr><td>Ajustes de la aplicación</td><td colspan="2"><code>QSettings</code>, organización <code>VirtualMachine</code> (registro en Windows, archivo en Linux)</td></tr>
 </table>
-<p>Las rutas se pueden cambiar en <b>Configuración Host</b>; los valores quedan guardados y se reutilizan en el arranque.</p>
-<p class="muted">Para respaldar tu trabajo, copia la carpeta de datos completa. Las VMs detenidas se pueden exportar desde el menú contextual de la lista.</p>
+<p>Las rutas se pueden cambiar en <b>Configuración Host → 📁 Rutas de almacenamiento</b>; los valores quedan guardados y se reutilizan en el arranque. Las claves son <code>paths/base_dir</code>, <code>paths/vms_dir</code>, <code>paths/isos_dir</code>, <code>paths/media_dir</code> y <code>paths/qemu_dir</code>. La API REST guarda <code>api/port</code> y <code>api/token</code>.</p>
+<p class="muted">Para respaldar tu trabajo, copia la carpeta de datos completa. Las VMs detenidas se pueden exportar desde el menú contextual de la lista. El desinstalador de Windows conserva estos datos: solo retira el PATH y las reglas de firewall que añadió el postinstall.</p>
 """,
 )
 
 _register(
     "acerca", "Acerca de",
     f"""
-<p><b>{APP_NAME}</b> — Administrador de máquinas virtuales QEMU/KVM.</p>
+<p><b>{APP_NAME}</b> — Administrador de máquinas virtuales QEMU con aceleración por hardware.</p>
 <table>
   <tr><th>Campo</th><th>Valor</th></tr>
   <tr><td>Versión</td><td>{APP_VERSION}</td></tr>
   <tr><td>Plataforma</td><td>{platform.platform()}</td></tr>
   <tr><td>Python</td><td>{platform.python_version()}</td></tr>
-  <tr><td>Motor de virtualización</td><td>QEMU/KVM</td></tr>
+  <tr><td>Motor de virtualización</td><td>QEMU con KVM (Linux) o WHPX (Windows); TCG como respaldo</td></tr>
 </table>
 <p>La aplicación está construida con <b>PyQt6</b> y una arquitectura de plugins: cada pestaña es un módulo independiente cargado desde la carpeta <code>plugins/</code>.</p>
 <p class="muted">Usa <b>Copiar información de soporte</b> (parte superior) para generar un reporte que puedas pegar al solicitar ayuda.</p>

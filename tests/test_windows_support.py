@@ -666,24 +666,44 @@ def test_reparar_en_windows_lanza_postinstall_ps1(qapp, tmp_path, monkeypatch):
     script.write_text("Write-Host 'ok'\n", encoding="utf-8")
     comandos = []
     mensajes = []
+    refrescado = []
+
+    class Proceso:
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+        def communicate(self):
+            return "", ""
+
+    def poblar(args, **kw):
+        comandos.append((args, kw))
+        return Proceso()
+
     monkeypatch.setattr(hp.platform, "system", lambda: "Windows")
     monkeypatch.setattr(hp.Plugin, "_scripts_dir_windows", lambda self: tmp_path / "scripts",
                         raising=False)
-    monkeypatch.setattr(hp.subprocess, "Popen",
-                        lambda args, **kw: comandos.append((args, kw)))
+    monkeypatch.setattr(hp.subprocess, "Popen", poblar)
+    # Disparar el callback sin esperar 250 ms reales.
+    monkeypatch.setattr(hp.QTimer, "singleShot", staticmethod(lambda ms, cb: cb()))
     monkeypatch.setattr(QMessageBox, "information",
                         staticmethod(lambda *a, **k: mensajes.append(a[2])))
 
     plugin = object.__new__(hp.Plugin)
     plugin.app = types.SimpleNamespace(parent=lambda: None)
+    plugin.refresh_diagnostics = lambda: refrescado.append(True)
     plugin._run_postinstall()
 
     assert comandos[0][0][0] == "powershell.exe"
     unidos = " ".join(comandos[0][0])
     assert "-Verb RunAs" in unidos
+    assert "-PassThru" in unidos
+    assert "exit $p.ExitCode" in unidos
     assert "postinstall.ps1" in unidos
     assert "ExecutionPolicy" in unidos
     assert mensajes
+    assert refrescado
 
 
 def test_instalador_y_spec_incluyen_el_reparador_win(monkeypatch):

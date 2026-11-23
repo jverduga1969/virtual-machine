@@ -10,14 +10,21 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QStackedWidget, QComboBox, QCheckBox, QLineEdit,
     QFormLayout, QGroupBox, QMessageBox, QScrollArea, QFileDialog
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer, QUrl, QSignalBlocker
+from PyQt6.QtGui import QDesktopServices
 from core.plugin_base import PluginBase
-from core.i18n import available_languages, install as install_translations, translate_widgets
+from core.app_context import default_base_dir
+from core.i18n import (
+    tr, available_languages, install as install_translations, translate_widgets,
+)
 from core.theme import DEFAULT_THEME, apply_theme
 from services import host_passthrough
+from services import host_diagnostics as hostdiag
 from services.host_diagnostics import (
     HostDiagnostics, OVMF_LINUX_DIRS, OVMF_SECBOOT_CODE_PATTERNS, OVMF_VARS_PATTERNS,
+    find_ovmf_windows, find_ovmf_vars_windows,
 )
+from services.qemu_paths import find_qemu_binary
 from services.osx_kvm_updater import OSXKVMUpdater
 
 class Plugin(PluginBase):
@@ -30,6 +37,17 @@ class Plugin(PluginBase):
         self.diag = HostDiagnostics()
         self.general_pages_added = False
         self._diag_start_index = 0  # índice fijo donde empiezan las pestañas de diagnóstico
+        # El diagnóstico, esta reparación y VMRunner deben mirar los mismos
+        # directorios, incluido el data_dir configurado por el usuario.
+        hostdiag.OVMF_EXTRA_DIRS = self._ovmf_extra_dirs()
+
+    def _ovmf_extra_dirs(self):
+        directorios = [str(Path(__file__).resolve().parents[2] / "OSX-KVM")]
+        data_dir = getattr(self.app, "data_dir", None)
+        if data_dir:
+            ruta = Path(data_dir)
+            directorios += [str(ruta), str(ruta / "OSX-KVM")]
+        return tuple(directorios)
 
     def get_tabs(self):
         main_widget = QWidget()
@@ -78,6 +96,11 @@ class Plugin(PluginBase):
 
         btn_layout.addWidget(self.btn_refresh)
         btn_layout.addWidget(self.btn_repair)
+        self.cb_iommu = QCheckBox(tr("Habilitar IOMMU en el arranque (Linux)"))
+        self.cb_iommu.setToolTip(tr(
+            "Añade intel_iommu/amd_iommu=on al gestor de arranque. "
+            "Requiere reinicio y VT-d/AMD-Vi en la BIOS."))
+        btn_layout.addWidget(self.cb_iommu)
         right_layout.addLayout(btn_layout)
 
         main_layout.addWidget(right_panel)
@@ -121,15 +144,27 @@ class Plugin(PluginBase):
         layout_app.addStretch()
 
         # 2. API REST
+        from services import rest_api
         page_api = QWidget()
         layout_api = QVBoxLayout(page_api)
         group_api = QGroupBox("API REST local")
         form_api = QFormLayout(group_api)
-        form_api.addRow(QLabel("Expone una API HTTP mínima para controlar VMs desde scripts."))
+        form_api.addRow(QLabel(
+            "API HTTP en 127.0.0.1 para listar y arrancar/apagar VMs desde scripts.\n"
+            "Los comandos requieren la cabecera Authorization: Bearer <token>."))
+        self.e_port = QLineEdit(str(self.app.settings.value("api/port", "8730")))
+        form_api.addRow("Puerto:", self.e_port)
+        self.e_token = QLineEdit(rest_api.ensure_token(self.app.settings))
+        self.e_token.setReadOnly(True)
+        self.e_token.setToolTip("Token Bearer; no lo compartas.")
+        form_api.addRow("Token:", self.e_token)
+        self.lbl_api_status = QLabel("")
+        form_api.addRow(self.lbl_api_status)
         self.cb_api = QCheckBox("Activar API REST local")
         form_api.addRow(self.cb_api)
-        self.e_port = QLineEdit("8730")
-        form_api.addRow("Puerto:", self.e_port)
+        # Conectar después de crear los campos: setChecked(True) emite toggled.
+        self.cb_api.setChecked(rest_api.is_running())
+        self.cb_api.toggled.connect(self._on_api_toggled)
         layout_api.addWidget(group_api)
         layout_api.addStretch()
 
@@ -181,7 +216,25 @@ class Plugin(PluginBase):
         layout_ovmf.addWidget(group_ovmf)
         layout_ovmf.addStretch()
 
-        # 5. Rutas de almacenamiento (VMs, ISOs, Biblioteca de medios)
+        # 5. Driver USB para Windows (no se puede instalar sin elegir dispositivo)
+        page_usb = QWidget()
+        layout_usb = QVBoxLayout(page_usb)
+        group_usb = QGroupBox("USB passthrough en Windows")
+        lay_usb = QVBoxLayout(group_usb)
+        info_usb = QLabel(
+            "QEMU usa libusb para 'usb-host'. En Windows cada dispositivo debe "
+            "tener instalado el driver WinUSB o libusbK. Elige el dispositivo "
+            "en Zadig e instala uno de esos drivers; después QEMU podrá pasarlo a la VM.")
+        info_usb.setWordWrap(True)
+        info_usb.setStyleSheet("color: #888; font-size: 11px;")
+        lay_usb.addWidget(info_usb)
+        btn_zadig = QPushButton("Abrir Zadig (WinUSB/libusbK)")
+        btn_zadig.clicked.connect(self._open_zadig)
+        lay_usb.addWidget(btn_zadig)
+        layout_usb.addWidget(group_usb)
+        layout_usb.addStretch()
+
+        # 6. Rutas de almacenamiento (VMs, ISOs, Biblioteca de medios)
         page_paths = QWidget()
         layout_paths = QVBoxLayout(page_paths)
         group_paths = QGroupBox("Rutas de almacenamiento de la aplicación")
@@ -255,6 +308,7 @@ class Plugin(PluginBase):
             ("🔌 API REST", page_api),
             ("🍎 Soporte macOS", page_macos),
             ("🛠️ Reparar OVMF", page_ovmf),
+            ("🔌 USB (Windows)", page_usb),
             ("📁 Rutas de almacenamiento", page_paths),
         ]
         for name, widget in items:
@@ -275,7 +329,7 @@ class Plugin(PluginBase):
     # ==========================================
     def _load_paths(self):
         settings = self.app.settings
-        default_base = str(Path.home() / ".local" / "share" / "virtual-machine")
+        default_base = str(default_base_dir())
         base = settings.value("paths/base_dir", default_base)
         vms = settings.value("paths/vms_dir", str(Path(base) / "vms"))
         isos = settings.value("paths/isos_dir", str(Path(base) / "isos"))
@@ -322,38 +376,59 @@ class Plugin(PluginBase):
         else:
             QMessageBox.critical(self.app.parent(), "Error", msg)
 
+    def _open_zadig(self):
+        """Abre la página oficial de Zadig para instalar WinUSB/libusbK."""
+        QDesktopServices.openUrl(QUrl("https://zadig.akeo.ie/"))
+
     def _fix_ovmf_secure_boot(self):
-        # Misma lista que usa el diagnóstico y VMRunner._find_ovmf().
-        system_dirs = list(OVMF_LINUX_DIRS)
+        """Copia CODE+VARS al directorio que VMRunner y el diagnóstico consultan."""
+        data_dir = Path(getattr(self.app, "data_dir", None) or default_base_dir())
+        osx_dir = Path(__file__).resolve().parents[2] / "OSX-KVM"
+        osx_dir.mkdir(parents=True, exist_ok=True)
+        es_windows = platform.system() == "Windows"
 
-        project_root = Path(__file__).parent.parent.parent
-        osx_dir = project_root / "OSX-KVM"
-        osx_dir.mkdir(exist_ok=True)
-        system_dirs.append(str(osx_dir))
+        if es_windows:
+            # El paquete de QEMU para Windows puede instalar el firmware junto
+            # al ejecutable (winget/chocolatey) y no solo en Program Files.
+            directorios = []
+            code_win = find_ovmf_windows()
+            if code_win:
+                directorios.append(Path(code_win).parent)
+            for nombre in ("qemu-system-x86_64", "qemu-img"):
+                exe = find_qemu_binary(nombre)
+                if exe:
+                    directorios.append(Path(exe).parent)
+            directorios += [data_dir, osx_dir]
+            code_patterns = ("OVMF_CODE*.fd", "OVMF_CODE*.bin", "OVMF.fd")
+            vars_patterns = ("OVMF_VARS*.secboot*.fd",) + OVMF_VARS_PATTERNS
+            destino = data_dir
+            falta_code = "❌ No se encontró OVMF en Windows. Instala QEMU con OVMF."
+        else:
+            # Misma lista que usan el diagnóstico y VMRunner._find_ovmf().
+            directorios = [Path(d) for d in OVMF_LINUX_DIRS] + [osx_dir, data_dir]
+            code_patterns = OVMF_SECBOOT_CODE_PATTERNS
+            vars_patterns = OVMF_VARS_PATTERNS
+            destino = osx_dir
+            falta_code = "❌ No se encontró OVMF_CODE de Secure Boot. Instala 'ovmf', 'edk2-ovmf' o 'qemu-ovmf-x86_64'."
 
-        code_src = None
-        vars_src = None
+        def buscar(patterns, min_bytes):
+            for d in dict.fromkeys(directorios):
+                if not d.is_dir():
+                    continue
+                for patron in patterns:
+                    for candidato in sorted(glob.glob(str(d / patron))):
+                        try:
+                            if os.path.getsize(candidato) > min_bytes:
+                                return candidato
+                        except OSError:
+                            continue
+            return None
 
-        for d in system_dirs:
-            if not os.path.isdir(d): continue
-            # CODE de Secure Boot (incluye los .bin de openSUSE).
-            if not code_src:
-                for pattern in OVMF_SECBOOT_CODE_PATTERNS:
-                    candidatos = sorted(glob.glob(os.path.join(d, pattern)))
-                    if candidatos:
-                        code_src = candidatos[0]
-                        break
-            # VARS normal: compatible con Secure Boot.
-            if not vars_src:
-                for pattern in OVMF_VARS_PATTERNS:
-                    candidatos = sorted(glob.glob(os.path.join(d, pattern)))
-                    if candidatos:
-                        vars_src = candidatos[0]
-                        break
-            if code_src and vars_src: break
+        code_src = buscar(code_patterns, 1024 * 1024)
+        vars_src = buscar(vars_patterns, 10 * 1024)
 
         if not code_src:
-            self.lbl_ovmf_status.setText("❌ No se encontró OVMF_CODE de Secure Boot. Instala 'ovmf', 'edk2-ovmf' o 'qemu-ovmf-x86_64'.")
+            self.lbl_ovmf_status.setText(falta_code)
             self.lbl_ovmf_status.setStyleSheet("color: #c62828; font-size: 11px;")
             return
 
@@ -363,19 +438,18 @@ class Plugin(PluginBase):
             return
 
         try:
-            dest_code = osx_dir / "OVMF_CODE.secboot.4m.fd"
-            dest_vars = osx_dir / "OVMF_VARS.secboot.4m.fd"
-
-            # Borrar vacíos si existen
+            destino.mkdir(parents=True, exist_ok=True)
+            dest_code = destino / "OVMF_CODE.secboot.4m.fd"
+            dest_vars = destino / "OVMF_VARS.secboot.4m.fd"
             for f in (dest_code, dest_vars):
                 if f.exists() and f.stat().st_size == 0:
                     f.unlink()
-
             shutil.copy2(code_src, dest_code)
             shutil.copy2(vars_src, dest_vars)
+            hostdiag.OVMF_EXTRA_DIRS = self._ovmf_extra_dirs()
 
             self.lbl_ovmf_status.setText(
-                f"✅ Archivos copiados:\n"
+                f"✅ Archivos copiados en {destino}:\n"
                 f"  - CODE: {os.path.basename(code_src)} ({os.path.getsize(code_src) // 1024} KB)\n"
                 f"  - VARS: {os.path.basename(vars_src)} ({os.path.getsize(vars_src) // 1024} KB)\n"
                 f"  (El VARS normal es compatible con Secure Boot)"
@@ -406,7 +480,7 @@ class Plugin(PluginBase):
 
         for cat_name, items in categories.items():
             icon = icons.get(cat_name, "📁")
-            self.list_menu.addItem(QListWidgetItem(f"{icon} {cat_name}"))
+            self.list_menu.addItem(QListWidgetItem(f"{icon} {tr(cat_name)}"))
             scroll_w = QWidget()
             v_layout = QVBoxLayout(scroll_w)
 
@@ -419,9 +493,9 @@ class Plugin(PluginBase):
                 color = "#2e7d32" if check["st"] == "ok" else ("#f9a825" if check["st"] == "warn" else "#c62828")
 
                 lbl_icon = QLabel(st_icon)
-                lbl_name = QLabel(f"<b>{check['name']}</b>")
+                lbl_name = QLabel(f"<b>{tr(check['name'])}</b>")
                 lbl_name.setFixedWidth(200)
-                lbl_desc = QLabel(check["desc"])
+                lbl_desc = QLabel(tr(check["desc"]))
                 lbl_desc.setStyleSheet(f"color: {color};")
 
                 h_layout.addWidget(lbl_icon); h_layout.addWidget(lbl_name); h_layout.addWidget(lbl_desc); h_layout.addStretch()
@@ -439,10 +513,13 @@ class Plugin(PluginBase):
                 "API REST" in title or
                 "Soporte macOS" in title or
                 "Reparar OVMF" in title or
+                "USB (Windows)" in title or
                 "Rutas de almacenamiento" in title
             )
             self.btn_refresh.setVisible(not is_general)
             self.btn_repair.setVisible(not is_general)
+            if hasattr(self, "cb_iommu"):
+                self.cb_iommu.setVisible(not is_general and platform.system() == "Linux")
 
     def _on_theme_changed(self, theme):
         self.app.settings.setValue("ui/theme", theme)
@@ -455,6 +532,62 @@ class Plugin(PluginBase):
         if ventana is not None:
             translate_widgets(ventana)
 
+    def _on_api_toggled(self, activar):
+        from services import rest_api
+
+        if activar:
+            try:
+                puerto = int(self.e_port.text().strip())
+                if not 1024 <= puerto <= 65535:
+                    raise ValueError
+            except ValueError:
+                with QSignalBlocker(self.cb_api):
+                    self.cb_api.setChecked(False)
+                QMessageBox.warning(
+                    self.app.parent(), tr("Error"),
+                    tr("El puerto debe estar entre 1024 y 65535."))
+                return
+            self.app.settings.setValue("api/port", str(puerto))
+            ok, msg = rest_api.start(self.app, puerto, self.e_token.text().strip())
+            self.lbl_api_status.setStyleSheet(
+                "color: #2e7d32;" if ok else "color: #c62828;")
+            if not ok:
+                self.cb_api.setChecked(False)
+        else:
+            ok, msg = rest_api.stop()
+            self.lbl_api_status.setStyleSheet("color: #888;")
+        self.lbl_api_status.setText(msg)
+
+    def _wait_for_repair(self, args, cwd=None):
+        """Ejecuta un reparador, espera su resultado y refresca el diagnóstico."""
+        try:
+            proc = subprocess.Popen(
+                args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace",
+            )
+        except Exception as e:
+            QMessageBox.critical(self.app.parent(), tr("Error"), str(e))
+            return
+
+        def comprobar():
+            if proc.poll() is None:
+                QTimer.singleShot(250, comprobar)
+                return
+            salida, errores = proc.communicate()
+            if proc.returncode == 0:
+                QMessageBox.information(
+                    self.app.parent(), tr("Reparación completada"),
+                    tr("Reinicia la app para aplicar cambios de PATH o de rutas."))
+                self.refresh_diagnostics()
+            else:
+                detalle = (errores or salida or "").strip()
+                if not detalle:
+                    detalle = tr("El reparador terminó con el código {}").format(proc.returncode)
+                QMessageBox.critical(
+                    self.app.parent(), tr("Error en la reparación"), detalle[-2000:])
+
+        QTimer.singleShot(250, comprobar)
+
     def _run_postinstall(self):
         # Resolver desde el paquete, no desde el directorio de trabajo: el
         # .desktop o el instalador pueden lanzar la app desde cualquier cwd.
@@ -466,17 +599,21 @@ class Plugin(PluginBase):
         if not script_path.is_file() and getattr(sys, "frozen", False):
             script_path = Path(getattr(sys, "_MEIPASS", ".")) / "scripts" / "postinstall.sh"
         if not script_path.is_file():
-            QMessageBox.critical(self.app.parent(), "Error", f"No se encontró {script_path}")
+            QMessageBox.critical(self.app.parent(), tr("Error"), f"No se encontró {script_path}")
             return
         if not shutil.which("pkexec"):
-            QMessageBox.critical(self.app.parent(), "Error", "No se encontró 'pkexec'.")
+            QMessageBox.critical(self.app.parent(), tr("Error"), tr("No se encontró pkexec"))
             return
         try:
+            # pkexec necesita permisos de ejecución; este chmod evita lanzar
+            # un proceso que moriría antes de mostrar el diálogo.
             os.chmod(script_path, 0o755)
-            subprocess.Popen(["pkexec", "bash", str(script_path.absolute())])
-            QMessageBox.information(self.app.parent(), "Reparación iniciada", "Se ha lanzado el script de reparación.")
+            args = ["pkexec", "bash", str(script_path.absolute())]
+            if getattr(self, "cb_iommu", None) and self.cb_iommu.isChecked():
+                args.append("--enable-iommu")
+            self._wait_for_repair(args)
         except Exception as e:
-            QMessageBox.critical(self.app.parent(), "Error", str(e))
+            QMessageBox.critical(self.app.parent(), tr("Error"), str(e))
 
     def _scripts_dir_windows(self) -> Path:
         """Directorio con los scripts del paquete (o del repo al depurar)."""
@@ -495,22 +632,16 @@ class Plugin(PluginBase):
             return
 
         # Start-Process -Verb RunAs muestra el prompt de UAC aunque la app se
-        # haya iniciado como usuario normal. -Wait permite mostrar el resultado.
+        # haya iniciado como usuario normal. -PassThru devuelve el código de
+        # salida real del reparador elevado; sin él siempre parecería exitoso.
         comando = (
-            "Start-Process -FilePath 'powershell.exe' "
+            "$p = Start-Process -FilePath 'powershell.exe' "
             "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass',"
             f"'-File','\"{script_path}\"' "
-            "-Verb RunAs -Wait; "
-            "Write-Host ''; Write-Host 'Pulsa ENTER para cerrar...'; "
-            "$null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')"
+            "-Verb RunAs -Wait -PassThru; "
+            "if ($p) { exit $p.ExitCode } else { exit 1 }"
         )
-        try:
-            subprocess.Popen(
-                ["powershell.exe", "-NoProfile", "-Command", comando],
-                shell=False, cwd=str(script_path.parent),
-            )
-            QMessageBox.information(
-                self.app.parent(), "Reparación iniciada",
-                "Se ha lanzado el reparador con permisos de administrador.")
-        except Exception as e:
-            QMessageBox.critical(self.app.parent(), "Error", str(e))
+        self._wait_for_repair(
+            ["powershell.exe", "-NoProfile", "-Command", comando],
+            cwd=str(script_path.parent),
+        )

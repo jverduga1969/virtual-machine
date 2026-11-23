@@ -103,6 +103,27 @@ def qemu_accepts_accel(qemu_path: str | None, accel: str, timeout: float = 3.0) 
         return False
 
 
+def qemu_supports_tpm(qemu_path: str | None, timeout: float = 3.0) -> bool:
+    """Comprueba si el QEMU instalado ofrece el backend de TPM 'emulator'.
+
+    En Windows el runner usa `-tpmdev emulator` directamente; en Linux usa
+    swtpm + el mismo backend. Preguntar al propio QEMU evita dar por bueno
+    un TPM que luego falla al arrancar la VM.
+    """
+    if not qemu_path:
+        return False
+    try:
+        resultado = subprocess.run(
+            [qemu_path, "-tpmdev", "help"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        salida = f"{resultado.stdout or ''}\n{resultado.stderr or ''}".lower()
+        return "emulator" in salida
+    except Exception as exc:
+        log.info("No se pudo sondear el soporte de TPM en QEMU: %s", exc)
+        return False
+
+
 class HostAdapter:
     """
     Abstracción del sistema operativo subyacente.

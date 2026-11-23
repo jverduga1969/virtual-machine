@@ -36,6 +36,7 @@ Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; Group
 Source: "dist\VirtualMachine.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "scripts\postinstall.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "scripts\uninstall.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "Fido.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -44,9 +45,15 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 ; El instalador ya se ejecuta elevado (instala en {autopf}), así que el
-; postinstall hereda el token de administrador para winget y el firewall.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\postinstall.ps1"""; Description: "Instalar requisitos del host (QEMU, visores y firewall)"; Flags: postinstall skipifsilent
-Filename: "{app}\{#MyAppExeName}"; Description: "Ejecutar Virtual.Machine"; Flags: nowait postinstall skipifsilent
+; postinstall hereda el token de administrador para winget, WHPX y firewall.
+; Sin 'skipifsilent': una instalación desatendida también necesita el host
+; configurado, o la app arrancará sin QEMU y sin aceleración.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\postinstall.ps1"""; Description: "Instalar requisitos del host (QEMU, visores, WHPX y firewall)"; Flags: postinstall
+Filename: "{app}\{#MyAppExeName}"; Description: "Ejecutar Virtual.Machine"; Flags: nowait postinstall
+
+[UninstallRun]
+; Retira solo el PATH y las reglas de firewall que añadió postinstall.ps1.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\uninstall.ps1"""; Flags: runhidden
 
 [Code]
 function InitializeSetup(): Boolean;
