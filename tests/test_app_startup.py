@@ -64,7 +64,9 @@ def test_pestanas_vm_se_habilitan_con_otro_idioma(qapp, isolated_settings):
         # Los resultados del diagnóstico del host también deben estar traducidos.
         from PyQt6.QtWidgets import QLabel
         textos = [lbl.text() for lbl in window.findChildren(QLabel)]
-        assert "Not installed" in textos or any("Not installed" in t for t in textos)
+        # En Linux/Windows el diagnóstico dice "Not installed"; en macOS dice
+        # "Not found" porque el QEMU de Homebrew aún no está instalado.
+        assert any(("Not installed" in t or "Not found" in t) for t in textos)
         assert any("Host audio" in t for t in textos)
     finally:
         window.close()

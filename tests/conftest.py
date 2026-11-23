@@ -24,6 +24,30 @@ atexit.register(lambda: shutil.rmtree(_CONFIG_DIR, ignore_errors=True))
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def _plataforma_neutra(monkeypatch):
+    """Los tests heredados simulan Windows/Linux con dos flags sueltos.
+
+    Al importar en macOS, ``IS_MAC`` queda a True y esas simulaciones entran
+    en las ramas nuevas de la Fase D. Lo neutralizamos por test; las pruebas
+    que de verdad cubren macOS lo vuelven a poner a True con monkeypatch.
+    """
+    modulos = (
+        "core.app_context",
+        "services.host_adapter",
+        "services.host_diagnostics",
+        "services.host_profile",
+        "services.host_system_info",
+        "services.qemu_paths",
+        "services.vm_runner",
+    )
+    import importlib
+    for nombre in modulos:
+        modulo = importlib.import_module(nombre)
+        if hasattr(modulo, "IS_MAC"):
+            monkeypatch.setattr(modulo, "IS_MAC", False)
+
+
 @pytest.fixture(scope="session")
 def qapp():
     """Única QApplication del proceso, con organization/app name de la app."""
