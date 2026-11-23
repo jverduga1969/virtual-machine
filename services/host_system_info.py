@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
+IS_MAC = platform.system() == "Darwin"
 
 
 def _read(path: str, default: str = "") -> str:
@@ -100,6 +101,9 @@ def detect_desktop_environment() -> Dict[str, str]:
         de_extra = f"Build {platform.release()}"
         return {"name": de_name, "version": de_version, "extra": de_extra}
 
+    if IS_MAC:
+        return {"name": "Aqua", "version": platform.mac_ver()[0] or "", "extra": "macOS"}
+
     desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").upper()
 
     if "KDE" in desktop or "PLASMA" in desktop:
@@ -154,6 +158,8 @@ def detect_kernel() -> str:
 def detect_graphics_platform() -> str:
     if IS_WINDOWS:
         return "Windows (DirectX/DXGI)"
+    if IS_MAC:
+        return "Metal / Quartz"
     session = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if session == "wayland": return "Wayland"
     if session == "x11": return "X11"
@@ -168,6 +174,12 @@ def detect_distro() -> Dict[str, str]:
         result["pretty"] = f"Windows {platform.release()}"
         result["id"] = "windows"
         result["version"] = platform.version() or platform.release()
+        return result
+    if IS_MAC:
+        version = platform.mac_ver()[0] or ""
+        result["pretty"] = f"macOS {version}".strip()
+        result["id"] = "macos"
+        result["version"] = version
         return result
     try:
         with open("/etc/os-release") as f:
@@ -202,6 +214,15 @@ def detect_cpu() -> Dict:
             # Fallback sin wmi
             info["logical"] = os.cpu_count() or 0
             info["physical"] = info["logical"] // 2 if info["logical"] else 0
+        return info
+    if IS_MAC:
+        info["model"] = _run(["sysctl", "-n", "machdep.cpu.brand_string"])
+        info["logical"] = os.cpu_count() or 0
+        fisicos = _run(["sysctl", "-n", "hw.physicalcpu"])
+        try:
+            info["physical"] = int(fisicos)
+        except (TypeError, ValueError):
+            info["physical"] = info["logical"]
         return info
     try:
         with open("/proc/cpuinfo") as f:
@@ -252,6 +273,16 @@ def detect_memory() -> Dict:
             except Exception:
                 pass
         return info
+    if IS_MAC:
+        try:
+            import psutil
+            vm = psutil.virtual_memory()
+            info["total_kb"] = vm.total // 1024
+            info["available_kb"] = vm.available // 1024
+            info["used_kb"] = vm.used // 1024
+        except Exception as e:
+            log.error("Error detectando RAM en macOS: %s", e)
+        return info
     try:
         with open("/proc/meminfo") as f:
             for line in f:
@@ -281,6 +312,12 @@ def detect_gpu() -> str:
                 return gpu.Name.strip() or "Desconocida"
         except Exception:
             return "Desconocida"
+    if IS_MAC:
+        salida = _run(["system_profiler", "SPDisplaysDataType", "-detailLevel", "mini"])
+        for linea in salida.splitlines():
+            if "Chipset" in linea and ":" in linea:
+                return linea.split(":", 1)[1].strip()
+        return "Apple GPU"
     if _which("lspci"):
         out = _run(["lspci", "-nn"])
         for line in out.splitlines():
@@ -308,6 +345,12 @@ def detect_dmi(field: str) -> str:
                     return bios.SerialNumber or "—"
         except Exception:
             pass
+        return "—"
+    if IS_MAC:
+        if field == "sys_vendor":
+            return "Apple"
+        if field == "product_name":
+            return _run(["sysctl", "-n", "hw.model"]) or "Mac"
         return "—"
     return _read(f"/sys/devices/virtual/dmi/id/{field}")
 

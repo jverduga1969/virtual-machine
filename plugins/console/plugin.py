@@ -120,6 +120,12 @@ class Plugin(PluginBase):
                     "(emulación, ~2–5 % de velocidad). Activa WHPX (Plataforma "
                     "de hipervisor de Windows) y reinicia la app."
                 )
+            elif getattr(host, "is_mac", False):
+                texto = (
+                    "⚠️ Sin HVF: esta VM corre con TCG (emulación, ~2–5 % de "
+                    "velocidad). Instala QEMU con `brew install qemu` para "
+                    "usar Hypervisor.framework y reinicia la app."
+                )
             else:
                 texto = (
                     "⚠️ Sin KVM: esta VM corre con TCG (emulación, ~2–5 % de "

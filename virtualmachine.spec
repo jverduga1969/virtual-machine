@@ -90,24 +90,66 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name="VirtualMachine",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=_icono,
-)
+# macOS: se genera un bundle .app (no un ejecutable suelto). No hay icono
+# .icns propio en el repo, así que PyInstaller usa el icono por defecto; el
+# bundle se firma "ad hoc" y el usuario personal lo abre con clic derecho →
+# Abrir o con `xattr -d com.apple.quarantine VirtualMachine.app`.
+# HVF no necesita entitlements aquí: el proceso que usa Hypervisor.framework
+# es el qemu-system-x86_64 de Homebrew (ya firmado por Apple), no esta app.
+es_macos = sys.platform == "darwin"
+
+if es_macos:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name="VirtualMachine",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+    coll = COLLECT(exe, a.binaries, a.datas, name="VirtualMachine")
+    app = BUNDLE(
+        coll,
+        name="VirtualMachine.app",
+        icon=None,
+        bundle_identifier="com.local.virtualmachine",
+        info_plist={
+            "NSHighResolutionCapable": True,
+            "NSPrincipalClass": "NSApplication",
+            "CFBundleName": "Virtual Machine",
+            "CFBundleDisplayName": "Virtual Machine",
+        },
+    )
+else:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name="VirtualMachine",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        icon=_icono,
+    )

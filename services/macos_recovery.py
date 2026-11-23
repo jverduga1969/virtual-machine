@@ -109,6 +109,7 @@ class MacOSDownloader(QObject):
             cwd / "OSX-KVM",
             Path.home() / "OSX-KVM",
             Path.home() / "Descargas" / "OSX-KVM",
+            Path.home() / "Downloads" / "OSX-KVM",
         ]
         
         SCRIPT_NAMES = ["fetch-macOS-v2.py", "fetch-macos.py", "fetch-macos-v2.py", "fetch-macOS.py"]

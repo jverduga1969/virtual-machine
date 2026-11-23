@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
+IS_MAC = platform.system() == "Darwin"
 
 
 # WHV_CAPABILITY_CODE_WHV_CAPABILITY_CODE_HYPERVISOR_PRESENT
@@ -128,13 +129,14 @@ class HostAdapter:
     """
     Abstracción del sistema operativo subyacente.
     Detecta dependencias y prepara el entorno.
-    Soporta Linux y Windows.
+    Soporta Linux (KVM), Windows (WHPX/HAX) y macOS Intel (HVF).
     """
     def __init__(self):
         self.qemu_path = self._find_binary("qemu-system-x86_64")
         self.qemu_img_path = self._find_binary("qemu-img")
         self.acceleration = self._detect_acceleration()
         self.is_windows = IS_WINDOWS
+        self.is_mac = IS_MAC
 
     def _find_binary(self, name: str) -> Optional[str]:
         """Busca un binario en PATH y en rutas comunes de Windows."""
@@ -155,12 +157,18 @@ class HostAdapter:
                 return "hax"
             log.warning("Ningún acelerador de hardware detectado en Windows. Usando TCG (emulación pura, lenta).")
             return "tcg"
-        else:
-            # Linux: KVM
-            if self._check_kvm():
-                return "kvm"
-            log.warning("KVM no disponible. Usando TCG (emulación pura, lenta).")
+        if IS_MAC:
+            # macOS: Hypervisor.framework. HAXM esta descatalogado; HVF es el
+            # equivalente a WHPX/KVM y lo trae el QEMU de Homebrew firmado.
+            if self._qemu_accepts_accel("hvf"):
+                return "hvf"
+            log.warning("HVF no disponible. Usando TCG (emulación pura, lenta).")
             return "tcg"
+        # Linux: KVM
+        if self._check_kvm():
+            return "kvm"
+        log.warning("KVM no disponible. Usando TCG (emulación pura, lenta).")
+        return "tcg"
 
     def _check_kvm(self) -> bool:
         """Comprueba si KVM está disponible (solo Linux)."""
@@ -203,6 +211,8 @@ class HostAdapter:
             return ["-accel", "whpx"]
         elif self.acceleration == "hax":
             return ["-accel", "hax"]
+        elif self.acceleration == "hvf":
+            return ["-accel", "hvf"]
         else:
             return ["-accel", "tcg"]
 
@@ -212,4 +222,5 @@ class HostAdapter:
             "qemu_img": bool(self.qemu_img_path),
             "acceleration": self.acceleration,
             "is_windows": self.is_windows,
+            "is_mac": self.is_mac,
         }

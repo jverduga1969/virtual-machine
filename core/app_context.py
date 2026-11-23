@@ -9,7 +9,7 @@ import platform
 
 from .i18n import tr as translate_text
 from services.vm_repository import VMRepository
-from services.host_adapter import HostAdapter, IS_WINDOWS
+from services.host_adapter import HostAdapter, IS_WINDOWS, IS_MAC
 from services.vm_runner import VMRunner
 from services.qemu_paths import set_qemu_dir
 
@@ -34,6 +34,8 @@ def default_base_dir() -> Path:
     """Directorio de datos por defecto, compartido con Configuración Host."""
     if IS_WINDOWS:
         return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "VirtualMachine"
+    if IS_MAC:
+        return Path.home() / "Library" / "Application Support" / "VirtualMachine"
     return Path.home() / ".local" / "share" / "virtual-machine"
 
 

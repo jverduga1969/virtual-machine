@@ -327,21 +327,21 @@ _register(
 _register(
     "requisitos", "Requisitos del sistema",
     """
-<p>La aplicación funciona en <b>Linux</b> y en <b>Windows 10/11 de 64 bits</b>. La aceleración por hardware cambia según el sistema:</p>
+<p>La aplicación funciona en <b>Linux</b>, <b>Windows 10/11 de 64 bits</b> y <b>macOS Intel</b> (10.15 o posterior). La aceleración por hardware cambia según el sistema:</p>
 <table>
-  <tr><th>Componente</th><th>Linux</th><th>Windows</th><th>Uso</th></tr>
-  <tr><td>Aceleración</td><td>KVM (<code>/dev/kvm</code>)</td><td>WHPX (Plataforma de hipervisor de Windows)</td><td>Obligatoria para ir rápido; sin ella se usa TCG (2–5 % de velocidad).</td></tr>
-  <tr><td><code>qemu-system-x86_64</code></td><td>Obligatorio</td><td>Obligatorio (lo instala el postinstall)</td><td>Motor de la VM.</td></tr>
-  <tr><td><code>qemu-img</code></td><td>Obligatorio</td><td>Obligatorio (junto al ejecutable)</td><td>Snapshots, conversión de discos, ISOs y OVF.</td></tr>
-  <tr><td>Firmware OVMF/UEFI</td><td>Paquetes del sistema</td><td>Lo copia el reparador</td><td>Arranque UEFI y Secure Boot (Windows 11).</td></tr>
-  <tr><td>TPM 2.0 (requisito de Windows 11)</td><td><code>swtpm</code> + backend <code>emulator</code></td><td>Backend <code>emulator</code> de QEMU</td><td>Se verifica preguntando al QEMU instalado.</td></tr>
-  <tr><td>Visor VNC/SPICE</td><td><code>xtigervncviewer</code> / <code>remote-viewer</code></td><td><code>remote-viewer.exe</code></td><td>Consola externa; la VNC embebida no necesita visor.</td></tr>
-  <tr><td>Compartición</td><td><code>virtiofsd</code> o Samba con <code>smbd</code></td><td>Samba con <code>smbd</code></td><td>Carpetas compartidas con el invitado.</td></tr>
-  <tr><td>Utilidades de apoyo</td><td><code>lsof</code>, <code>git</code>, <code>tar</code>, <code>xdg-utils</code>, <code>libnotify</code></td><td>Incluidas en el sistema</td><td>Detección de puertos, import/export y notificaciones.</td></tr>
-  <tr><td>USB passthrough</td><td>Reglas udev (reparador)</td><td>WinUSB/libusbK con Zadig</td><td>Dispositivos <code>usb-host</code>.</td></tr>
-  <tr><td>Fido v1.71</td><td colspan="2">Copia incluida y parcheada en la aplicación</td><td>Resolución de URLs de ISOs de Windows; no se descarga.</td></tr>
+  <tr><th>Componente</th><th>Linux</th><th>Windows</th><th>macOS Intel</th><th>Uso</th></tr>
+  <tr><td>Aceleración</td><td>KVM (<code>/dev/kvm</code>)</td><td>WHPX (Plataforma de hipervisor de Windows)</td><td>HVF (Hypervisor.framework, <code>-accel hvf</code>)</td><td>Obligatoria para ir rápido; sin ella se usa TCG (2–5 % de velocidad).</td></tr>
+  <tr><td><code>qemu-system-x86_64</code></td><td>Obligatorio</td><td>Obligatorio (lo instala el postinstall)</td><td><code>brew install qemu</code></td><td>Motor de la VM.</td></tr>
+  <tr><td><code>qemu-img</code></td><td>Obligatorio</td><td>Obligatorio (junto al ejecutable)</td><td>Incluido en el formula de Homebrew</td><td>Snapshots, conversión de discos, ISOs y OVF.</td></tr>
+  <tr><td>Firmware OVMF/UEFI</td><td>Paquetes del sistema</td><td>Lo copia el reparador</td><td><code>/usr/local/share/qemu</code></td><td>Arranque UEFI y Secure Boot (Windows 11).</td></tr>
+  <tr><td>TPM 2.0 (requisito de Windows 11)</td><td><code>swtpm</code> + backend <code>emulator</code></td><td>Backend <code>emulator</code> de QEMU</td><td>Backend <code>emulator</code> de QEMU</td><td>Se verifica preguntando al QEMU instalado.</td></tr>
+  <tr><td>Visor VNC/SPICE</td><td><code>xtigervncviewer</code> / <code>remote-viewer</code></td><td><code>remote-viewer.exe</code></td><td>VNC embebido (SPICE sin portapapeles)</td><td>Consola externa; la VNC embebida no necesita visor.</td></tr>
+  <tr><td>Compartición</td><td><code>virtiofsd</code> o Samba con <code>smbd</code></td><td>Samba con <code>smbd</code></td><td><code>smbd</code> de macOS (Compartir archivo)</td><td>Carpetas compartidas con el invitado.</td></tr>
+  <tr><td>Utilidades de apoyo</td><td><code>lsof</code>, <code>git</code>, <code>tar</code>, <code>xdg-utils</code>, <code>libnotify</code></td><td>Incluidas en el sistema</td><td>Homebrew + <code>pwsh</code> (Fido)</td><td>Detección de puertos, import/export y notificaciones.</td></tr>
+  <tr><td>USB passthrough</td><td>Reglas udev (reparador)</td><td>WinUSB/libusbK con Zadig</td><td>No soportado</td><td>Dispositivos <code>usb-host</code>.</td></tr>
+  <tr><td>Fido v1.71</td><td colspan="3">Copia incluida; se ejecuta con <code>pwsh</code> fuera de Windows</td><td>Resolución de URLs de ISOs de Windows; no se descarga.</td></tr>
 </table>
-<p class="muted">El instalador de Windows es autocontenido: no necesita Python ni Git para ejecutarse. La pestaña <b>Ayuda → Diagnóstico del sistema</b> comprueba todo esto en tu equipo y señala lo que falta.</p>
+<p class="muted">El instalador de Windows es autocontenido: no necesita Python ni Git para ejecutarse. En macOS consulta <code>INSTALL_MAC.md</code>: desde código necesitas Python 3.11 y QEMU de Homebrew, y el bundle <code>.app</code> es para uso personal (sin firma de Apple). La pestaña <b>Ayuda → Diagnóstico del sistema</b> comprueba todo esto en tu equipo y señala lo que falta.</p>
 """,
 )
 
@@ -354,6 +354,12 @@ _register(
   <li>En Windows abre <b>Configuración Host → Diagnóstico</b>: si WHPX figures como aviso, ejecuta <b>Reparar lo que falte</b> y reinicia. Mientras tanto la app usa TCG y la pantalla puede tardar bastante en aparecer.</li>
   <li>Revisa la pestaña <b>Consola de Progreso</b>: ahí aparece el error exacto que devuelve QEMU.</li>
   <li>Confirma que la configuración se guardó con <b>💾 Guardar configuración</b>.</li>
+</ul>
+<h2>En macOS la VM va muy lenta / dice TCG</h2>
+<ul>
+  <li>Instala QEMU con <code>brew install qemu</code> y reinicia la app. El diagnóstico debe mostrar <b>HVF disponible</b>.</li>
+  <li>Si lanzas la app desde Finder y no encuentra QEMU, asegúrate de tener Homebrew en <code>/usr/local/bin</code> (Intel) o configura la ruta en <b>Configuración Host → Rutas de almacenamiento</b>.</li>
+  <li>HVF solo acelera invitados <code>x86_64</code> y necesita VT-x + EPT; no está disponible en Apple Silicon.</li>
 </ul>
 <h2>Windows 11 exige TPM y Secure Boot</h2>
 <p>En <b>Configuración VM → Sistema</b> selecciona firmware <b>UEFI (OVMF)</b> y activa <b>Secure Boot</b> y <b>TPM 2.0</b>. En Linux hace falta <code>swtpm</code>; en Windows QEMU usa su backend <code>emulator</code>. El diagnóstico pregunta al QEMU instalado si ofrece ese backend y solo lo marca como OK cuando responde. Si el VARS de Secure Boot falta, usa <b>Configuración Host → Reparar OVMF</b>.</p>

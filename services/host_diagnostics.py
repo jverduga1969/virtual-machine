@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
+IS_MAC = platform.system() == "Darwin"
 
 # Fuentes canonicas de OVMF en Linux. Las usan este modulo, el boton
 # "Reparar OVMF Secure Boot" y VMRunner._find_ovmf(), para que los tres
@@ -25,6 +26,28 @@ OVMF_LINUX_DIRS = (
     "/usr/share/edk2/ovmf",
     "/usr/share/edk2-ovmf/x64",
     "/usr/share/qemu",
+)
+
+# Homebrew/MacPorts dejan el firmware junto a los binarios de QEMU. En Intel,
+# `brew install qemu` instala en /usr/local/share/qemu.
+OVMF_MACOS_DIRS = (
+    "/usr/local/share/qemu",
+    "/opt/homebrew/share/qemu",
+    "/opt/local/share/qemu",
+)
+OVMF_MACOS_SECBOOT_PATTERNS = (
+    "edk2-x86_64-secure-code.fd",
+    "OVMF_CODE*.secboot*.fd",
+)
+OVMF_MACOS_CODE_PATTERNS = (
+    "edk2-x86_64-code.fd",
+    "OVMF_CODE*.fd",
+    "OVMF.fd",
+)
+OVMF_MACOS_VARS_PATTERNS = (
+    "edk2-i386-vars.fd",
+    "edk2-x86_64-vars.fd",
+    "OVMF_VARS*.fd",
 )
 OVMF_SECBOOT_CODE_PATTERNS = (
     "OVMF_CODE*.secboot*.fd",
@@ -57,6 +80,8 @@ OVMF_EXTRA_DIRS: tuple[str, ...] = ()
 
 def _ovmf_dirs() -> tuple[str, ...]:
     dirs = list(OVMF_LINUX_DIRS) + list(OVMF_EXTRA_DIRS)
+    if IS_MAC:
+        dirs.extend(OVMF_MACOS_DIRS)
     proyecto = Path(__file__).resolve().parents[1] / "OSX-KVM"
     dirs.append(str(proyecto))
     return tuple(dict.fromkeys(dirs))
@@ -76,25 +101,29 @@ def _find_ovmf(patterns, min_bytes: int = 1024 * 1024) -> str | None:
 
 def find_ovmf_code() -> str | None:
     """Devuelve un OVMF_CODE utilizable o None si no hay ninguno."""
-    if not IS_LINUX:
+    if not IS_LINUX and not IS_MAC:
         return None
-    return _find_ovmf(OVMF_SECBOOT_CODE_PATTERNS + OVMF_CODE_PATTERNS)
+    patrones = (OVMF_MACOS_SECBOOT_PATTERNS + OVMF_MACOS_CODE_PATTERNS
+                if IS_MAC else OVMF_SECBOOT_CODE_PATTERNS + OVMF_CODE_PATTERNS)
+    return _find_ovmf(patrones)
 
 
 def find_ovmf_vars() -> str | None:
     """Devuelve un OVMF_VARS utilizable o None si no hay ninguno."""
-    if not IS_LINUX:
+    if not IS_LINUX and not IS_MAC:
         return None
     # Los VARS son mucho más pequeños que el CODE: 10 KB basta para descartar
     # ficheros vacíos sin rechazar los que distribuyen las distros.
-    return _find_ovmf(OVMF_VARS_PATTERNS, min_bytes=10 * 1024)
+    patrones = OVMF_MACOS_VARS_PATTERNS if IS_MAC else OVMF_VARS_PATTERNS
+    return _find_ovmf(patrones, min_bytes=10 * 1024)
 
 
 def find_ovmf_secboot_code() -> str | None:
     """Solo el CODE con Secure Boot, que es lo que exige Windows 11."""
-    if not IS_LINUX:
+    if not IS_LINUX and not IS_MAC:
         return None
-    return _find_ovmf(OVMF_SECBOOT_CODE_PATTERNS)
+    patrones = OVMF_MACOS_SECBOOT_PATTERNS if IS_MAC else OVMF_SECBOOT_CODE_PATTERNS
+    return _find_ovmf(patrones)
 
 
 def find_ovmf_windows() -> str | None:
@@ -156,6 +185,17 @@ def _windows_accel_status(qemu_bin: str | None) -> tuple[str, str]:
     if qemu_accepts_accel(qemu_bin, "hax"):
         return "warn", "WHPX no disponible; se usará HAX"
     return "warn", "WHPX no disponible; se usará TCG (emulación lenta)"
+
+
+def _macos_accel_status(qemu_bin: str | None) -> tuple[str, str]:
+    """Comprueba de verdad si QEMU en macOS puede usar Hypervisor.framework."""
+    from services.host_adapter import qemu_accepts_accel
+
+    if not qemu_bin:
+        return "err", "QEMU no encontrado (instala con `brew install qemu`)"
+    if qemu_accepts_accel(qemu_bin, "hvf"):
+        return "ok", "HVF disponible (Hypervisor.framework, comprobado)"
+    return "warn", "HVF no disponible; se usará TCG (emulación lenta)"
 
 
 def check_fido() -> tuple[str, str]:
@@ -236,6 +276,29 @@ class HostDiagnostics:
                            "st": tpm_st, "desc": tpm_desc})
             checks.append({"cat": "Virtualización", "name": "Módulos VirtIO", "st": "ok" if os.path.exists("/sys/module/virtio") else "warn", "desc": "Presentes" if os.path.exists("/sys/module/virtio") else "No cargados"})
             checks.append({"cat": "Virtualización", "name": "Audio del host", "st": "ok" if shutil.which("pactl") or shutil.which("pipewire") else "warn", "desc": "PulseAudio/PipeWire detectado"})
+        elif IS_MAC:
+            hvf_st, hvf_desc = _macos_accel_status(qemu_bin)
+            checks.append({"cat": "Virtualización", "name": "HVF (Hypervisor.framework)", "st": hvf_st, "desc": hvf_desc})
+            ovmf_code = find_ovmf_code()
+            checks.append({
+                "cat": "Virtualización", "name": "Firmware UEFI (OVMF)",
+                "st": "ok" if ovmf_code else "warn",
+                "desc": ovmf_code or "No encontrado (brew install qemu instala OVMF en /usr/local/share/qemu)",
+            })
+            ovmf_vars = find_ovmf_vars()
+            checks.append({
+                "cat": "Virtualización", "name": "OVMF VARS",
+                "st": "ok" if ovmf_vars else "warn",
+                "desc": ovmf_vars or "No encontrado",
+            })
+            # En macOS el runner usa `-tpmdev emulator` dentro de QEMU, igual
+            # que en Windows. Preguntamos a QEMU si ofrece ese backend.
+            if qemu_supports_tpm(qemu_bin):
+                tpm_st, tpm_desc = "ok", "Emulado por QEMU (verificado)"
+            else:
+                tpm_st, tpm_desc = "warn", "QEMU sin soporte de TPM verificado"
+            checks.append({"cat": "Virtualización", "name": "TPM 2.0", "st": tpm_st, "desc": tpm_desc})
+            checks.append({"cat": "Virtualización", "name": "Audio del host", "st": "ok", "desc": "CoreAudio (nativo de macOS)"})
         else:
             whpx_st, whpx_desc = _windows_accel_status(qemu_bin)
             checks.append({"cat": "Virtualización", "name": "WHPX (Windows Hypervisor)", "st": whpx_st, "desc": whpx_desc})
@@ -259,6 +322,12 @@ class HostDiagnostics:
         fido_st, fido_desc = check_fido()
         checks.append({"cat": "Virtualización", "name": "Fido (ISOs Windows)",
                        "st": fido_st, "desc": fido_desc})
+        if IS_MAC:
+            # Fido.ps1 se ejecuta con PowerShell 7 en macOS/Linux.
+            checks.append({"cat": "Python", "name": "PowerShell 7 (pwsh)",
+                           "st": "ok" if shutil.which("pwsh") else "warn",
+                           "desc": shutil.which("pwsh") or
+                                   "Necesario para Fido: brew install --cask powershell"})
 
         if IS_LINUX:
             faltan = [h for h in ("lsof", "notify-send", "xdg-open", "git", "tar")
@@ -277,6 +346,12 @@ class HostDiagnostics:
         if IS_LINUX:
             checks.append({"cat": "Python", "name": "polkit / pkexec", "st": "ok" if shutil.which("pkexec") else "warn", "desc": shutil.which("pkexec") or "No instalado"})
             checks.append({"cat": "Python", "name": "udev / udevadm", "st": "ok" if shutil.which("udevadm") else "warn", "desc": shutil.which("udevadm") or "No instalado"})
+        elif IS_MAC:
+            # HVF no requiere elevación ni permisos especiales: el QEMU de
+            # Homebrew ya trae el entitlement para Hypervisor.framework.
+            checks.append({"cat": "Python", "name": "Homebrew",
+                           "st": "ok" if shutil.which("brew") else "warn",
+                           "desc": shutil.which("brew") or "No encontrado (brew.sh)"})
         else:
             admin = _is_windows_admin()
             checks.append({"cat": "Python", "name": "Administrador",
@@ -293,6 +368,12 @@ class HostDiagnostics:
             checks.append({"cat": "Consola", "name": "Spice-gtk (binding Python)", "st": "ok" if shutil.which("spicy") else "warn", "desc": "Disponible" if shutil.which("spicy") else "No instalado"})
             checks.append({"cat": "Consola", "name": "Visor VNC externo", "st": "ok" if shutil.which("vncviewer") else "warn", "desc": shutil.which("vncviewer") or "No instalado"})
             checks.append({"cat": "Consola", "name": "Visor SPICE externo", "st": "ok" if shutil.which("remote-viewer") else "warn", "desc": shutil.which("remote-viewer") or "No instalado"})
+        elif IS_MAC:
+            checks.append({"cat": "Consola", "name": "Visor VNC externo",
+                           "st": "ok" if shutil.which("vncviewer") else "warn",
+                           "desc": shutil.which("vncviewer") or "Opcional: se usa el cliente VNC embebido"})
+            checks.append({"cat": "Consola", "name": "Visor SPICE externo",
+                           "st": "warn", "desc": "SPICE en macOS sin portapapeles: usar VNC embebido"})
         else:
             vnc = find_qemu_binary("vncviewer")
             spice = find_qemu_binary("remote-viewer")
@@ -305,6 +386,11 @@ class HostDiagnostics:
         if IS_LINUX:
             checks.append({"cat": "Compartición", "name": "VirtioFSD", "st": "ok" if shutil.which("virtiofsd") else "warn", "desc": shutil.which("virtiofsd") or "No instalado"})
             checks.append({"cat": "Compartición", "name": "Samba (smbd)", "st": "ok" if shutil.which("smbd") else "warn", "desc": shutil.which("smbd") or "No instalado"})
+        elif IS_MAC:
+            checks.append({"cat": "Compartición", "name": "Samba (smbd)",
+                           "st": "ok" if shutil.which("smbd") else "warn",
+                           "desc": shutil.which("smbd") or "SMB requiere smbd (macOS lo trae; activar en Compartir archivo)"})
+            checks.append({"cat": "Compartición", "name": "VirtioFSD", "st": "warn", "desc": "No disponible nativamente en macOS"})
         else:
             checks.append({"cat": "Compartición", "name": "Samba (SMB)", "st": "warn", "desc": "SMB requiere smbd en el host; no disponible en Windows"})
             checks.append({"cat": "Compartición", "name": "VirtioFSD", "st": "warn", "desc": "No disponible nativamente en Windows"})
@@ -328,6 +414,9 @@ class HostDiagnostics:
                            "desc": "Con grupos visibles" if grupos else "Sin grupos visibles"})
             checks.append({"cat": "Passthrough", "name": "Regla udev udmabuf", "st": "ok" if os.path.exists("/etc/udev/rules.d/60-virtual-machine-udmabuf.rules") else "warn", "desc": "Instalada" if os.path.exists("/etc/udev/rules.d/60-virtual-machine-udmabuf.rules") else "Falta"})
             checks.append({"cat": "Passthrough", "name": "Regla udev USB", "st": "ok" if os.path.exists("/etc/udev/rules.d/50-vm-manager-usb.rules") else "warn", "desc": "Instalada" if os.path.exists("/etc/udev/rules.d/50-vm-manager-usb.rules") else "Falta"})
+        elif IS_MAC:
+            checks.append({"cat": "Passthrough", "name": "PCI/USB Passthrough",
+                           "st": "warn", "desc": "No soportado en macOS (HVF no expone IOMMU al invitado)"})
         else:
             checks.append({"cat": "Passthrough", "name": "PCI/USB Passthrough", "st": "warn", "desc": "No soportado en Windows"})
             # QEMU usb-host usa libusb en Windows: sin WinUSB/libusbK el

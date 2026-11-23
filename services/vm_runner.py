@@ -12,9 +12,11 @@ import uuid
 import platform
 from pathlib import Path
 from typing import Dict
-from .host_adapter import HostAdapter, IS_WINDOWS, IS_LINUX
+from .host_adapter import HostAdapter, IS_WINDOWS, IS_LINUX, IS_MAC
 from .host_diagnostics import (
     OVMF_LINUX_DIRS, OVMF_CODE_PATTERNS, OVMF_SECBOOT_CODE_PATTERNS, OVMF_VARS_PATTERNS,
+    OVMF_MACOS_DIRS, OVMF_MACOS_SECBOOT_PATTERNS, OVMF_MACOS_CODE_PATTERNS,
+    OVMF_MACOS_VARS_PATTERNS,
 )
 from .qemu_paths import find_qemu_binary
 
@@ -54,6 +56,11 @@ class VMRunner:
             if IS_LINUX:
                 with open("/proc/cpuinfo", "r", errors="ignore") as f:
                     result = "GenuineIntel" in f.read()
+            elif IS_MAC:
+                import subprocess as _sp
+                marca = _sp.run(["sysctl", "-n", "machdep.cpu.brand_string"],
+                                capture_output=True, text=True, timeout=5).stdout
+                result = "intel" in marca.lower()
             else:
                 result = "intel" in platform.processor().lower()
         except Exception:
@@ -97,9 +104,9 @@ class VMRunner:
             return None
 
     def _prepare_gvtg_vgpu(self, vm_id: str, profile: str = "i915-GVTg_V5_4") -> str | None:
-        """GVT-g solo está disponible en Linux. En Windows se omite."""
-        if IS_WINDOWS:
-            log.warning("GVT-g no soportado en Windows. Se omite.")
+        """GVT-g solo está disponible en Linux. Se omite en Windows/macOS."""
+        if not IS_LINUX:
+            log.info("GVT-g solo disponible en Linux. Se omite.")
             return None
         pci_addr = "0000:00:02.0"
         create_path = f"/sys/bus/pci/devices/{pci_addr}/mdev_supported_types/{profile}/create"
@@ -124,7 +131,7 @@ class VMRunner:
             return None
 
     def _cleanup_gvtg_vgpu(self, vm_id: str):
-        if IS_WINDOWS:
+        if not IS_LINUX:
             return
         vgpu_uuid = self.gvtg_uuids.pop(vm_id, None)
         if not vgpu_uuid:
@@ -258,7 +265,21 @@ class VMRunner:
         search_dirs = [
             project_root / "OSX-KVM", self.data_dir / "OSX-KVM",
         ]
-        if IS_LINUX:
+        if IS_MAC:
+            secboot_patterns = OVMF_MACOS_SECBOOT_PATTERNS
+            code_patterns = OVMF_MACOS_CODE_PATTERNS
+            vars_patterns = OVMF_MACOS_VARS_PATTERNS
+        else:
+            secboot_patterns = OVMF_SECBOOT_CODE_PATTERNS
+            code_patterns = OVMF_CODE_PATTERNS
+            vars_patterns = OVMF_VARS_PATTERNS
+        if IS_MAC:
+            # Homebrew instala el firmware en share/qemu junto a los binarios.
+            search_dirs.extend([Path(d) for d in OVMF_MACOS_DIRS])
+            if self.host.qemu_path:
+                search_dirs.append(Path(self.host.qemu_path).parent.parent / "share" / "qemu")
+            search_dirs.append(self.data_dir)
+        elif IS_LINUX:
             # Misma lista que usa Configuracion Host para el diagnostico.
             search_dirs.extend([Path(d) for d in OVMF_LINUX_DIRS])
             search_dirs.append(self.data_dir)
@@ -290,13 +311,13 @@ class VMRunner:
             for d in search_dirs:
                 if not d.exists(): continue
                 code_candidates = []
-                for code_pat in OVMF_SECBOOT_CODE_PATTERNS:
+                for code_pat in secboot_patterns:
                     code_candidates.extend(glob.glob(str(d / code_pat)))
                 valid_codes = [p for p in code_candidates if _is_valid_code(p)]
                 if not valid_codes: continue
                 code_path = valid_codes[0]
                 valid_vars = []
-                for vars_pat in ("OVMF_VARS*.secboot*.fd",) + OVMF_VARS_PATTERNS:
+                for vars_pat in ("OVMF_VARS*.secboot*.fd",) + vars_patterns:
                     candidatos = glob.glob(str(d / vars_pat))
                     valid_vars = [p for p in candidatos if _is_valid_vars(p)]
                     if valid_vars: break
@@ -304,14 +325,14 @@ class VMRunner:
 
         for d in search_dirs:
             if not d.exists(): continue
-            for code_pat in OVMF_CODE_PATTERNS:
+            for code_pat in code_patterns:
                 matches = glob.glob(str(d / code_pat))
                 valid = [p for p in matches if _is_valid_code(p)]
                 if valid:
                     code_path = valid[0]
                     break
             else: continue
-            for vars_pat in OVMF_VARS_PATTERNS:
+            for vars_pat in vars_patterns:
                 matches = glob.glob(str(d / vars_pat))
                 valid = [p for p in matches if _is_valid_vars(p)]
                 if valid: return code_path, valid[0]
@@ -394,7 +415,7 @@ class VMRunner:
     def _build_cpu_args(self, vm: dict) -> list[str]:
         cpu_idx = vm.get("cpu_type_idx", 0)
         base_map = {0: None, 1: "host", 2: "qemu64", 3: "Skylake-Client", 4: "Haswell", 5: "Broadwell", 6: "SandyBridge", 7: "Penryn"}
-        base = base_map.get(cpu_idx, None) or ("host" if self.host.acceleration in ("kvm", "whpx", "hax") else "qemu64")
+        base = base_map.get(cpu_idx, None) or ("host" if self.host.acceleration in ("kvm", "whpx", "hax", "hvf") else "qemu64")
         flags = []
         if vm.get("nested_virt"): flags.append("vmx=on")
         if vm.get("hyperv") or self._is_windows_guest(vm):
@@ -432,6 +453,10 @@ class VMRunner:
                 cpu = "Skylake-Client,-hle,-rtm"
             else:
                 cpu = "Penryn"
+        if self.host.acceleration == "hvf":
+            # HVF (macOS) no entiende `kvm=on` ni los ajustes de vendor de
+            # WHPX; el QEMU de Homebrew ya expone la CPU real del host Intel.
+            return [cpu]
         if cpu.lower() == "host":
             return ["host,kvm=on"]
         if self.host.acceleration == "kvm":

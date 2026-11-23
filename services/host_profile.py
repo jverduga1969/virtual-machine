@@ -6,6 +6,7 @@ from typing import Dict, Any
 log = logging.getLogger(__name__)
 
 IS_WINDOWS = platform.system() == "Windows"
+IS_MAC = platform.system() == "Darwin"
 
 
 class HostProfile:
@@ -16,7 +17,7 @@ class HostProfile:
         self._detect_hardware()
 
     def _detect_hardware(self):
-        if IS_WINDOWS:
+        if IS_WINDOWS or IS_MAC:
             detectado = False
             # psutil es una dependencia de la app y da el total real del equipo;
             # WMI puede no estar instalado en Python empaquetado.
@@ -38,7 +39,8 @@ class HostProfile:
                 except Exception:
                     pass
             if not detectado:
-                log.error("No se pudo detectar RAM en Windows; usando valor por defecto 8192 MB")
+                log.error("No se pudo detectar RAM en %s; usando valor por defecto 8192 MB",
+                          "Windows" if IS_WINDOWS else "macOS")
             self.total_cores = os.cpu_count() or 4
             return
 

@@ -21,7 +21,9 @@ from core.theme import DEFAULT_THEME, apply_theme
 from services import host_passthrough
 from services import host_diagnostics as hostdiag
 from services.host_diagnostics import (
-    HostDiagnostics, OVMF_LINUX_DIRS, OVMF_SECBOOT_CODE_PATTERNS, OVMF_VARS_PATTERNS,
+    HostDiagnostics, OVMF_LINUX_DIRS, OVMF_MACOS_DIRS,
+    OVMF_MACOS_SECBOOT_PATTERNS, OVMF_MACOS_VARS_PATTERNS,
+    OVMF_SECBOOT_CODE_PATTERNS, OVMF_VARS_PATTERNS,
     find_ovmf_windows, find_ovmf_vars_windows,
 )
 from services.qemu_paths import find_qemu_binary
@@ -403,6 +405,20 @@ class Plugin(PluginBase):
             vars_patterns = ("OVMF_VARS*.secboot*.fd",) + OVMF_VARS_PATTERNS
             destino = data_dir
             falta_code = "❌ No se encontró OVMF en Windows. Instala QEMU con OVMF."
+        elif platform.system() == "Darwin":
+            # macOS: Homebrew deja el firmware junto a QEMU en
+            # /usr/local/share/qemu (Intel) o /opt/homebrew/share/qemu (ARM).
+            directorios = [Path(d) for d in OVMF_MACOS_DIRS] + [osx_dir, data_dir]
+            for exe_nombre in ("qemu-system-x86_64", "qemu-img"):
+                exe = find_qemu_binary(exe_nombre)
+                if exe:
+                    shader = Path(exe).parent.parent / "share" / "qemu"
+                    if shader.is_dir():
+                        directorios.append(shader)
+            code_patterns = OVMF_MACOS_SECBOOT_PATTERNS
+            vars_patterns = OVMF_MACOS_VARS_PATTERNS
+            destino = osx_dir
+            falta_code = "❌ No se encontró OVMF. Instala QEMU con `brew install qemu`."
         else:
             # Misma lista que usan el diagnóstico y VMRunner._find_ovmf().
             directorios = [Path(d) for d in OVMF_LINUX_DIRS] + [osx_dir, data_dir]
@@ -594,6 +610,9 @@ class Plugin(PluginBase):
         if platform.system() == "Windows":
             self._run_postinstall_windows()
             return
+        if platform.system() == "Darwin":
+            self._run_postinstall_macos()
+            return
 
         script_path = Path(__file__).resolve().parents[2] / "scripts" / "postinstall.sh"
         if not script_path.is_file() and getattr(sys, "frozen", False):
@@ -614,6 +633,27 @@ class Plugin(PluginBase):
             self._wait_for_repair(args)
         except Exception as e:
             QMessageBox.critical(self.app.parent(), tr("Error"), str(e))
+
+    def _run_postinstall_macos(self):
+        """En macOS no hay privilegios ni grupos que configurar: HVF funciona
+        sin elevación usando el QEMU firmado de Homebrew. Mostramos los pasos
+        en lugar de intentar `pkexec`, que no existe."""
+        brew = shutil.which("brew")
+        pwsh = shutil.which("pwsh")
+        lineas = [
+            "macOS no necesita reparación del host (HVF no requiere permisos especiales).",
+            "Si algo falta, instala:",
+            "",
+            "  brew install qemu        # QEMU con Hypervisor.framework",
+            "  brew install --cask powershell   # solo para Fido (ISOs Windows)",
+            "",
+        ]
+        lineas.append("Homebrew: " + ("✅ " + brew if brew else "❌ no encontrado"))
+        lineas.append("PowerShell 7: " + ("✅ " + pwsh if pwsh else "⚠️ no encontrado (opcional)"))
+        QMessageBox.information(
+            self.app.parent(), tr("Configuración de host en macOS"),
+            "\n".join(lineas),
+        )
 
     def _scripts_dir_windows(self) -> Path:
         """Directorio con los scripts del paquete (o del repo al depurar)."""

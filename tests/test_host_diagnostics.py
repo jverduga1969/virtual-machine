@@ -274,7 +274,10 @@ def test_default_base_dir_coincide_con_la_app(monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\prueba\AppData\Local")
     assert ctx.default_base_dir() == Path(r"C:\Users\prueba\AppData\Local") / "VirtualMachine"
     monkeypatch.setattr(ctx, "IS_WINDOWS", False)
+    monkeypatch.setattr(ctx, "IS_MAC", False)
     assert ctx.default_base_dir() == Path.home() / ".local" / "share" / "virtual-machine"
+    monkeypatch.setattr(ctx, "IS_MAC", True)
+    assert ctx.default_base_dir() == Path.home() / "Library" / "Application Support" / "VirtualMachine"
 
 
 def test_fido_es_una_sola_copia_v171_con_parche():

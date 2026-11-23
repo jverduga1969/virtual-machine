@@ -15,7 +15,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # macos-15-intel es el ultimo runner x86_64 de GitHub Actions (hasta
+        # agosto 2027). `macos-latest` seria ARM64 y no sirve para validar HVF.
+        os: [ubuntu-latest, windows-latest, macos-15-intel]
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONDONTWRITEBYTECODE: "1"
@@ -31,6 +33,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libgl1 libegl1
+
+      - name: Verificar aceleración HVF en macOS Intel
+        if: runner.os == 'macOS'
+        run: |
+          sysctl -n machdep.cpu.brand_string
+          python -c "from services.host_adapter import IS_MAC, qemu_accepts_accel; print('IS_MAC=', IS_MAC); assert IS_MAC"
 
       - name: Instalar dependencias
         run: |
@@ -111,4 +119,56 @@ jobs:
           files: |
             dist\VirtualMachine.exe
             installer\VirtualMachine-Setup-*.exe
+          generate_release_notes: true
+
+  build-macos:
+    name: .app macOS Intel (uso personal, sin firma de Apple)
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias de compilación
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller>=6.0 pytest>=8.0
+
+      - name: Verificación rápida en macOS
+        run: python -m pytest -q
+
+      - name: Validar repositorio antes de compilar
+        run: python scripts/verify_repo.py
+
+      - name: Generar bundle .app con PyInstaller
+        run: python -m PyInstaller --noconfirm --clean virtualmachine.spec
+
+      - name: Empaquetar el .app en ZIP (sin notarizar)
+        run: |
+          test -d dist/VirtualMachine.app
+          ditto -c -k --sequesterRsrc --keepParent dist/VirtualMachine.app dist/VirtualMachine-macOS-intel.zip
+
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: VirtualMachine-macOS-intel
+          path: |
+            dist/VirtualMachine.app
+            dist/VirtualMachine-macOS-intel.zip
+          if-no-files-found: error
+
+      - name: Publicar ZIP en el Release (uso personal)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/VirtualMachine-macOS-intel.zip
           generate_release_notes: true

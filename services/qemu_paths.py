@@ -1,4 +1,4 @@
-"""Resolución de ejecutables de QEMU y del visor en Linux y Windows.
+"""Resolución de ejecutables de QEMU y del visor en Linux, Windows y macOS.
 
 La app construye los comandos a mano. En Windows, QEMU y VirtViewer suelen
 instalarse sin añadir su directorio al PATH (winget, MSI o descompresión
@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 
 IS_WINDOWS = platform.system() == "Windows"
+IS_MAC = platform.system() == "Darwin"
 
 # Permite fijar la ruta desde tests o desde la configuración de la app.
 _dir_override = None
@@ -47,7 +48,7 @@ def find_qemu_binary(name):
         if encontrado:
             return encontrado
 
-    if not IS_WINDOWS:
+    if not IS_WINDOWS and not IS_MAC:
         return None
 
     # 2) Directorio configurado explícitamente (QEMU_DIR o AppContext).
@@ -55,6 +56,21 @@ def find_qemu_binary(name):
     for valor in (_dir_override, os.environ.get("QEMU_DIR", "")):
         if valor and Path(valor) not in directorios:
             directorios.append(Path(valor))
+
+    if IS_MAC:
+        # Las apps lanzadas desde Finder no heredan el PATH de Terminal.
+        # Homebrew instala en /usr/local/bin (Intel) o /opt/homebrew/bin
+        # (Apple Silicon); MacPorts usa /opt/local/bin.
+        directorios.extend([
+            Path("/usr/local/bin"), Path("/opt/homebrew/bin"),
+            Path("/opt/local/bin"), Path.home() / ".local" / "bin",
+        ])
+        for directorio in directorios:
+            for candidato in nombres:
+                ruta = directorio / candidato
+                if _existe(ruta):
+                    return str(ruta)
+        return None
 
     # 3) Instalaciones típicas en Windows.
     raices = (
