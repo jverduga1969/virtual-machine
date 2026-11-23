@@ -47,6 +47,12 @@ class HotplugDialog(QDialog):
         l_usb = QVBoxLayout(tab_usb)
         l_usb.addWidget(QLabel("<b>Selecciona un dispositivo USB físico para pasar a la VM:</b>"))
 
+        if os.name == "nt":
+            l_usb.addWidget(QLabel(
+                "En Windows, instala el driver <b>WinUSB/libusbK</b> con Zadig "
+                "(Options → List All Devices) antes de conectar el dispositivo."
+            ))
+
         self.list_usb = QListWidget()
         self.list_usb.setToolTip("Dispositivos USB disponibles para conectar a la VM")
         self._refresh_usb()
@@ -97,7 +103,8 @@ class HotplugDialog(QDialog):
             for i, drive in enumerate(optical_drives):
                 path = drive.get('path', '')
                 iso_name = os.path.basename(path) if path else "[Vacío]"
-                item = QListWidgetItem(f"Unidad {i} ({drive.get('bus', 'sata')}) → {iso_name}")
+                item = QListWidgetItem(self.app.tr(
+                    "Unidad {} ({}) → {}").format(i, drive.get('bus', 'sata'), iso_name))
                 item.setData(Qt.ItemDataRole.UserRole, f"cdrom{i}")
                 self.list_cd.addItem(item)
 
@@ -171,31 +178,64 @@ class HotplugDialog(QDialog):
     # ---------- USB ----------
 
     def _refresh_usb(self):
+        actual = self.list_usb.currentItem()
+        id_anterior = None
+        if actual:
+            datos_actuales = actual.data(Qt.ItemDataRole.UserRole) or {}
+            id_anterior = datos_actuales.get("id")
+
         self.list_usb.clear()
         devices = scan_usb_devices()
         try:
             connected = self.app.runner.get_connected_usb_devices(self.vm_id)
         except Exception:
             connected = []
-        
+
+        if not devices:
+            self.list_usb.addItem("No se han detectado dispositivos USB.")
+            self.list_usb.setEnabled(False)
+            return
+        self.list_usb.setEnabled(True)
+
         for d in devices:
-            bus_addr = d.get("id", "")
-            if not bus_addr: continue
-            
+            usb_id = d.get("id", "")
+            if not usb_id:
+                continue
+
             desc = d["desc"]
-            if bus_addr in connected:
+            if usb_id in connected:
                 desc = "🟢 [CONECTADO] " + desc
-                
+
             item = QListWidgetItem(desc)
-            item.setData(Qt.ItemDataRole.UserRole, bus_addr)
+            item.setData(Qt.ItemDataRole.UserRole, d)
+            detalle = d.get("detalle")
+            if detalle:
+                item.setToolTip(f"{detalle}\nVID:PID = {usb_id}")
             self.list_usb.addItem(item)
+            if id_anterior and usb_id == id_anterior:
+                self.list_usb.setCurrentItem(item)
 
     def _connect_usb(self):
         item = self.list_usb.currentItem()
-        if not item: return
-        bus_addr = item.data(Qt.ItemDataRole.UserRole)
-        bus, addr = bus_addr.split(":")
+        if not item or not self.list_usb.isEnabled():
+            return
+        datos = item.data(Qt.ItemDataRole.UserRole) or {}
+        usb_id = str(datos.get("id") or "")
+        if not usb_id or ":" not in usb_id:
+            return
 
+        # Windows no tiene bus/addr de /sys: se conecta por VID/PID con libusb.
+        if os.name == "nt" or datos.get("mode") == "vidpid":
+            vid, pid = usb_id.split(":", 1)
+            ok, msg = self.app.runner.hotplug_usb_vid_pid(self.vm_id, vid, pid)
+            if ok:
+                QMessageBox.information(self, "Éxito", msg)
+                self._refresh_usb()
+            else:
+                QMessageBox.critical(self, "Error", msg)
+            return
+
+        bus, addr = usb_id.split(":")
         ok, msg = self.app.runner.hotplug_usb(self.vm_id, bus, addr)
 
         if ok:
@@ -215,7 +255,7 @@ class HotplugDialog(QDialog):
             resp = QMessageBox.question(
                 self, "Dispositivo ocupado / sin permisos",
                 f"El dispositivo '{item.text()}' no pudo abrirse desde QEMU.\n\n"
-                "Esto suele deberse a que el host (CachyOS) mantiene el dispositivo "
+                "Esto suele deberse a que el host mantiene el dispositivo "
                 "con permisos de root o lo tiene montado.\n\n"
                 "¿Quieres intentar conceder acceso al device node con pkexec?\n"
                 "(No se desvincula del host; solo se dan permisos al usuario.)\n\n"
@@ -250,13 +290,23 @@ class HotplugDialog(QDialog):
 
     def _disconnect_usb(self):
         item = self.list_usb.currentItem()
-        if not item: return
-        bus_addr = item.data(Qt.ItemDataRole.UserRole)
-        bus, addr = bus_addr.split(":")
+        if not item or not self.list_usb.isEnabled():
+            return
+        datos = item.data(Qt.ItemDataRole.UserRole) or {}
+        usb_id = str(datos.get("id") or "")
+        if not usb_id or ":" not in usb_id:
+            return
 
-        ok, msg = self.app.runner.remove_usb(self.vm_id, bus, addr)
-        if ok: 
+        if os.name == "nt" or datos.get("mode") == "vidpid":
+            vid, pid = usb_id.split(":", 1)
+            ok, msg = self.app.runner.remove_usb_by_id(
+                self.vm_id, f"usb_{vid.lower()}_{pid.lower()}")
+        else:
+            bus, addr = usb_id.split(":")
+            ok, msg = self.app.runner.remove_usb(self.vm_id, bus, addr)
+
+        if ok:
             QMessageBox.information(self, "Éxito", msg)
             self._refresh_usb()
-        else: 
+        else:
             QMessageBox.critical(self, "Error", msg)

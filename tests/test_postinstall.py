@@ -53,6 +53,15 @@ def test_postinstall_windows_anade_qemu_al_path_y_comprueba_qemu_img():
     assert "qemu-img.exe" in texto
 
 
+def test_postinstall_windows_es_ascii_y_anade_visor_al_path():
+    """PowerShell 5.1 lee UTF-8 sin BOM como ANSI; un '?' rompe el script."""
+    texto = SCRIPT_WIN.read_text(encoding="utf-8")
+
+    assert all(ord(caracter) < 128 for caracter in texto)
+    assert "VirtViewer*" in texto
+    assert "winget list --exact --id" in texto
+
+
 def test_reglas_udev_coinciden_con_el_diagnostico():
     fuentes = [SCRIPT.read_text(encoding="utf-8"),
                DIAG.read_text(encoding="utf-8"),

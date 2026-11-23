@@ -39,7 +39,7 @@ def main():
 
     # 5. Crear ventana principal
     window = MainWindow(ctx, manager)
-    window.show()
+    window.showMaximized()
 
     # 6. Ejecutar
     exit_code = app.exec()

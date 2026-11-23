@@ -36,6 +36,9 @@ class AppContext(QObject):
     process_started = pyqtSignal(str, object)
     # Se emite desde el hilo que apaga la VM; se entrega siempre en el hilo GUI.
     vm_stopped = pyqtSignal(str, bool)
+    # QEMU puede terminar sin que nadie pulse Apagar (shutdown desde el
+    # invitado, crash...). El monitor de VMRunner lo emite desde su hilo.
+    vm_process_finished = pyqtSignal(str, int)
 
     def __init__(self):
         super().__init__()
@@ -59,7 +62,10 @@ class AppContext(QObject):
 
         self.vm_repo = VMRepository(self.data_dir)
         self.host = HostAdapter()
-        self.runner = VMRunner(self.host, self.data_dir, self.vms_dir)
+        self.runner = VMRunner(
+            self.host, self.data_dir, self.vms_dir,
+            on_process_finished=self.vm_process_finished.emit)
+        self.vm_process_finished.connect(self._on_qemu_process_finished)
 
         self._selected_vm_id: Optional[str] = None
         # Operaciones pendientes tras apagar una VM: reboot / force_reboot / delete
@@ -93,7 +99,12 @@ class AppContext(QObject):
     def start_vm(self, vm_id: str):
         vm = self.get_vm(vm_id)
         if not vm: return
-        if vm.get("state") == "Paused": return self.resume_vm(vm_id)
+        if vm.get("state") == "Paused" and vm_id in self.runner.active_processes:
+            return self.resume_vm(vm_id)
+        # Estado "Paused" sin proceso = estado huérfano tras un reinicio de la
+        # app; se arranca de cero en vez de intentar reanudar un QEMU muerto.
+        if vm.get("state") == "Paused":
+            self.vm_repo.update(vm_id, {"state": "Apagada"})
         if vm.get("state") == "Running" and vm_id in self.runner.active_processes: return
         # Si el estado dice "Apagando..." pero no hay proceso real, es un estado huérfano: corregir
         if vm.get("state") == "Apagando...":
@@ -112,6 +123,22 @@ class AppContext(QObject):
             log.error(f"Error al arrancar VM: {e}")
             self.vm_state_changed.emit(vm_id, "Error")
 
+    def can_reopen_window(self, vm_id: str) -> bool:
+        """La opción solo tiene sentido con una VM encendida y visor externo."""
+        vm = self.get_vm(vm_id)
+        return bool(vm and vm.get("state") in ("Running", "Paused")
+                    and self.runner.has_external_viewer(vm_id))
+
+    def reopen_vm_window(self, vm_id: str) -> bool:
+        """Reabre la ventana SPICE/VNC que el usuario cerró por error."""
+        if not self.can_reopen_window(vm_id):
+            log.warning("No se puede reabrir la ventana: %s no está encendida o no usa visor externo.", vm_id)
+            return False
+        ok = self.runner.reopen_viewer(vm_id)
+        if ok:
+            log.info("Ventana de %s reabierta.", (self.get_vm(vm_id) or {}).get("name", vm_id))
+        return ok
+
     def change_iso(self, vm_id: str, iso_path: str):
         if self.runner.change_iso(vm_id, iso_path):
             log.info(f"ISO cambiada con éxito en {vm_id}.")
@@ -128,7 +155,8 @@ class AppContext(QObject):
         if follow_up:
             with self._state_lock:
                 self._pending_after_stop[vm_id] = follow_up
-        if not self.get_vm(vm_id):
+        vm = self.get_vm(vm_id)
+        if not vm:
             return
         with self._state_lock:
             if vm_id in self._stopping:
@@ -192,27 +220,87 @@ class AppContext(QObject):
                 log.error(f"No se pudo borrar el directorio de {vm_id}: {e}")
         self.vm_state_changed.emit(vm_id, "Deleted")
 
-    def pause_vm(self, vm_id: str):
-        self.runner.pause_vm(vm_id)
+    def pause_vm(self, vm_id: str) -> bool:
+        vm = self.get_vm(vm_id)
+        if not vm:
+            return False
+        if vm.get("state") != "Running":
+            log.warning("No se puede pausar %s: estado actual '%s'",
+                        vm_id, vm.get("state"))
+            return False
+        if vm_id not in self.runner.active_processes:
+            self._mark_stopped(vm_id)
+            return False
+        try:
+            ok = bool(self.runner.pause_vm(vm_id))
+        except Exception as e:
+            log.error(f"Error pausando VM {vm_id}: {e}")
+            ok = False
+        if not ok:
+            log.error(f"QEMU rechazó la pausa de {vm_id}; se mantiene el estado.")
+            return False
         self.vm_repo.update(vm_id, {"state": "Paused"})
         self.vm_state_changed.emit(vm_id, "Paused")
+        return True
 
-    def resume_vm(self, vm_id: str):
-        self.runner.resume_vm(vm_id)
+    def resume_vm(self, vm_id: str) -> bool:
+        vm = self.get_vm(vm_id)
+        if not vm:
+            return False
+        if vm.get("state") != "Paused":
+            log.warning("No se puede reanudar %s: estado actual '%s'",
+                        vm_id, vm.get("state"))
+            return False
+        if vm_id not in self.runner.active_processes:
+            self._mark_stopped(vm_id)
+            return False
+        try:
+            ok = bool(self.runner.resume_vm(vm_id))
+        except Exception as e:
+            log.error(f"Error reanudando VM {vm_id}: {e}")
+            ok = False
+        if not ok:
+            log.error(f"QEMU rechazó la reanudación de {vm_id}; se mantiene el estado.")
+            return False
         self.vm_repo.update(vm_id, {"state": "Running"})
         self.vm_state_changed.emit(vm_id, "Running")
+        return True
+
+    def _mark_stopped(self, vm_id: str):
+        """Estado canónico cuando sabemos que QEMU ya no está vivo."""
+        self.vm_repo.update(vm_id, {"state": "Apagada"})
+        self.vm_state_changed.emit(vm_id, "Apagada")
+
+    def _on_qemu_process_finished(self, vm_id: str, code: int):
+        """Slot GUI: QEMU salió por su cuenta (apagado del invitado o crash)."""
+        with self._state_lock:
+            if vm_id in self._stopping:
+                return  # el hilo de stop_vm ya actualizará el estado
+        vm = self.get_vm(vm_id)
+        if not vm or vm_id in self.runner.active_processes:
+            return
+        if vm.get("state") not in ("Running", "Paused", "Apagando..."):
+            return
+        log.info(f"QEMU de {vm_id} terminó (código {code}); VM marcada como Apagada.")
+        self._mark_stopped(vm_id)
 
     def force_stop_vm(self, vm_id: str):
         if not self.get_vm(vm_id):
             return
         with self._state_lock:
             self._pending_after_stop.pop(vm_id, None)  # cancelar reinicio/borrado previo
+            if vm_id in self._stopping:
+                return  # ya hay un apagado en curso; que termine él
+            self._stopping.add(vm_id)
         try:
             self.runner.force_stop_vm(vm_id)
             state = "Apagada"
         except Exception as e:
             log.error(f"Error en force_stop de {vm_id}: {e}")
             state = "Error"
+        finally:
+            with self._state_lock:
+                self._stopping.discard(vm_id)
         self.vm_repo.update(vm_id, {"state": state})
         self.vm_state_changed.emit(vm_id, state)
 

@@ -10,7 +10,9 @@ log = logging.getLogger(__name__)
 
 # Campos de ejecución, no de configuración: no deben generar entradas en el
 # historial cada vez que se enciende o se apaga una VM.
-TRANSIENT_FIELDS = frozenset({"state", "qmp_socket", "vnc_port", "status"})
+TRANSIENT_FIELDS = frozenset({
+    "state", "qmp_socket", "vnc_port", "vnc_heads", "spice_port", "status",
+})
 MAX_HISTORY = 30
 
 class VMRepository:

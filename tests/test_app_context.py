@@ -94,3 +94,69 @@ def test_force_stop_cancela_un_borrado_pendiente(app_ctx, monkeypatch):
     assert "vm1" not in app_ctx._pending_after_stop
     assert _esperar(lambda: app_ctx.get_vm("vm1") is not None)
     assert app_ctx.get_vm("vm1")["state"] == "Apagada"
+
+
+def test_apagado_desde_invitado_actualiza_estado(app_ctx, monkeypatch):
+    runner = FakeRunner()
+    runner.active_processes["vm1"] = object()
+    monkeypatch.setattr(app_ctx, "runner", runner)
+    app_ctx.vm_repo.add({"id": "vm1", "name": "Apagado interno", "state": "Running"})
+
+    # El monitor de VMRunner retira el proceso antes de emitir la señal.
+    runner.active_processes.clear()
+    app_ctx.vm_process_finished.emit("vm1", 0)
+
+    assert _esperar(lambda: app_ctx.get_vm("vm1")["state"] == "Apagada")
+
+
+def test_pausa_y_reanuda_actualizan_estado_solo_si_qmp_acepta(app_ctx, monkeypatch):
+    runner = FakeRunner()
+    runner.active_processes["vm1"] = object()
+    monkeypatch.setattr(app_ctx, "runner", runner)
+    app_ctx.vm_repo.add({"id": "vm1", "name": "Pausas", "state": "Running"})
+
+    assert app_ctx.pause_vm("vm1") is True
+    assert app_ctx.get_vm("vm1")["state"] == "Paused"
+    assert app_ctx.pause_vm("vm1") is False  # ya está pausada
+    assert runner.calls.count(("pause", "vm1")) == 1
+
+    assert app_ctx.resume_vm("vm1") is True
+    assert app_ctx.get_vm("vm1")["state"] == "Running"
+    assert app_ctx.resume_vm("vm1") is False
+    assert runner.calls.count(("resume", "vm1")) == 1
+
+
+def test_pausa_rechazada_no_cambia_estado(app_ctx, monkeypatch):
+    class RunnerQueRechaza(FakeRunner):
+        def pause_vm(self, vm_id):
+            return False
+
+    runner = RunnerQueRechaza()
+    runner.active_processes["vm1"] = object()
+    monkeypatch.setattr(app_ctx, "runner", runner)
+    app_ctx.vm_repo.add({"id": "vm1", "name": "Pausa fallida", "state": "Running"})
+
+    assert app_ctx.pause_vm("vm1") is False
+    assert app_ctx.get_vm("vm1")["state"] == "Running"
+
+
+def test_apagar_sin_proceso_no_queda_en_apagando(app_ctx, monkeypatch):
+    monkeypatch.setattr(app_ctx, "runner", FakeRunner())
+    app_ctx.vm_repo.add({"id": "vm1", "name": "Huerfana", "state": "Running"})
+
+    app_ctx.stop_vm("vm1")
+
+    assert _esperar(lambda: app_ctx.get_vm("vm1")["state"] == "Apagada")
+    assert "vm1" not in app_ctx._stopping
+
+
+def test_iniciar_estado_paused_huerfano_arranca_de_cero(app_ctx, monkeypatch):
+    runner = FakeRunner()
+    monkeypatch.setattr(app_ctx, "runner", runner)
+    app_ctx.vm_repo.add({"id": "vm1", "name": "Pausada muerta", "state": "Paused"})
+
+    app_ctx.start_vm("vm1")
+
+    assert ("start", "vm1") in runner.calls
+    assert ("resume", "vm1") not in runner.calls
+    assert app_ctx.get_vm("vm1")["state"] == "Running"

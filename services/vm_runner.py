@@ -16,23 +16,32 @@ from .host_adapter import HostAdapter, IS_WINDOWS, IS_LINUX
 from .host_diagnostics import (
     OVMF_LINUX_DIRS, OVMF_CODE_PATTERNS, OVMF_SECBOOT_CODE_PATTERNS, OVMF_VARS_PATTERNS,
 )
+from .qemu_paths import find_qemu_binary
 
 log = logging.getLogger(__name__)
 
 class VMRunner:
-    def __init__(self, host: HostAdapter, data_dir: Path, vms_dir: Path | None = None):
+    def __init__(self, host: HostAdapter, data_dir: Path, vms_dir: Path | None = None,
+                 on_process_finished=None):
         self.host = host
         self.data_dir = Path(data_dir)
         self.vms_dir = Path(vms_dir) if vms_dir else self.data_dir / "vms"
         self.active_processes: Dict[str, subprocess.Popen] = {}
-        self.active_viewers: Dict[str, subprocess.Popen] = {}
+        self.active_viewers: Dict[str, object] = {}  # Popen o lista de Popen (multimonitor)
+        # Datos del visor externo (SPICE/VNC) mientras la VM está encendida.
+        # No se guardan en vms.json: si la app se cierra, QEMU también muere y
+        # no hay nada que reabrir. Sirven para restaurar la ventana que el
+        # usuario cerró por error sin reiniciar la máquina.
+        self._active_viewer_info: Dict[str, dict] = {}
         self.virtiofsd_procs: Dict[str, list] = {}
         self.gvtg_uuids: Dict[str, str] = {}
         # QMP: el puerto se elige UNA vez por VM. Antes se recalculaba en cada
         # llamada, así que stop/pause/change_iso conectaban a otro puerto.
         self._qmp_sockets: Dict[str, str] = {}
-        self._vnc_keymap = None
         self._intel_host = None
+        # Aviso de que QEMU ha terminado (apagado desde el invitado, crash...).
+        # AppContext lo conecta a una señal Qt para actualizar los botones.
+        self.on_process_finished = on_process_finished or (lambda vm_id, code: None)
 
     def _is_windows_guest(self, vm: dict) -> bool:
         return "windows" in str(vm.get("platform", "")).lower()
@@ -180,66 +189,15 @@ class VMRunner:
                     except subprocess.TimeoutExpired: proc.kill()
             except Exception: pass
 
-    def _detect_vnc_keymap(self) -> str:
-        qemu_keymaps = {"es", "de", "fr", "it", "nl", "da", "fi", "hu", "is", "sl",
-                        "sv", "tr", "no", "ja", "ko", "en-gb", "en-us"}
-        if IS_WINDOWS:
-            # En Windows no existe setxkbmap; usar solo locale
-            try:
-                import locale
-                loc = locale.getlocale()[0]
-                if loc:
-                    lang = loc.replace("-", "_").split("_")[0].lower()
-                    if lang in qemu_keymaps:
-                        return lang
-                    if lang == "pt":
-                        return "pt-br"
-                    if lang == "en":
-                        return "en-us"
-            except Exception:
-                pass
-            return ""
-        if self.host.qemu_path:
-            try:
-                out = subprocess.run([self.host.qemu_path, "-vnc", "help"],
-                                     capture_output=True, text=True, timeout=3)
-                help_text = out.stdout + out.stderr
-                if "keymap" not in help_text:
-                    return ""
-            except Exception:
-                return ""
-        try:
-            out = subprocess.run(["setxkbmap", "-query"], capture_output=True, text=True, timeout=2)
-            for line in out.stdout.splitlines():
-                if line.startswith("layout:"):
-                    lay = line.split(":", 1)[1].strip().split(",")[0].strip()
-                    if lay in qemu_keymaps:
-                        return lay
-                    if lay == "pt":
-                        return "pt-br"
-        except Exception:
-            pass
-        try:
-            import locale
-            loc = locale.getlocale()[0]
-            if loc:
-                lang = loc.replace("-", "_").split("_")[0].lower()
-                if lang in qemu_keymaps:
-                    return lang
-                if lang == "pt":
-                    return "pt-br"
-                if lang == "en":
-                    return "en-us"
-        except Exception:
-            pass
-        return ""
-
-    def _vnc_target(self, vnc_port: int) -> str:
-        if self._vnc_keymap is None:
-            self._vnc_keymap = self._detect_vnc_keymap()
+    def _vnc_target(self, vnc_port: int, head: int | None = None) -> str:
+        # Deliberadamente SIN keymap=<layout del host>: la version que
+        # funcionaba (main @ 2c7748f) no lo usaba y desalinea el teclado del
+        # menu de OpenCore en macOS. Antes se detectaba aqui el layout con un
+        # `qemu -vnc help` (timeout=3) que costaba hasta 3 s en Windows, para
+        # un valor que nunca se llegaba a añadir al comando.
         target = f"127.0.0.1:{vnc_port - 5900}"
-        if self._vnc_keymap:
-            target += f",keymap={self._vnc_keymap}"
+        if head is not None:
+            target += f",head={head}"
         return target
 
     def _find_free_port(self, start: int = 5900, end: int = 6000, exclude: set = None) -> int:
@@ -251,6 +209,46 @@ class VMRunner:
                 if s.connect_ex(("127.0.0.1", port)) != 0:
                     return port
         raise RuntimeError(f"No hay puertos libres entre {start} y {end}.")
+
+    @staticmethod
+    def _tcp_port_open(port: int) -> bool:
+        """Comprobacion no bloqueante de un puerto TCP en loopback."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.1)
+            return s.connect_ex(("127.0.0.1", int(port))) == 0
+
+    @staticmethod
+    def _wait_for_tcp_port(port: int, timeout: float = 15.0) -> bool:
+        """Espera a que QEMU publique el puerto antes de abrir el visor."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if VMRunner._tcp_port_open(port):
+                return True
+            time.sleep(0.15)
+        return False
+
+    @staticmethod
+    def _find_free_hostfwd_port(start: int = 2222, attempts: int = 200) -> int:
+        """Busca un puerto host libre para forward SSH de guests (macOS).
+
+        Comprueba tanto bind como conexión: en Windows un puerto puede estar
+        ocupado en 0.0.0.0 y aun así permitir bind en 127.0.0.1 según opciones.
+        """
+        for port in range(start, start + attempts):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.2)
+                if s.connect_ex(("127.0.0.1", port)) == 0:
+                    continue
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    # Evita falsos positivos por TIME_WAIT/reuso permisivo.
+                    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                        s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                    s.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+        raise RuntimeError(f"No hay puerto host libre desde {start} para SSH forwarding.")
 
     def _find_free_vnc_port(self, exclude: set = None) -> int:
         return self._find_free_port(5900, 6000, exclude=exclude)
@@ -404,6 +402,52 @@ class VMRunner:
             flags.append("+invtsc")
         return [f"{base}," + ",".join(flags)] if flags else [base]
 
+    @staticmethod
+    def _is_macos_vm(vm: dict) -> bool:
+        return vm.get("platform", "") == "macOS" or vm.get("so", "").lower() == "macos"
+
+    def _build_macos_cpu_args(self, vm: dict) -> list[str]:
+        """macos_cpu_model_v1: restaurado de main @ 2c7748f.
+
+        El puerto a Windows cambio 'auto' a qemu64 y añadio +invtsc y una
+        lista de flags que el codigo antiguo evitaba explicitamente
+        ("NO activar +invtsc ... bloquea snapshots"). Ese perfil deja el
+        arranque colgado en el logo de la manzana. Restauramos el modelo
+        recomendado por OSX-KVM segun la version del guest.
+        """
+        cpu_idx = vm.get("cpu_type_idx", 0)
+        base_map = {0: None, 1: "host", 2: "qemu64", 3: "Skylake-Client",
+                    4: "Haswell", 5: "Broadwell", 6: "SandyBridge", 7: "Penryn"}
+        cpu = vm.get("cpu_model") or base_map.get(cpu_idx)
+        if not cpu or cpu.lower() == "auto":
+            version = str(vm.get("version", ""))
+            if any(v in version for v in ("Sequoia", "Tahoe")):
+                cpu = "Skylake-Client,-hle,-rtm"
+            else:
+                cpu = "Penryn"
+        if cpu.lower() == "host":
+            return ["host,kvm=on"]
+        if self.host.acceleration == "kvm":
+            # Exactamente como en la version que funcionaba: sin +invtsc
+            # ni extensiones extra que bloqueen el arranque/snapshots.
+            return [cpu + ",kvm=on,vendor=GenuineIntel,vmware-cpuid-freq=on"]
+        # WHPX/HAXM/TCG: sin flags especificos de KVM.
+        return [cpu + ",vendor=GenuineIntel,check"]
+
+    def _build_macos_machine_args(self) -> list[str]:
+        """Flags de máquina específicos para macOS.
+
+        macos_pointer_ehci_v1 (main @ 2c7748f): el global ICH9-LPC se
+        aplicaba a TODO macOS, no solo a KVM. Sin el, macOS pierde el
+        bridge PCIe donde vive el controlador USB y el teclado/tablet
+        EHCI dejan de responder. Aplica igualmente bajo WHPX en Windows.
+        """
+        args = ["-global", "ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off"]
+        # Bajo WHPX/kernel_irqchip=on causa problemas con macOS.
+        if self.host.acceleration != "kvm":
+            args += ["-machine", "kernel_irqchip=off"]
+        return args
+
     def _build_memory_args(self, vm: dict, ram_mb: int, hugepages: bool, prealloc: bool) -> list[str]:
         """Construye el backend de memoria (hugepages/prealloc).
         Si el host no tiene hugepages suficientes, cae a RAM normal sin romper el arranque."""
@@ -433,9 +477,25 @@ class VMRunner:
             log.info("Backend de memoria memfd activado.")
         return ["-object", arg, "-numa", "node,memdev=mem0"]
 
+    def _spice_mouse_off(self, vm: dict) -> bool:
+        """SPICE con varios heads usa ratón relativo (agent-mouse=off)."""
+        if (vm.get("console_proto_idx") or 0) not in (1, 2) and (vm.get("console_mode_idx") or 0) != 2:
+            return False
+        return self._monitor_count(vm) > 1
+
     def _build_pointer_args(self, vm: dict) -> list[str]:
         choice = str(vm.get("pointer", "Automático (recomendado)") or "").lower()
         xhci = ["-device", "qemu-xhci,id=xhci"]
+
+        # Con agent-mouse=off, SPICE envía eventos relativos: un tablet no
+        # recibe coordenadas absolutas y el cursor se queda quieto.
+        if self._spice_mouse_off(vm):
+            if not choice or "automático" in choice or "usb tablet" in choice or "virtio tablet" in choice:
+                return xhci + ["-device", "usb-mouse,bus=xhci.0"]
+            if "usb keyboard" in choice and "tablet" in choice:
+                return xhci + ["-device", "usb-kbd,bus=xhci.0",
+                               "-device", "usb-mouse,bus=xhci.0"]
+
         if not choice or "automático" in choice:
             return xhci + ["-device", "usb-tablet,bus=xhci.0"]
         if "usb keyboard" in choice and "tablet" in choice:
@@ -463,14 +523,74 @@ class VMRunner:
             return ["-device", "sb16"]
         return ["-device", "intel-hda", "-device", "hda-duplex"]
 
+    @staticmethod
+    def _parse_initial_resolution(vm: dict) -> tuple[int, int] | None:
+        """Lee '1920x1080' de la configuración; devuelve None si no es válida."""
+        valor = str(vm.get("initial_resolution") or "").strip()
+        match = re.fullmatch(r"(\d{3,4})\s*[xX×]\s*(\d{3,4})", valor)
+        if not match:
+            return None
+        ancho, alto = int(match.group(1)), int(match.group(2))
+        if not (640 <= ancho <= 8192 and 480 <= alto <= 4320):
+            return None
+        return ancho, alto
+
+    @staticmethod
+    def _build_macos_graphics_args(vm: dict, vram_mb: int, resolucion: tuple[int, int] | None) -> list[str]:
+        """Device grapico para macOS. VGA estandar es el recomendado (idx 6).
+
+        VMware SVGA, QXL y VirtIO 2D se respetan como experimentales elegidos
+        por el usuario. 3D (VirGL/Venus) se degrada a VirtIO 2D porque macOS
+        no ofrece un contexto OpenGL y 'sin video' vuelve a VGA porque
+        OpenCore necesita un framebuffer para mostrar el selector de arranque.
+        """
+        gfx_idx = vm.get("graphics_idx", 6)
+        res = f",xres={resolucion[0]},yres={resolucion[1]}" if resolucion else ""
+        if gfx_idx == 5:
+            # VMware SVGA no acepta xres/yres en este QEMU; el invitado decide.
+            log.warning("macOS: usando VMware SVGA (experimental). Se recomienda VGA estandar (indice 6).")
+            return ["-device", f"vmware-svga,vgamem_mb={vram_mb}"]
+        if gfx_idx == 4:
+            log.warning("macOS: usando QXL (experimental). Puede dejar la pantalla en negro; se recomienda VGA estandar.")
+            return ["-device", f"qxl-vga,vgamem_mb={vram_mb}{res}"]
+        if gfx_idx in (0, 1, 2, 3):
+            if gfx_idx in (2, 3):
+                log.warning("macOS: 3D (VirGL/Venus) no aplica; usando VirtIO-GPU 2D (experimental).")
+            else:
+                log.warning("macOS: usando VirtIO-GPU 2D (experimental). Puede no inicializar; se recomienda VGA estandar.")
+            return ["-device", f"virtio-vga{res}"]
+        return ["-device", f"VGA,vgamem_mb={vram_mb}{res}"]
+
+    @staticmethod
+    def _monitor_count(vm: dict) -> int:
+        """Número de monitores virtuales, limitado a lo que QEMU soporta bien."""
+        try:
+            cantidad = int(vm.get("monitor_count", 1))
+        except (TypeError, ValueError):
+            cantidad = 1
+        return max(1, min(4, cantidad))
+
+    @staticmethod
+    def _resolution_globals(tipo: str, resolucion: tuple[int, int] | None) -> list[str]:
+        if not resolucion:
+            return []
+        ancho, alto = resolucion
+        return ["-global", f"{tipo}.xres={ancho}",
+                "-global", f"{tipo}.yres={alto}"]
+
     def _build_graphics_device_args(self, vm: dict) -> list[str]:
         if vm.get("gvtg_enabled", False):
             return ["-vga", "none"]
 
         gfx_idx = vm.get("graphics_idx", 0)
-        proto_idx = vm.get("console_proto_idx", 0)
-        mode_idx = vm.get("console_mode_idx", 0)
+        proto_idx = vm.get("console_proto_idx") or 0
+        mode_idx = vm.get("console_mode_idx") or 0
         vram_mb = [64, 128, 256, 512][vm.get("vram_idx", 0)]
+        resolucion = self._parse_initial_resolution(vm)
+        monitores = self._monitor_count(vm)
+        dispositivo_res = f",xres={resolucion[0]},yres={resolucion[1]}" if resolucion else ""
+        if monitores > 1:
+            dispositivo_res += f",max_outputs={monitores}"
 
         if IS_WINDOWS and gfx_idx in (2, 3):
             # VirGL/Venus usan /dev/dri/renderD*, que no existe en Windows.
@@ -489,29 +609,41 @@ class VMRunner:
         
         # Pantalla completa embebida: SDL en pantalla completa dentro de la ventana de la app
         if mode_idx == 4:
-            return ["-vga", "virtio", "-display", "sdl,full-screen=on"]
+            return ["-device", "virtio-vga" + dispositivo_res,
+                    "-display", "sdl,full-screen=on"]
 
         if proto_idx in (1, 2) and gfx_idx == 3:
             # Venus/Vulkan 3D con SPICE.
             # egl-headless hace que QEMU renderice en GPU sin abrir ventana.
             # SPICE transmite los frames SIN gl=on (sin DMA-BUF), evitando
             # el conflicto de contextos EGL entre QEMU y remote-viewer.
-            return ["-device", "virtio-vga-gl,venus=on,blob=on,hostmem=512M",
+            return ["-device", "virtio-vga-gl,venus=on,blob=on,hostmem=512M" + dispositivo_res,
                     "-display", f"egl-headless,rendernode={_rendernode}"]
         if proto_idx in (1, 2) and gfx_idx == 2:
             # VirGL 3D con SPICE: mismo esquema.
-            return ["-device", "virtio-vga-gl",
+            return ["-device", "virtio-vga-gl" + dispositivo_res,
                     "-display", f"egl-headless,rendernode={_rendernode}"]
             
         if proto_idx == 0 and gfx_idx in (2, 3):
-            return ["-vga", "virtio", "-display", "gtk,gl=on"]
+            # Los backends 3D usan `-device ...` para poder pasar max_outputs.
+            return ["-device", "virtio-vga-gl" + dispositivo_res,
+                    "-display", "gtk,gl=on"]
 
-        graphics_map = {
-            0: ["-vga", "virtio"], 1: ["-vga", "virtio"],
-            4: ["-vga", "qxl", "-global", f"qxl-vga.vgamem_mb={vram_mb}"],
-            5: ["-vga", "vmware"], 6: ["-vga", "std"], 7: ["-vga", "none"],
-        }
-        args = list(graphics_map.get(gfx_idx, graphics_map[0]))
+        if gfx_idx in (0, 1):
+            # Usar `-device virtio-vga,...` en vez de `-vga virtio` + globals.
+            # Los globals `virtio-vga.max_outputs` no llegan a surtir efecto en
+            # QEMU 11 de Windows y el guest solo ve un conector Virtual-1.
+            args = ["-device", "virtio-vga" + dispositivo_res]
+        elif gfx_idx == 4:
+            args = ["-vga", "qxl", "-global", f"qxl-vga.vgamem_mb={vram_mb}"]
+            args += self._resolution_globals("qxl-vga", resolucion)
+            if monitores > 1:
+                args += ["-global", f"qxl-vga.max_outputs={monitores}"]
+        else:
+            graphics_map = {
+                5: ["-vga", "vmware"], 6: ["-vga", "std"], 7: ["-vga", "none"],
+            }
+            args = list(graphics_map.get(gfx_idx, ["-vga", "std"]))
         # Con SPICE (proto 1 o 2), QEMU no debe abrir un display GTK propio.
         if proto_idx in (1, 2):
             args += ["-display", "none"]
@@ -519,15 +651,20 @@ class VMRunner:
 
     def _build_display_protocol_args(self, vm: dict, exclude_ports: set = None, gvtg_active: bool = False):
         exclude_ports = exclude_ports or set()
-        proto_idx, mode_idx = vm.get("console_proto_idx", 0), vm.get("console_mode_idx", 0)
+        proto_idx, mode_idx = vm.get("console_proto_idx") or 0, vm.get("console_mode_idx") or 0
         args, external_info = [], None
         share_clipboard = vm.get("share_clipboard", True)
+        monitores = self._monitor_count(vm)
+        # Con varios heads, el ratón de agente SPICE deja el cursor dibujándolo
+        # el invitado y puede quedarse quieto si una salida está inactiva.
+        # El cliente dibuja el cursor directamente con agent-mouse=off.
+        mouse_opt = ",agent-mouse=off" if self._spice_mouse_off(vm) else ""
 
         if gvtg_active:
             log.info("GVT-g activo: forzando SPICE con OpenGL (gl=on) para evitar problemas de VNC.")
             spice_port = self._find_free_port(5930, 6000, exclude=exclude_ports)
             exclude_ports.add(spice_port); vm["spice_port"] = spice_port
-            args.extend(["-spice", f"port={spice_port},addr=127.0.0.1,disable-ticketing=on,gl=on"])
+            args.extend(["-spice", f"port={spice_port},addr=127.0.0.1,disable-ticketing=on,gl=on{mouse_opt}"])
 
             if share_clipboard:
                 args.extend(["-device", "virtio-serial-pci", "-chardev", "spicevmc,id=vdagent,name=vdagent", "-device", "virtserialport,chardev=vdagent,name=com.redhat.spice.0"])
@@ -541,13 +678,31 @@ class VMRunner:
         need_spice = hybrid or proto_idx in (1, 2)
 
         if need_vnc:
-            vnc_port = self._find_free_vnc_port(exclude=exclude_ports)
-            exclude_ports.add(vnc_port); vm["vnc_port"] = vnc_port
-            args.extend(["-vnc", self._vnc_target(vnc_port)])
+            monitores = self._monitor_count(vm)
+            vnc_ports = []
+            for head in range(monitores):
+                vnc_port = self._find_free_vnc_port(exclude=exclude_ports)
+                exclude_ports.add(vnc_port)
+                vnc_ports.append(vnc_port)
+                args.extend(["-vnc", self._vnc_target(vnc_port, head)])
+            vm["vnc_port"] = vnc_ports[0]
+            vm["vnc_heads"] = {"head_%d" % head: port for head, port in enumerate(vnc_ports)}
             if hybrid:
-                log.info("Híbrida: servidor VNC embebido en el puerto %s", vnc_port)
-            elif mode_idx == 1: external_info = {"type": "vnc", "port": vnc_port}
-            elif mode_idx == 4: external_info = {"type": "sdl_fullscreen", "port": vnc_port}
+                log.info("Híbrida: servidores VNC embebidos en los puertos %s", vnc_ports)
+            elif mode_idx == 1:
+                # Un puerto VNC por monitor también en modo "Ventana externa":
+                # RFB no puede mostrar varios heads en una sola conexión, así
+                # que abrimos un visor por head, igual que con SPICE.
+                if monitores == 1:
+                    external_info = {"type": "vnc", "port": vnc_ports[0]}
+                else:
+                    nombre = vm.get("name") or vm.get("id") or "VM"
+                    external_info = {"type": "multi", "heads": [
+                        {"type": "vnc", "port": port, "head": head,
+                         "title": f"{nombre} · Monitor {head + 1}"}
+                        for head, port in enumerate(vnc_ports)
+                    ]}
+            elif mode_idx == 4: external_info = {"type": "sdl_fullscreen", "port": vnc_ports[0]}
 
         if not need_spice:
             return args, external_info
@@ -559,40 +714,54 @@ class VMRunner:
         gfx_idx = vm.get("graphics_idx", 0)
         gl_ok = gfx_idx in (2, 3) and not IS_WINDOWS
 
-        if remote_spice:
-            spice_port = self._find_free_port(5930, 6000, exclude=exclude_ports)
-            exclude_ports.add(spice_port); vm["spice_port"] = spice_port
-            # En Windows el servidor solo se expone en 127.0.0.1; el modo
-            # "Remoto" sigue using 0.0.0.0 porque el usuario lo eligió así.
-            addr = "127.0.0.1" if IS_WINDOWS and proto_idx != 2 else "0.0.0.0"
-            if gl_ok:
-                # Con egl-headless en _build_graphics_args, QEMU ya tiene su contexto GL.
-                # SPICE NO debe llevar gl=on (causaría "already has an OpenGL context").
-                # La aceleración 3D ocurre en egl-headless; SPICE solo transporta los frames.
-                spice_args = f"port={spice_port},addr={addr},disable-ticketing=on"
-                log.info("SPICE Remoto con aceleración 3D (VirGL) activada (egl-headless).")
-            else:
-                spice_args = f"port={spice_port},addr={addr},disable-ticketing=on"
-            external_info = {"type": "spice_remote" if proto_idx == 2 else "spice_tcp",
-                             "port": spice_port}
-        else:  # SPICE Local (socket unix)
-            sock_path = self._get_tmp_socket_path(vm.get("id", "vm"), "qemu-spice")
-            if os.path.exists(sock_path):
-                try: os.remove(sock_path)
-                except: pass
-            if gl_ok:
-                # Con egl-headless en _build_graphics_args, QEMU ya tiene su contexto GL.
-                # SPICE NO debe llevar gl=on (causaría "already has an OpenGL context").
-                # La aceleración 3D ocurre en egl-headless; SPICE solo transporta los frames.
-                spice_args = f"unix=on,addr={sock_path},disable-ticketing=on"
-                log.info("SPICE Local con aceleración 3D (VirGL) activada (egl-headless).")
-            else:
-                spice_args = f"unix=on,addr={sock_path},disable-ticketing=on"
-                if gfx_idx not in (0, 1):
-                    log.info(f"Gráfico {gfx_idx} no es 3D; SPICE se lanzará sin OpenGL.")
-            external_info = {"type": "spice_unix", "path": sock_path}
+        spice_heads = []
+        for head in range(monitores):
+            if remote_spice:
+                spice_port = self._find_free_port(5930, 6000, exclude=exclude_ports)
+                exclude_ports.add(spice_port)
+                spice_heads.append({"type": "spice_remote" if proto_idx == 2 else "spice_tcp",
+                                    "port": spice_port,
+                                    "head": head})
+                # En Windows el servidor solo se expone en 127.0.0.1; el modo
+                # "Remoto" sigue usando 0.0.0.0 porque el usuario lo eligió así.
+                addr = "127.0.0.1" if IS_WINDOWS and proto_idx != 2 else "0.0.0.0"
+                if gl_ok:
+                    # Con egl-headless en _build_graphics_args, QEMU ya tiene su contexto GL.
+                    # SPICE NO debe llevar gl=on (causaría "already has an OpenGL context").
+                    # La aceleración 3D ocurre en egl-headless; SPICE solo transporta los frames.
+                    spice_args = f"port={spice_port},addr={addr},disable-ticketing=on,head={head}{mouse_opt}"
+                    log.info("SPICE Remoto con aceleración 3D (VirGL) activada (egl-headless).")
+                else:
+                    spice_args = f"port={spice_port},addr={addr},disable-ticketing=on,head={head}{mouse_opt}"
+                if head == 0:
+                    vm["spice_port"] = spice_port
+            else:  # SPICE Local (socket unix)
+                sock_path = self._get_tmp_socket_path(
+                    vm.get("id", "vm"), "qemu-spice" if head == 0 else f"qemu-spice-{head}")
+                if os.path.exists(sock_path):
+                    try: os.remove(sock_path)
+                    except: pass
+                spice_heads.append({"type": "spice_unix", "path": sock_path, "head": head})
+                if gl_ok:
+                    # Con egl-headless en _build_graphics_args, QEMU ya tiene su contexto GL.
+                    # SPICE NO debe llevar gl=on (causaría "already has an OpenGL context").
+                    # La aceleración 3D ocurre en egl-headless; SPICE solo transporta los frames.
+                    spice_args = f"unix=on,addr={sock_path},disable-ticketing=on,head={head}{mouse_opt}"
+                    log.info("SPICE Local con aceleración 3D (VirGL) activada (egl-headless).")
+                else:
+                    spice_args = f"unix=on,addr={sock_path},disable-ticketing=on,head={head}{mouse_opt}"
+                    if gfx_idx not in (0, 1):
+                        log.info(f"Gráfico {gfx_idx} no es 3D; SPICE se lanzará sin OpenGL.")
 
-        args.extend(["-spice", spice_args])
+            args.extend(["-spice", spice_args])
+
+        if monitores == 1:
+            external_info = spice_heads[0]
+        else:
+            nombre = vm.get("name") or vm.get("id") or "VM"
+            for head_info in spice_heads:
+                head_info["title"] = f"{nombre} · Monitor {head_info['head'] + 1}"
+            external_info = {"type": "multi", "heads": spice_heads}
         if share_clipboard:
             args.extend(["-device", "virtio-serial-pci", "-chardev", "spicevmc,id=vdagent,name=vdagent", "-device", "virtserialport,chardev=vdagent,name=com.redhat.spice.0"])
 
@@ -612,8 +781,15 @@ class VMRunner:
             "-device", "virtserialport,chardev=chrgagent,name=org.qemu.guest_agent.0",
         ]
 
-    def _build_shared_folder_args(self, vm: dict) -> list[str]:
+    def _build_shared_folder_args(self, vm: dict, nic_model: str = None, solo_smb: bool = False) -> list[str]:
+        """Construye los args de carpetas compartidas.
+
+        nic_model: modelo de NIC para el netdev SMB (macOS necesita e1000, no
+        virtio-net). solo_smb: macOS no tiene drivers 9p/virtiofs, asi que
+        unicamente SMB es factible.
+        """
         args = []
+        nic_model = nic_model or "virtio-net-pci"
         shared_folders = vm.get("shared_folders", []) or []
         smb_net_index = 0
         for sh in shared_folders:
@@ -628,6 +804,9 @@ class VMRunner:
                 continue
 
             safe_tag = tag.replace(" ", "_").replace("/", "_")
+            if solo_smb and method != "SMB":
+                log.info(f"Carpeta {tag}: macOS solo admite SMB; se ignora el metodo '{method}'.")
+                method = "SMB"
             effective_method = method if method and method != "Automático" else ("VirtioFS" if self._virtiofsd_available() else "9p")
 
             if effective_method == "9p":
@@ -654,14 +833,23 @@ class VMRunner:
                         "-device", f"virtio-9p-pci,fsdev=fsdev_{safe_tag},mount_tag={safe_tag}",
                     ])
 
-            elif method == "SMB":
+            elif effective_method == "SMB":
+                # QEMU no trae servidor SMB propio: lanza el smbd de Samba
+                # del host. Si no esta instalado, el -netdev smb= hace que
+                # QEMU ni arranque, asi que omitimos la carpeta con aviso.
+                if not shutil.which("smbd"):
+                    log.warning(
+                        "Carpeta compartida omitida: QEMU necesita 'smbd' (Samba) "
+                        "en el host para SMB. Instala Samba o quita la carpeta."
+                    )
+                    continue
                 smb_id = f"smb{smb_net_index}"
                 smb_net_index += 1
                 args.extend([
                     "-netdev", f"user,id={smb_id},smb={host_path}",
-                    "-device", "virtio-net-pci,netdev=" + smb_id,
+                    "-device", f"{nic_model},netdev={smb_id}",
                 ])
-                log.info(f"Shared folder SMB: {host_path} -> netdev {smb_id}")
+                log.info(f"Shared folder SMB: {host_path} -> netdev {smb_id} ({nic_model})")
 
         return args
 
@@ -715,22 +903,49 @@ class VMRunner:
 
     def _launch_external_viewer(self, vm_id: str, info: dict):
         if not info: return None
+        if info.get("type") == "multi":
+            procesos = []
+            for head_info in info.get("heads", []):
+                proc = self._launch_external_viewer(vm_id, head_info)
+                if proc:
+                    procesos.append(proc)
+            return procesos
+        # VirtViewer no anade su carpeta al PATH: resolver tambien en
+        # "Program Files\\VirtViewer v*\\bin" y en el cache de winget.
+        viewer = find_qemu_binary("remote-viewer")
+        if not viewer:
+            log.warning("remote-viewer no encontrado (instala VirtViewer).")
+            return None
         vtype = info.get("type")
         
         if vtype == "vnc":
-            cmd = ["remote-viewer", f"vnc://127.0.0.1:{info['port']}"]
+            cmd = [viewer, f"vnc://127.0.0.1:{info['port']}"]
         elif vtype == "spice_unix":
-            cmd = ["remote-viewer", f"spice+unix://{info['path']}"]
+            cmd = [viewer, f"spice+unix://{info['path']}"]
         elif vtype in ("spice_remote", "spice_tcp"):
             # Windows/named-pipe no existe en el servidor SPICE de QEMU: el
             # transporte local equivalente es TCP en el loopback.
-            cmd = ["remote-viewer", f"spice://127.0.0.1:{info['port']}"]
+            cmd = [viewer, f"spice://127.0.0.1:{info['port']}"]
         else:
-            cmd = ["remote-viewer", f"spice://127.0.0.1:{info.get('port', 5930)}"]
+            cmd = [viewer, f"spice://127.0.0.1:{info.get('port', 5930)}"]
 
-        if not shutil.which(cmd[0]): 
-            log.warning(f"{cmd[0]} no encontrado.")
-            return None
+        if info.get("title"):
+            cmd[1:1] = ["--title", info["title"]]
+        # Ayuda al usuario a recuperar teclado/ratón cuando el visor captura la
+        # entrada. remote-viewer usa Ctrl+Alt por defecto, pero dejar el atajo
+        # explícito hace el comportamiento más predecible en Windows.
+        if "--hotkeys" not in cmd:
+            cmd[1:1] = ["--hotkeys", "release-cursor=ctrl+alt"]
+
+        # QEMU tarda un instante en publicar cada servidor SPICE/VNC. Con
+        # varios heads el segundo puerto puede abrir después del primero y
+        # remote-viewer mostraba "Unable to connect to the graphic server".
+        if vtype != "spice_unix" and info.get("port"):
+            puerto = int(info["port"])
+            if not self._wait_for_tcp_port(puerto):
+                log.warning("Puerto %s no disponible; no se abre el visor de '%s'.",
+                            puerto, vm_id)
+                return None
 
         # Con SPICE gl=on sobre socket Unix, QEMU pasa el DMA-BUF fd
         # mediante sendfd(). start_new_session=True aísla al hijo en una
@@ -769,11 +984,67 @@ class VMRunner:
         return None
 
     def _kill_external_viewer(self, vm_id: str):
-        viewer = self.active_viewers.pop(vm_id, None)
-        if viewer and viewer.poll() is None:
-            viewer.terminate()
-            try: viewer.wait(timeout=3)
-            except: viewer.kill()
+        # Al apagarse la VM no hay ventana que reabrir.
+        self._active_viewer_info.pop(vm_id, None)
+        viewers = self.active_viewers.pop(vm_id, None) or []
+        if not isinstance(viewers, (list, tuple)):
+            viewers = [viewers]
+        for viewer in viewers:
+            if viewer and viewer.poll() is None:
+                viewer.terminate()
+                try: viewer.wait(timeout=3)
+                except: viewer.kill()
+
+    def has_external_viewer(self, vm_id: str) -> bool:
+        """True si la VM en marcha tiene una ventana externa asociada."""
+        return bool(self._active_viewer_info.get(vm_id))
+
+    def reopen_viewer(self, vm_id: str) -> bool:
+        """Vuelve a abrir el visor externo cerrado por error.
+
+        QEMU sigue corriendo: solo relanzamos ``remote-viewer``/VNC con los
+        mismos puertos. No reinicia la VM ni cambia su estado.
+        """
+        if vm_id not in self.active_processes:
+            log.warning("No se puede reabrir la ventana: %s no está encendida.", vm_id)
+            return False
+
+        info = self._active_viewer_info.get(vm_id)
+        if not info:
+            log.warning("%s no tiene una ventana externa que reabrir.", vm_id)
+            return False
+
+        anteriores = self.active_viewers.pop(vm_id, None) or []
+        if not isinstance(anteriores, (list, tuple)):
+            anteriores = [anteriores]
+        vivos = [p for p in anteriores if p is not None and p.poll() is None]
+
+        # Si el visor sigue abierto, no creamos otro duplicado.
+        if vivos and info.get("type") != "multi":
+            self.active_viewers[vm_id] = vivos[0]
+            log.info("El visor de %s ya estaba abierto.", vm_id)
+            return True
+
+        # Con varios monitores puede haberse cerrado solo una ventana: cerramos
+        # las que queden y abrimos todas de nuevo, limpio y en el mismo orden.
+        for proc in vivos:
+            try: proc.terminate()
+            except Exception: pass
+
+        try:
+            viewer = self._launch_external_viewer(vm_id, info)
+        except Exception as e:
+            log.warning("Error al reabrir la ventana de %s: %s", vm_id, e)
+            viewer = None
+
+        if not viewer:
+            log.warning("No se pudo reabrir la ventana de %s.", vm_id)
+            return False
+
+        self.active_viewers[vm_id] = viewer
+        self._active_viewer_info[vm_id] = info
+        log.info("Ventana de %s reabierta sin reiniciar la VM.", vm_id)
+        return True
 
     def _get_optical_drives(self, vm: dict) -> list:
         drives = list(vm.get("optical_drives") or [])
@@ -935,18 +1206,20 @@ class VMRunner:
                 vm = dict(vm)
                 vm["gvtg_enabled"] = False
 
-        is_macos = (vm.get("platform", "") == "macOS")
+        is_macos = self._is_macos_vm(vm)
         q35 = True if is_macos else (vm.get("chipset_idx", 0) == 1)
         machine_type = "q35" if q35 else "pc"
 
         cmd = [self.host.qemu_path, "-machine", machine_type] + self.host.get_accel_args()
+        if is_macos:
+            cmd.extend(self._build_macos_machine_args())
         if not is_macos and self._is_windows_guest(vm):
             # Windows cuenta en hora local; sincronizar con clock del host
             cmd.extend(["-rtc", "base=localtime,clock=host"])
             if self.host.acceleration == "kvm":
                 # Descarta ticks perdidos del PIT: menos latencia de timer en Windows
                 cmd.extend(["-global", "kvm-pit.lost_tick_policy=discard"])
-        cmd.extend(["-cpu"] + (["Skylake-Client,-hle,-rtm,kvm=on,vendor=GenuineIntel,+invtsc,vmware-cpuid-freq=on,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,check"] if is_macos else self._build_cpu_args(vm)))
+        cmd.extend(["-cpu"] + (self._build_macos_cpu_args(vm) if is_macos else self._build_cpu_args(vm)))
 
         ram_mb = ((vm.get("ram", 4096) + 1023) // 1024) * 1024 if is_macos else vm.get("ram", 4096)
         cmd.extend(["-m", str(ram_mb)])
@@ -987,7 +1260,6 @@ class VMRunner:
             osk = "ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc"
             cmd.extend(["-device", f"isa-applesmc,osk=\"{osk}\"", "-smbios", "type=2"])
             cmd.extend(["-global", "ICH9-LPC.disable_s3=1", "-global", "ICH9-LPC.disable_s4=1"])
-            cmd.extend(["-device", "usb-ehci,id=ehci"])
 
             if disk_path and os.path.exists(disk_path):
                 cmd.extend(["-drive", f"id=MacHDD,if=none,file={disk_path},format={disk_format}", "-device", "ide-hd,bus=sata.4,drive=MacHDD"])
@@ -995,14 +1267,49 @@ class VMRunner:
             if iso_path and os.path.exists(iso_path):
                 cmd.extend(["-drive", f"id=InstallMedia,if=none,file={iso_path},format=raw", "-device", "ide-hd,bus=sata.3,drive=InstallMedia"])
 
-            cmd.extend(["-device", "ich9-intel-hda", "-device", "hda-duplex", "-device", "vmware-svga"])
-            cmd.extend(["-netdev", "user,id=net0,hostfwd=tcp::2222-:22"])
-            if any(v in vm.get("version", "") for v in ["High Sierra", "Mojave", "Catalina"]):
-                cmd.extend(["-device", "vmxnet3,netdev=net0,id=net0,mac=52:54:00:c9:18:27"])
+            cmd.extend(["-device", "ich9-intel-hda", "-device", "hda-duplex"])
+            # macos_graphics_guard_v1 (restaurado de main @ 2c7748f): la
+            # version que funcionaba usaba siempre la VGA estandar de OSX-KVM
+            # ("-device VGA,vgamem_mb=N"). El puerto cambio a vmware-svga bajo
+            # KVM, que OpenCore no inicializa bien y deja la consola en negro.
+            # main @ 2c7748f usaba 128 MB como minimo recomendado para macOS/OpenCore;
+            # con 64 MB el arranque se queda colgado en la manzana.
+            vram_mb = max(128, min(512, [64, 128, 256, 512][vm.get("vram_idx", 0)]))
+            # macos_resolution_v1: el campo "Resolución inicial" de la UI sale
+            # de las resoluciones reales de los monitores del host. Antes solo
+            # se aplicaba a QXL, asi que en macOS se guardaba sin efecto.
+            # xres/yres anuncian ese modo a la VGA estandar de OSX-KVM; con
+            # 128 MB de VRAM hay margen incluso para 4K (~33 MB/framebuffer).
+            # La resolucion se pasa TAL CUAL a xres/yres. Un intento previo de
+            # reescribir 1600x900 a 1440x900 no evito el salto a 800x600 (el
+            # tope real es el EDID que genera QEMU, no la tabla VBE), y hacia
+            # que el log no coincidiera con lo elegido en la UI. Si macOS no
+            # mantiene un modo, se prueba otro desde el menu de resoluciones.
+            resolucion = self._parse_initial_resolution(vm)
+            cmd.extend(self._build_macos_graphics_args(vm, vram_mb, resolucion))
+            if resolucion:
+                log.info("macOS: resolucion inicial %sx%s", resolucion[0], resolucion[1])
+            hostfwd = self._find_free_hostfwd_port(2222)
+            netdev = f"user,id=net0,hostfwd=tcp::{hostfwd}-:22"
+            cmd.extend(["-netdev", netdev])
+            # Bajo WHPX, e1000 es más predecible que virtio-net/vmxnet3 para el
+            # instalador/recuperación de macOS.
+            if self.host.acceleration == "kvm":
+                net_model = "vmxnet3" if any(v in vm.get("version", "") for v in ["High Sierra", "Mojave", "Catalina"]) else "virtio-net-pci"
             else:
-                cmd.extend(["-device", "virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:c9:18:27"])
+                net_model = "e1000-82545em"
+            cmd.extend(["-device", f"{net_model},netdev=net0,id=net0,mac=52:54:00:c9:18:27"])
+            log.info("macOS SSH forward: localhost:%s -> guest:22", hostfwd)
 
-            cmd.extend(["-device", "qemu-xhci,id=xhci", "-device", "usb-kbd,bus=xhci.0", "-device", "usb-tablet,bus=xhci.0", "-boot", "menu=on"])
+            # macos_pointer_ehci_v1 (restaurado de main @ 2c7748f, que
+            # funcionaba): macOS/OpenCore no inicializa bien el XHCI de QEMU;
+            # el cursor queda quieto y el teclado no responde en el menú de
+            # arranque. EHCI (USB 2.0) es lo que usa OSX-KVM por este motivo.
+            # El -global evita que macOS pierda el bridge PCIe del controlador.
+            cmd.extend(["-device", "usb-ehci,id=ehci",
+                        "-device", "usb-kbd,bus=ehci.0",
+                        "-device", "usb-tablet,bus=ehci.0",
+                        "-boot", "menu=on"])
             qmp_socket = self._get_qmp_socket_path(vm["id"])
             if IS_WINDOWS:
                 cmd.extend(["-qmp", f"{qmp_socket},server=on,wait=off"])
@@ -1013,10 +1320,43 @@ class VMRunner:
                 vm["qmp_socket"] = qmp_socket
                 cmd.extend(["-qmp", f"unix:{qmp_socket},server=on,wait=off"])
 
-            vnc_port = self._find_free_vnc_port()
-            vm["vnc_port"] = vnc_port
-            cmd.extend(["-vnc", self._vnc_target(vnc_port)])
-            vm["_pending_external_viewer"] = None
+            # SPICE habilitado tambien en macOS: segun el manual oficial de
+            # SPICE, "standard VGA is supported when no driver exists", asi
+            # que la VGA estandar de OSX-KVM se transporta por SPICE sin
+            # necesidad de driver QXL. Se respeta el protocolo y el modo
+            # elegidos por el usuario (embebida, externa, hibrida o SDL).
+            proto_idx = vm.get("console_proto_idx") or 0
+            mode_idx = vm.get("console_mode_idx") or 0
+
+            if mode_idx == 4:
+                # Pantalla completa SDL: QEMU abre su propia ventana y
+                # MainWindow no cambia a la pestaña de consola embebida.
+                cmd.extend(["-display", "sdl,full-screen=on"])
+            elif proto_idx in (1, 2):
+                # Con SPICE, QEMU no debe abrir ademas una ventana GTK propia.
+                cmd.extend(["-display", "none"])
+
+            # macOS no tiene spice-vdagent (portapapeles) y la VGA estandar
+            # solo expone un head fiable. Evitamos el canal vdagent y el
+            # raton relativo (agent-mouse=off) que _build_display_protocol_args
+            # anadiria por el numero de monitores.
+            vm_display = dict(vm)
+            vm_display["share_clipboard"] = False
+            vm_display["monitor_count"] = 1
+            proto_args, external_info = self._build_display_protocol_args(vm_display)
+            cmd.extend(proto_args)
+
+            if external_info and mode_idx != 4:
+                vm["_pending_external_viewer"] = external_info
+            else:
+                vm["_pending_external_viewer"] = None
+            for clave in ("vnc_port", "vnc_heads", "spice_port"):
+                if clave in vm_display:
+                    vm[clave] = vm_display[clave]
+
+            # macOS no tiene drivers 9p ni virtiofs: compartir carpetas solo
+            # es factible por SMB (el guest usa su cliente SMB nativo).
+            cmd.extend(self._build_shared_folder_args(vm, nic_model="e1000-82545em", solo_smb=True))
             return cmd
 
         if disk_path and os.path.exists(disk_path):
@@ -1171,15 +1511,37 @@ class VMRunner:
                     pass
             threading.Thread(target=_drain_output, args=(process, vm_id), daemon=True).start()
 
-            time.sleep(2.5)
-            if process.poll() is not None:
-                stdout, _ = process.communicate()
-                raise RuntimeError(f"QEMU falló al arrancar: {stdout.strip()}")
+            # Antes habia un sleep(2.5) fijo que retrasaba la ventana de la
+            # consola aunque QEMU ya estuviera listo. Esperamos solo a que
+            # publique su servidor (VNC/SPICE por TCP); sin servidor TCP basta
+            # un margen corto para detectar fallos inmediatos. El hilo
+            # _monitor_process avisa de cualquier fallo posterior.
+            puerto = vm.get("vnc_port") or vm.get("spice_port")
+            tope = 2.5 if puerto else 0.3
+            deadline = time.time() + tope
+            while time.time() < deadline:
+                if process.poll() is not None:
+                    stdout, _ = process.communicate()
+                    raise RuntimeError(f"QEMU falló al arrancar: {stdout.strip()}")
+                if puerto and self._tcp_port_open(puerto):
+                    break
+                time.sleep(0.05)
             self.active_processes[vm_id] = process
+            # Vigilar el proceso: si el invitado se apaga por dentro (ACPI,
+            # `shutdown`, crash...), nadie llama a stop_vm y la UI seguía
+            # creyendo que la VM estaba encendida.
+            threading.Thread(
+                target=self._monitor_process,
+                args=(vm_id, process),
+                daemon=True,
+                name=f"qemu-watch-{vm_id}",
+            ).start()
             ext_info = vm.pop("_pending_external_viewer", None)
             if ext_info:
                 viewer = self._launch_external_viewer(vm_id, ext_info)
-                if viewer: self.active_viewers[vm_id] = viewer
+                if viewer:
+                    self.active_viewers[vm_id] = viewer
+                    self._active_viewer_info[vm_id] = ext_info
 
             shared = vm.get("shared_folders", []) or []
             auto_mount = any(sh.get("mount", "").startswith("Automático") for sh in shared)
@@ -1194,6 +1556,33 @@ class VMRunner:
             log.error(f"Error lanzando QEMU: {e}")
             self._cleanup_gvtg_vgpu(vm_id)
             raise
+
+    def _monitor_process(self, vm_id: str, process: subprocess.Popen):
+        """Espera a que QEMU termine y avisa aunque nadie haya pulsado Apagar.
+
+        Solo toca el estado interno si el proceso que murió sigue siendo el
+        activo: si la VM se reinició muy rápido, un monitor antiguo no debe
+        borrar el proceso nuevo.
+        """
+        try:
+            code = process.wait()
+        except Exception as e:
+            log.debug("Error esperando a QEMU (%s): %s", vm_id, e)
+            code = -1
+
+        try:
+            if self.active_processes.get(vm_id) is not process:
+                # La VM se reinició mientras el proceso viejo terminaba: no
+                # tocar el proceso nuevo ni avisar de un apagado que ya pasó.
+                return
+            self.active_processes.pop(vm_id, None)
+            self._qmp_sockets.pop(vm_id, None)
+            self._kill_external_viewer(vm_id)
+            self._kill_virtiofsd(vm_id)
+            self._cleanup_gvtg_vgpu(vm_id)
+            self.on_process_finished(vm_id, code)
+        except Exception as e:
+            log.warning("Error limpiando tras la salida de QEMU (%s): %s", vm_id, e)
 
     def _get_qmp_socket_path(self, vm_id: str) -> str:
         """Devuelve el socket QMP asignado a esta VM (estable durante su vida)."""
@@ -1458,10 +1847,12 @@ class VMRunner:
         self._kill_external_viewer(vm_id)
         process = self.active_processes.get(vm_id)
         if process:
-            if not self._qmp_command(vm_id, "system_powerdown"): process.terminate()
-            try: process.wait(timeout=15)
-            except: process.kill()
-            del self.active_processes[vm_id]
+            if process.poll() is None:
+                if not self._qmp_command(vm_id, "system_powerdown"): process.terminate()
+                try: process.wait(timeout=15)
+                except: process.kill()
+            if self.active_processes.get(vm_id) is process:
+                self.active_processes.pop(vm_id, None)
         self._qmp_sockets.pop(vm_id, None)
 
         self._kill_virtiofsd(vm_id)
@@ -1471,22 +1862,46 @@ class VMRunner:
         self._kill_external_viewer(vm_id)
         process = self.active_processes.get(vm_id)
         if process:
-            process.kill()
-            del self.active_processes[vm_id]
+            if process.poll() is None:
+                process.kill()
+            if self.active_processes.get(vm_id) is process:
+                self.active_processes.pop(vm_id, None)
         self._qmp_sockets.pop(vm_id, None)
 
         self._kill_virtiofsd(vm_id)
         self._cleanup_gvtg_vgpu(vm_id)
 
-    def pause_vm(self, vm_id: str):
-        if not self._qmp_command(vm_id, "stop"):
-            if not IS_WINDOWS:
-                if process := self.active_processes.get(vm_id): process.send_signal(19)
+    def pause_vm(self, vm_id: str) -> bool:
+        """Pausa la VM y devuelve si QEMU aceptó el comando."""
+        process = self.active_processes.get(vm_id)
+        if process is not None and process.poll() is not None:
+            log.warning("No se puede pausar %s: QEMU ya terminó", vm_id)
+            return False
+        if self._qmp_command(vm_id, "stop"):
+            return True
+        if process is not None and not IS_WINDOWS:
+            try:
+                process.send_signal(19)  # SIGSTOP
+                return True
+            except Exception as e:
+                log.debug("SIGSTOP falló en %s: %s", vm_id, e)
+        return False
 
-    def resume_vm(self, vm_id: str):
-        if not self._qmp_command(vm_id, "cont"):
-            if not IS_WINDOWS:
-                if process := self.active_processes.get(vm_id): process.send_signal(18)
+    def resume_vm(self, vm_id: str) -> bool:
+        """Reanuda la VM y devuelve si QEMU aceptó el comando."""
+        process = self.active_processes.get(vm_id)
+        if process is not None and process.poll() is not None:
+            log.warning("No se puede reanudar %s: QEMU ya terminó", vm_id)
+            return False
+        if self._qmp_command(vm_id, "cont"):
+            return True
+        if process is not None and not IS_WINDOWS:
+            try:
+                process.send_signal(18)  # SIGCONT
+                return True
+            except Exception as e:
+                log.debug("SIGCONT falló en %s: %s", vm_id, e)
+        return False
 
     # --- HOTPLUG: CD/DVD ---
 
@@ -1557,8 +1972,11 @@ class VMRunner:
 
     def _grant_usb_access(self, bus: str, addr: str) -> tuple[bool, str]:
         if IS_WINDOWS:
-            # USB passthrough no soportado en Windows
-            return False, "USB passthrough no soportado en Windows."
+            return False, (
+                "En Windows no hay permisos de device node que conceder. "
+                "Instala WinUSB o libusbK al dispositivo con Zadig "
+                "(Options -> List All Devices) y vuelve a intentarlo."
+            )
         try:
             dev_node = f"/dev/bus/usb/{int(bus):03d}/{int(addr):03d}"
         except ValueError:
@@ -1647,12 +2065,93 @@ class VMRunner:
         log.info(f"Dispositivo USB (bus {hostbus}, addr {hostaddr}) conectado en caliente.")
         return True, "USB conectado."
 
-    def remove_usb(self, vm_id: str, hostbus: str, hostaddr: str) -> tuple[bool, str]:
+    def _usb_controller_present(self, qmp_socket: str) -> bool:
+        """Comprueba que exista el bus `xhci.0` antes de hacer device_add."""
+        resp = self._qmp_call(qmp_socket, "qom-list", {"path": "/machine/peripheral"})
+        if not resp or "return" not in resp:
+            return False
+        return any(str(item.get("name", "")).lower() == "xhci"
+                   for item in resp["return"])
+
+    def hotplug_usb_vid_pid(self, vm_id: str, vid: str, pid: str) -> tuple[bool, str]:
+        """Conecta un USB en Windows identificándolo por vendorid/productid.
+
+        En Windows no existen `hostbus`/`hostaddr`: QEMU usa libusb y el
+        dispositivo debe tener instalado el driver WinUSB/libusbK (Zadig).
+        """
         qmp_socket = self._get_qmp_socket_path(vm_id)
-        if not IS_WINDOWS and not os.path.exists(qmp_socket):
+        if (IS_WINDOWS and vm_id not in self.active_processes) or (
+                not IS_WINDOWS and not os.path.exists(qmp_socket)):
+            return False, "La VM no está en ejecución."
+        try:
+            vendorid, productid = int(str(vid), 16), int(str(pid), 16)
+        except ValueError:
+            return False, f"VID/PID inválidos: {vid}:{pid}"
+
+        if not self._usb_controller_present(qmp_socket):
+            return False, (
+                "La VM no tiene controlador USB XHCI. En Configuración VM elige "
+                "un puntero USB (por ejemplo 'USB Tablet') y reinicia la VM."
+            )
+
+        usb_id = f"usb_{vid.lower()}_{pid.lower()}"
+        args = {
+            "driver": "usb-host",
+            "id": usb_id,
+            "bus": "xhci.0",
+            "vendorid": vendorid,
+            "productid": productid,
+        }
+        resp = self._qmp_call(qmp_socket, "device_add", args)
+        log.info(f"QMP device_add {usb_id} -> {resp}")
+
+        if not (resp and "return" in resp):
+            err = (resp or {}).get("error", {}).get("desc", "Sin respuesta")
+            return False, self._usb_error_message(err)
+
+        time.sleep(0.6)
+        check = self._qmp_call(qmp_socket, "qom-list",
+                               {"path": f"/machine/peripheral/{usb_id}"})
+        if not (check and "return" in check):
+            try:
+                self._qmp_call(qmp_socket, "device_del", {"id": usb_id})
+            except Exception:
+                pass
+            return False, self._usb_error_message(
+                "QEMU no materializó el dispositivo (realized=false)")
+
+        log.info(f"USB {vid}:{pid} conectado en caliente en {vm_id}.")
+        return True, "USB conectado."
+
+    @staticmethod
+    def _usb_error_message(err: str) -> str:
+        texto = str(err)
+        bajo = texto.lower()
+        if any(pista in bajo for pista in (
+                "libusb", "permission", "denied", "failed to open",
+                "busy", "in use", "no such device", "not found",
+                "materializ", "realized")):
+            return (
+                f"Error al conectar USB: {texto}\n\n"
+                "En Windows, QEMU necesita un driver WinUSB/libusbK para el "
+                "dispositivo. Abre Zadig -> Options -> List All Devices, "
+                "selecciona el USB e instala WinUSB (o libusbK)."
+            )
+        return f"Error al conectar USB: {texto}"
+
+    def remove_usb(self, vm_id: str, hostbus: str, hostaddr: str) -> tuple[bool, str]:
+        return self._remove_usb_id(vm_id, f"usb_{hostbus}_{hostaddr}")
+
+    def remove_usb_by_id(self, vm_id: str, usb_id: str) -> tuple[bool, str]:
+        """Desconecta un USB cuyo id QMP ya conocemos (útil en Windows)."""
+        return self._remove_usb_id(vm_id, usb_id)
+
+    def _remove_usb_id(self, vm_id: str, usb_id: str) -> tuple[bool, str]:
+        qmp_socket = self._get_qmp_socket_path(vm_id)
+        if (IS_WINDOWS and vm_id not in self.active_processes) or (
+                not IS_WINDOWS and not os.path.exists(qmp_socket)):
             return False, "La VM no está en ejecución."
 
-        usb_id = f"usb_{hostbus}_{hostaddr}"
         args = {"id": usb_id}
         resp = self._qmp_call(qmp_socket, "device_del", args)
         log.info(f"QMP device_del {usb_id} -> {resp}")

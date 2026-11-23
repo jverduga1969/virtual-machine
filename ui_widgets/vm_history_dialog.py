@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QTextEdit,
 )
 from PyQt6.QtCore import Qt
+from core.i18n import tr
 
 
 CAMPOS_RESULTADOS = (
@@ -24,7 +25,7 @@ class VMHistoryDialog(QDialog):
         self.repo = repo
         self.vm_id = vm_id
         self.versiones = repo.get_history(vm_id)
-        self.setWindowTitle(f"Historial de {self._nombre_vm()}")
+        self.setWindowTitle(tr("Historial de {}").format(self._nombre_vm()))
         self.resize(720, 460)
 
         layout = QVBoxLayout(self)

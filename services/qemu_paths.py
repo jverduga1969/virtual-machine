@@ -1,9 +1,9 @@
-"""Resolución de ejecutables de QEMU en Linux y Windows.
+"""Resolución de ejecutables de QEMU y del visor en Linux y Windows.
 
-La app construye los comandos de QEMU a mano. En Windows, QEMU suele
+La app construye los comandos a mano. En Windows, QEMU y VirtViewer suelen
 instalarse sin añadir su directorio al PATH (winget, MSI o descompresión
-manual), por lo que llamar a ``subprocess.run(["qemu-img", ...])`` falla con
-``WinError 2``. Todas las llamadas deben usar :func:`qemu_cmd`.
+manual), por lo que llamar a ``subprocess.run(["remote-viewer", ...])`` falla
+con ``WinError 2``. Todas las llamadas deben usar estos resolvedores.
 """
 
 import os
@@ -76,6 +76,16 @@ def find_qemu_binary(name):
     if programdata:
         directorios.append(Path(programdata) / "chocolatey" / "bin")
 
+    # VirtViewer (winget/MSI) se instala en "VirtViewer vX.Y-YYY\\bin", fuera
+    # del PATH. Globbing porque el numero de version cambia entre releases.
+    for raiz in raices:
+        if not raiz:
+            continue
+        try:
+            directorios.extend(sorted(Path(raiz).glob("VirtViewer*/bin")))
+        except OSError:
+            pass
+
     for directorio in directorios:
         for candidato in nombres:
             ruta = directorio / candidato
@@ -87,7 +97,10 @@ def find_qemu_binary(name):
     if localappdata:
         base = Path(localappdata) / "Microsoft" / "WinGet" / "Packages"
         try:
-            paquetes = sorted(base.glob("SoftwareFreedomConservancy.QEMU_*"))
+            paquetes = sorted(
+            list(base.glob("SoftwareFreedomConservancy.QEMU_*"))
+            + list(base.glob("RedHat.VirtViewer_*"))
+        )
         except OSError:
             paquetes = []
         for paquete in paquetes:

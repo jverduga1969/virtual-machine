@@ -3,10 +3,11 @@ import time
 import platform
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QFormLayout, QFrame
+    QFormLayout, QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QPalette
+from core.i18n import tr
 
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -17,6 +18,7 @@ class RealtimeGraph(QWidget):
     def __init__(self, title, unit, max_val, color="#3b82f6"):
         super().__init__()
         self.setMinimumHeight(60)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.title = title
         self.unit = unit
         self.max_val = max_val
@@ -33,25 +35,41 @@ class RealtimeGraph(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), self.palette().window())
-        text_color = self.palette().color(QPalette.ColorRole.WindowText)
-        painter.setPen(text_color)
-        painter.drawText(5, 15, self.title)
+        rect = self.rect()
+        painter.fillRect(rect, self.palette().window())
+        fm = painter.fontMetrics()
+        margen = 6
+        valor = f"{self.current_val:.1f} {self.unit}"
+        titulo = self.title
+        titulo_ancho = fm.horizontalAdvance(titulo)
+        valor_ancho = fm.horizontalAdvance(valor)
+        ancho_visible = max(0, rect.width() - margen * 2)
+        # Ambos textos van arriba a la izquierda: "Título  12.3 %".
+        if titulo_ancho + 8 + valor_ancho > ancho_visible:
+            titulo = fm.elidedText(titulo, Qt.TextElideMode.ElideRight,
+                                   max(0, ancho_visible - valor_ancho - 8))
+
+        painter.setPen(self.palette().color(QPalette.ColorRole.WindowText))
+        painter.drawText(margen, 15, titulo)
         painter.setPen(self.color)
-        painter.drawText(self.width() - 60, 15, f"{self.current_val:.1f} {self.unit}")
+        x_valor = margen + fm.horizontalAdvance(titulo) + 8
+        painter.drawText(x_valor, 15, valor)
+
         if len(self.data) > 1:
             painter.setPen(QPen(self.color, 2))
-            w = self.width()
-            h = self.height() - 20
+            # El gráfico usa el ancho real del widget, así que se adapta al
+            # panel cuando este se hace más estrecho o más ancho.
+            w = max(1, rect.width())
+            h = max(1, rect.height() - 22)
             step = w / (len(self.data) - 1)
-            path = []
+            puntos = []
             for i, val in enumerate(self.data):
                 x = i * step
-                y = h - (val / self.max_val * h) + 20
-                path.append((x, y))
-            for i in range(len(path) - 1):
-                painter.drawLine(int(path[i][0]), int(path[i][1]),
-                                 int(path[i+1][0]), int(path[i+1][1]))
+                y = h - (max(0.0, min(val, self.max_val)) / self.max_val * h) + 20
+                puntos.append((int(x), int(y)))
+            for i in range(len(puntos) - 1):
+                painter.drawLine(puntos[i][0], puntos[i][1],
+                                 puntos[i + 1][0], puntos[i + 1][1])
         painter.end()
 
 
@@ -191,7 +209,8 @@ class ResourceMonitor(QWidget):
                                 break
                 except Exception:
                     pass
-            self.lbl_host_cpu_model.setText(f"{model} ({cores} núcleos)")
+            self.lbl_host_cpu_model.setText(
+                tr("{} ({} núcleos)").format(model, cores))
             if ram_total is not None:
                 self.lbl_host_ram_total.setText(f"{ram_total / 1024 ** 3:.1f} GB")
         except Exception:

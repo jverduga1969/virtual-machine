@@ -13,8 +13,8 @@ from services.json_store import atomic_write_json, quarantine, read_json
 
 # Datos de ejecución o exclusivos de cada VM: no van en la plantilla.
 EXCLUDED_FIELDS = frozenset({
-    "id", "name", "state", "qmp_socket", "vnc_port", "disk_path",
-    "notes", "last_used", "used_by",
+    "id", "name", "state", "qmp_socket", "vnc_port", "vnc_heads",
+    "spice_port", "disk_path", "notes", "last_used", "used_by",
 })
 ICONOS = ("📋", "🐧", "🪟", "🍎", "💻", "🎮", "🧪", "🌐")
 

@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QSplitter, QTabWidget, QLabel, QPushButton,
     QToolButton, QMessageBox, QMenu, QMenuBar,
     QLineEdit, QComboBox, QStyle, QListView, QStackedWidget, QSizePolicy,
-    QDialog, QProgressDialog
+    QDialog, QProgressDialog, QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QCursor, QIcon, QKeySequence, QAction
@@ -24,6 +24,7 @@ from services import iso_sources
 from services.download_utils import HashTracker, expected_hash
 from services.macos_recovery import MacOSDownloader
 from services.shortcuts import ShortcutStore, COMMAND_LABELS
+from ui_widgets.os_icons import os_icon
 
 log = logging.getLogger(__name__)
 
@@ -210,6 +211,11 @@ BTN_STYLE_APAGAR = """
     QToolButton:disabled { background-color: #4a4a4a; color: #8a8a8a; border: 1px solid #3a3a3a; }
     QToolButton:hover:!disabled { background-color: #d32f2f; }
 """
+BTN_STYLE_REABRIR = """
+    QToolButton { background-color: #455a64; color: white; padding: 5px; font-weight: bold; border-radius: 3px; }
+    QToolButton:disabled { background-color: #4a4a4a; color: #8a8a8a; border: 1px solid #3a3a3a; }
+    QToolButton:hover:!disabled { background-color: #546e7a; }
+"""
 
 class MainWindow(QMainWindow):
     def __init__(self, app: AppContext, plugin_manager: PluginManager):
@@ -268,6 +274,10 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _build_ui(self):
+        # Los paneles laterales ya tienen scroll propio: no hace falta que la
+        # ventana imponga la altura mínima de todos los widgets internos.
+        self.setMinimumHeight(420)
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
@@ -327,6 +337,10 @@ class MainWindow(QMainWindow):
         pl_layout.addWidget(self.combo_group)
 
         self.list_vms = QListWidget()
+        self.list_vms.setIconSize(QSize(30, 30))
+        # Altura mínima para que, en pantallas bajas, aparezca la barra de
+        # desplazamiento del panel en vez de superponer los combos y botones.
+        self.list_vms.setMinimumHeight(240)
         self.list_vms.currentItemChanged.connect(self._on_vm_selected)
         self.list_vms.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list_vms.customContextMenuRequested.connect(self._show_vm_context_menu)
@@ -363,8 +377,8 @@ class MainWindow(QMainWindow):
         self.btn_pausa.setToolTip("Pausar o reanudar la máquina virtual seleccionada")
         self.menu_pausa = QMenu(self.btn_pausa)
         self.menu_pausa.setStyleSheet(estilo_menu)
-        self.menu_pausa.addAction("⏸ Pausar", self._action_pause)
-        self.menu_pausa.addAction("▶ Reanudar", self._action_resume)
+        self._accion_pausar = self.menu_pausa.addAction("⏸ Pausar", self._action_pause)
+        self._accion_reanudar = self.menu_pausa.addAction("▶ Reanudar", self._action_resume)
         self.btn_pausa.setMenu(self.menu_pausa)
         self.btn_pausa.clicked.connect(self._action_pause)
 
@@ -375,12 +389,20 @@ class MainWindow(QMainWindow):
         self.btn_apagar.setToolTip("Apagar, forzar apagado o reiniciar la máquina virtual seleccionada")
         self.menu_apagar = QMenu(self.btn_apagar)
         self.menu_apagar.setStyleSheet(estilo_menu)
-        self.menu_apagar.addAction("⏹ Apagar (ACPI)", self._action_stop)
-        self.menu_apagar.addAction("⏻ Forzar apagado", self._action_force_stop)
-        self.menu_apagar.addAction("🔄 Reiniciar", self._action_reboot)
-        self.menu_apagar.addAction("⟲ Forzar reinicio", self._action_force_reboot)
+        self._accion_apagar = self.menu_apagar.addAction("⏹ Apagar (ACPI)", self._action_stop)
+        self._accion_forzar_apagar = self.menu_apagar.addAction("⏻ Forzar apagado", self._action_force_stop)
+        self._accion_reiniciar = self.menu_apagar.addAction("🔄 Reiniciar", self._action_reboot)
+        self._accion_forzar_reiniciar = self.menu_apagar.addAction("⟲ Forzar reinicio", self._action_force_reboot)
         self.btn_apagar.setMenu(self.menu_apagar)
         self.btn_apagar.clicked.connect(self._action_stop)
+
+        self.btn_reabrir = QToolButton()
+        self.btn_reabrir.setText("🖥")
+        self.btn_reabrir.setToolTip(
+            "Volver a abrir la ventana de la VM si se cerró por error (sin reiniciarla)"
+        )
+        self.btn_reabrir.setStyleSheet(BTN_STYLE_REABRIR)
+        self.btn_reabrir.clicked.connect(self._action_reopen_window)
 
         btn_group = QWidget()
         btn_group_layout = QHBoxLayout(btn_group)
@@ -392,6 +414,13 @@ class MainWindow(QMainWindow):
             )
             btn.setMinimumHeight(36)
             btn_group_layout.addWidget(btn)
+        # Botón compacto: los otros tres necesitan espacio para sus etiquetas.
+        self.btn_reabrir.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+        )
+        self.btn_reabrir.setMinimumWidth(40)
+        self.btn_reabrir.setMinimumHeight(36)
+        btn_group_layout.addWidget(self.btn_reabrir)
         control_layout.addWidget(btn_group)
         pl_layout.addLayout(control_layout)
 
@@ -435,7 +464,17 @@ class MainWindow(QMainWindow):
         pw_layout.addWidget(btn_welcome_create)
         pw_layout.addStretch()
 
-        self.left_stack.addWidget(self.page_list)
+        # El panel izquierdo se desplaza entero cuando la ventana es baja:
+        # así ningún campo queda tapado por los botones inferiores.
+        self.left_scroll = QScrollArea()
+        self.left_scroll.setObjectName("left_panel_scroll")
+        self.left_scroll.setWidgetResizable(True)
+        self.left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.left_scroll.setWidget(self.page_list)
+
+        self.left_stack.addWidget(self.left_scroll)
         self.left_stack.addWidget(self.page_welcome)
         left_layout.addWidget(self.left_stack)
 
@@ -482,7 +521,16 @@ class MainWindow(QMainWindow):
         right_layout.addLayout(right_header)
 
         self.resource_monitor = ResourceMonitor(self.app)
-        right_layout.addWidget(self.resource_monitor)
+        # El monitor tiene 8 gráficos con altura mínima: en pantallas bajas
+        # debe poder desplazarse en vez de recortarse.
+        self.right_scroll = QScrollArea()
+        self.right_scroll.setObjectName("right_panel_scroll")
+        self.right_scroll.setWidgetResizable(True)
+        self.right_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.right_scroll.setWidget(self.resource_monitor)
+        right_layout.addWidget(self.right_scroll)
 
         self.right_strip = QWidget()
         self.right_strip.setFixedWidth(16)
@@ -538,12 +586,27 @@ class MainWindow(QMainWindow):
                 self._right_saved_width = sizes[2]
                 self._settings.setValue("layout/right_width", self._right_saved_width)
 
+    def _set_vm_action_states(self, state: str):
+        """Los menús desplegables siguen al estado real de la VM."""
+        acciones = {
+            self._accion_pausar: state == "Running",
+            self._accion_reanudar: state == "Paused",
+            self._accion_apagar: state in ("Running", "Paused", "Apagando..."),
+            self._accion_forzar_apagar: state in ("Running", "Paused", "Apagando..."),
+            self._accion_reiniciar: state in ("Running", "Paused"),
+            self._accion_forzar_reiniciar: state in ("Running", "Paused"),
+        }
+        for accion, habilitada in acciones.items():
+            accion.setEnabled(habilitada)
+
     def _update_buttons_state(self):
         current = self.list_vms.currentItem()
         if not current:
             self.btn_iniciar.setEnabled(False)
             self.btn_pausa.setEnabled(False)
             self.btn_apagar.setEnabled(False)
+            self.btn_reabrir.setEnabled(False)
+            self._set_vm_action_states("Apagada")
             return
 
         vm_id = current.data(Qt.ItemDataRole.UserRole)
@@ -552,11 +615,21 @@ class MainWindow(QMainWindow):
             self.btn_iniciar.setEnabled(False)
             self.btn_pausa.setEnabled(False)
             self.btn_apagar.setEnabled(False)
+            self.btn_reabrir.setEnabled(False)
+            self._set_vm_action_states("Apagada")
             return
 
         state = vm.get("state", "Apagada")
+        # Solo se puede reabrir si hay una ventana externa asociada a una VM
+        # encendida. Con VNC embebido el botón queda desactivado.
+        self.btn_reabrir.setEnabled(self.app.can_reopen_window(vm_id))
 
-        if state == "Running":
+        if state == "Apagando...":
+            self.btn_iniciar.setEnabled(False)
+            self.btn_pausa.setEnabled(False)
+            self.btn_pausa.setText(self.app.tr("⏸ Pausar"))
+            self.btn_apagar.setEnabled(False)
+        elif state == "Running":
             self.btn_iniciar.setEnabled(False)
             self.btn_pausa.setEnabled(True)
             self.btn_pausa.setText(self.app.tr("⏸ Pausar"))
@@ -571,6 +644,7 @@ class MainWindow(QMainWindow):
             self.btn_pausa.setEnabled(False)
             self.btn_pausa.setText(self.app.tr("⏸ Pausar"))
             self.btn_apagar.setEnabled(False)
+        self._set_vm_action_states(state)
 
     def _on_state_changed(self, vm_id: str, state: str):
         self._update_buttons_state()
@@ -620,6 +694,10 @@ class MainWindow(QMainWindow):
             action_resume = menu.addAction("▶ Reanudar")
             action_resume.triggered.connect(self._action_resume)
 
+            if self.app.can_reopen_window(vm_id):
+                action_reabrir = menu.addAction("🖥 Reabrir ventana de la VM")
+                action_reabrir.triggered.connect(lambda: self._reopen_window(vm_id))
+
             action_hotplug = menu.addAction("🔌 Conectar Hardware (Hotplug)")
             action_hotplug.triggered.connect(lambda: self._open_hotplug(vm_id))
 
@@ -636,6 +714,10 @@ class MainWindow(QMainWindow):
         elif state == "Running":
             action_pause = menu.addAction("⏸ Pausar")
             action_pause.triggered.connect(self._action_pause)
+
+            if self.app.can_reopen_window(vm_id):
+                action_reabrir = menu.addAction("🖥 Reabrir ventana de la VM")
+                action_reabrir.triggered.connect(lambda: self._reopen_window(vm_id))
 
             action_hotplug = menu.addAction("🔌 Conectar Hardware (Hotplug)")
             action_hotplug.triggered.connect(lambda: self._open_hotplug(vm_id))
@@ -678,6 +760,20 @@ class MainWindow(QMainWindow):
             self._open_hotplug(vm_id)
         else:
             QMessageBox.warning(self, "Sin selección", "Selecciona una VM primero.")
+
+    def _reopen_window(self, vm_id):
+        if not vm_id:
+            QMessageBox.warning(self, "Sin selección", "Selecciona una VM primero.")
+            return
+        if not self.app.reopen_vm_window(vm_id):
+            QMessageBox.information(
+                self, "No se puede reabrir",
+                "La VM no está encendida o no tiene una ventana externa "
+                "(SPICE/VNC) asociada."
+            )
+
+    def _action_reopen_window(self):
+        self._reopen_window(self._get_current_vm_id())
 
     def _action_delete_vm(self):
         current = self.list_vms.currentItem()
@@ -785,7 +881,7 @@ class MainWindow(QMainWindow):
                 item.setData(Qt.ItemDataRole.UserRole, vm["id"])
                 item.setData(Qt.ItemDataRole.UserRole + 1, vm["name"].lower())
                 item.setData(Qt.ItemDataRole.UserRole + 2, vm.get("state", "Apagada"))
-                item.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
+                item.setIcon(os_icon(vm.get("platform")))
                 if vm.get("state") == "Running":
                     item.setForeground(Qt.GlobalColor.green)
                 self.list_vms.addItem(item)
@@ -922,7 +1018,7 @@ class MainWindow(QMainWindow):
             return
 
         self.app.start_vm(vm_id)
-        mode_idx = vm.get("console_mode_idx", 0)
+        mode_idx = vm.get("console_mode_idx") or 0
         if mode_idx != 4:
             self._goto_tab("Consola Gráfica")
 
@@ -934,7 +1030,8 @@ class MainWindow(QMainWindow):
         self.progress_dlg.show()
 
         dest_dir = self.app.isos_dir / "macos"
-        self.macos_downloader = MacOSDownloader(vm.get("version", "Ventura (13) ⭐ [ÓPTIMO]"), dest_dir, self.app.data_dir)
+        version_label = vm.get("version_id") or vm.get("version") or "Ventura (13) ⭐ [ÓPTIMO]"
+        self.macos_downloader = MacOSDownloader(version_label, dest_dir, self.app.data_dir)
 
         def on_progress(msg):
             if "\n" in msg:
@@ -971,7 +1068,7 @@ class MainWindow(QMainWindow):
         ver = vm.get('version', '')
         dlg = self.progress_dlg = QProgressDialog(
             f"Preparando descarga para {so} {ver}...", "Cancelar", 0, 100, self)
-        dlg.setWindowTitle(f"Descargando {vm_name}")
+        dlg.setWindowTitle(self.app.tr("Descargando {}").format(vm_name))
         dlg.setWindowModality(Qt.WindowModality.WindowModal)
         dlg.setAutoClose(False)
         dlg.show()  # antes no se mostraba: no había feedback de progreso
@@ -1090,6 +1187,7 @@ class MainWindow(QMainWindow):
             cmd("new_vm", self._create_new_vm),
             cmd("start_vm", self._action_start),
             cmd("stop_vm", self._action_stop),
+            cmd("reopen_window", self._action_reopen_window),
             cmd("history", lambda: self._call_plugin("Dashboard", "_show_history")),
             cmd("from_template", lambda: self._call_plugin("Dashboard", "_new_from_template")),
             cmd("save_template", lambda: self._call_plugin("Dashboard", "_save_as_template")),

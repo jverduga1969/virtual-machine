@@ -7,6 +7,8 @@ import logging
 import platform
 from typing import List, Dict, Any
 
+from .qemu_paths import find_qemu_binary
+
 log = logging.getLogger(__name__)
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -90,22 +92,18 @@ def find_ovmf_windows() -> str | None:
 
 
 def _windows_accel_status(qemu_bin: str | None) -> tuple[str, str]:
-    """Comprueba de verdad qué acelerador acepta QEMU en Windows."""
+    """Comprueba de verdad qué acelerador hay disponible en Windows."""
+    from services.host_adapter import qemu_accepts_accel, windows_whpx_available
+
+    # `-machine none` no sirve para sondear WHPX en QEMU x86: termina con un
+    # assert antes de inicializar el acelerador. Preguntar a WinHV es fiable.
+    if windows_whpx_available():
+        return "ok", "WHPX disponible (comprobado)"
     if not qemu_bin:
         return "err", "QEMU no encontrado en el PATH"
-    for accel in ("whpx", "hax", "tcg"):
-        try:
-            resultado = subprocess.run(
-                [qemu_bin, "-accel", accel, "-machine", "none",
-                 "-display", "none", "-monitor", "none", "-serial", "none"],
-                capture_output=True, text=True, timeout=8)
-            if resultado.returncode == 0:
-                if accel == "whpx":
-                    return "ok", "WHPX disponible (comprobado)"
-                return "warn", f"WHPX no disponible; se usará {accel.upper()}"
-        except Exception as e:
-            return "warn", f"No se pudo comprobar WHPX: {e}"
-    return "warn", "No se pudo comprobar ningún acelerador"
+    if qemu_accepts_accel(qemu_bin, "hax"):
+        return "warn", "WHPX no disponible; se usará HAX"
+    return "warn", "WHPX no disponible; se usará TCG (emulación lenta)"
 
 
 def _is_windows_admin() -> bool:
@@ -178,7 +176,7 @@ class HostDiagnostics:
             checks.append({"cat": "Consola", "name": "Visor SPICE externo", "st": "ok" if shutil.which("remote-viewer") else "warn", "desc": shutil.which("remote-viewer") or "No instalado"})
         else:
             vnc = shutil.which("vncviewer.exe") or shutil.which("vncviewer")
-            spice = shutil.which("remote-viewer.exe") or shutil.which("remote-viewer")
+            spice = find_qemu_binary("remote-viewer")
             checks.append({"cat": "Consola", "name": "Visor VNC externo",
                            "st": "ok" if vnc else "warn", "desc": vnc or "TigerVNC para Windows"})
             checks.append({"cat": "Consola", "name": "Visor SPICE externo",

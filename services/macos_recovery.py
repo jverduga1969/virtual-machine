@@ -23,6 +23,40 @@ MACOS_VERSIONS_MAP = {
     "Tahoe": "9",
 }
 
+
+def resolve_macos_version_label(version_label: str) -> str:
+    """Acepta etiqueta visible, nombre corto o id guardado por la UI."""
+    raw = str(version_label or "").strip()
+    if not raw:
+        return "Ventura (13) ⭐ [ÓPTIMO]"
+    if raw in MACOS_VERSIONS_MAP:
+        return raw
+
+    normalized = re.sub(r"[^\w\s.-]", "", raw)
+    normalized = re.sub(r"\s+", " ", normalized).strip().lower()
+    aliases = {
+        "big sur": "Big Sur (11.7)",
+        "bigsur": "Big Sur (11.7)",
+        "monterey": "Monterey (12.6)",
+        "ventura": "Ventura (13) ⭐ [ÓPTIMO]",
+        "sonoma": "Sonoma (14)",
+        "sequoia": "Sequoia (15)",
+        "tahoe": "Tahoe",
+        "macos": "Ventura (13) ⭐ [ÓPTIMO]",
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+
+    for label in MACOS_VERSIONS_MAP:
+        etiqueta = re.sub(r"[^\w\s.-]", "", label)
+        etiqueta = re.sub(r"\s+", " ", etiqueta).strip().lower()
+        nombre = etiqueta.split("(")[0].strip()
+        if normalized == etiqueta or normalized == nombre:
+            return label
+        if nombre and nombre in normalized:
+            return label
+    return raw
+
 class MacOSDownloader(QObject):
     progress = pyqtSignal(str)
     finished = pyqtSignal(str)
@@ -30,19 +64,26 @@ class MacOSDownloader(QObject):
     
     def __init__(self, version_label, dest_dir, data_dir):
         super().__init__()
-        self.version_label = version_label
+        self.version_label = resolve_macos_version_label(version_label)
         self.dest_dir = Path(dest_dir)
         self.data_dir = Path(data_dir)
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
 
     def _get_safe_name(self):
-        """Limpia el nombre de la versión para usarlo en el archivo (ej. 'Big_Sur_11.7')"""
-        # Elimina emojis, corchetes y caracteres no alfanuméricos (deja letras, números, espacios y guiones)
-        safe = re.sub(r'[^\w\s-]', '', self.version_label)
-        # Reemplaza espacios por guiones bajos y quita espacios extra
-        safe = re.sub(r'\s+', '_', safe.strip())
-        return safe
+        """Nombre estable por versión para no mezclar ISOs de macOS.
+
+        Ejemplos: Big Sur (11.7) -> BigSur, Mojave -> Mojave.
+        """
+        nombre = str(self.version_label or "")
+        # Quita paréntesis, emojis y sufijos como "⭐ [ÓPTIMO]".
+        nombre = re.sub(r"\(.*?\)", "", nombre)
+        nombre = re.sub(r"[^\w\s-]", "", nombre)
+        nombre = re.sub(r"\s+", " ", nombre).strip()
+        if not nombre:
+            return "macOS"
+        # "Big Sur" -> "BigSur", "Mac OS X" queda raro pero no ocurre aquí.
+        return "".join(part.capitalize() for part in re.split(r"[\s_-]+", nombre) if part)
 
     def start(self):
         # El archivo oficial es un .img en RAW, no qcow2. Ahora usamos el nombre de la versión.

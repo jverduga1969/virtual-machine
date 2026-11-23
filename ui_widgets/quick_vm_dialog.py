@@ -442,7 +442,7 @@ class QuickVMDialog(QDialog):
         ver_id = self.combo_version.currentData() or self.combo_version.currentText()
 
         if platform == "macOS":
-            self._start_macos_download(vm_id, disk_path, so)
+            self._start_macos_download(vm_id, disk_path, ver_id or so)
             return
 
         url = None
@@ -500,8 +500,10 @@ class QuickVMDialog(QDialog):
                 try: dest_path.unlink()
                 except: pass
 
-        self.progress_dlg = QProgressDialog(f"Descargando {filename}...", "Cancelar", 0, 100, self)
-        self.progress_dlg.setWindowTitle(f"Descargando {filename}")
+        self.progress_dlg = QProgressDialog(
+            self.app.tr("Descargando {}...").format(filename), "Cancelar", 0, 100, self)
+        self.progress_dlg.setWindowTitle(
+            self.app.tr("Descargando {}").format(filename))
         self.progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress_dlg.setAutoClose(False)
         
@@ -582,6 +584,8 @@ class QuickVMDialog(QDialog):
             "firmware_idx": self.selected_profile["firmware_idx"],
             "chipset_idx": self.selected_profile["chipset_idx"],
             "graphics_idx": self.selected_profile["graphics_idx"],
+            "initial_resolution": "",
+            "monitor_count": 1,
             "secure_boot": self.selected_profile["secure_boot"],
             "tpm": self.selected_profile["tpm"],
             "disk_path": str(disk_path),

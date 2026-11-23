@@ -6,6 +6,7 @@ licensed under GPLv3
 """
 
 import logging
+import platform
 import time
 
 from PyQt6.QtCore import (
@@ -53,6 +54,7 @@ class QVNCWidget(QWidget, RFBClient):
         self.frontbuffer: QImage = None
 
         self.setMouseTracking(not self.readOnly)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(1, 1) # make window scalable
 
         self.mouseButtonMask = 0
@@ -322,15 +324,15 @@ class QVNCWidget(QWidget, RFBClient):
         return 0
 
     def _send_key(self, ev: QKeyEvent, down: int):
-        """Envia la tecla usando QEMU Extended Key Event (keycode evdev directo,
-        si el server lo soporta) o fallback a keysyms RFB clasicos."""
-        keysym = self._qt_key_to_keysym(ev)
-        if getattr(self, "ext_key_event_supported", False):
-            keycode = self._qt_key_to_evdev(ev)
-            if keycode:
-                self.extKeyEvent(down, keysym, keycode)
-                return
-        self.keyEvent(keysym, down=down)
+        """Enviar siempre keysyms RFB clasicos.
+
+        main @ 2c7748f (version que funcionaba) usaba solo keyEvent(keysym).
+        El port a Windows anadio QEMU Extended Key Event con keycodes evdev
+        (nativeScanCode()-8); en macOS/OpenCore esos keycodes no coinciden y
+        el menu de arranque no recibe las teclas. Restauramos el comportamiento
+        original que funcionaba.
+        """
+        self.keyEvent(self._qt_key_to_keysym(ev), down=down)
 
     def focusNextPrevChild(self, _next: bool) -> bool:
         return False

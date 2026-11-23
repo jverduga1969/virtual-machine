@@ -244,6 +244,7 @@ _register(
   <li><b>Híbrida</b> — VNC embebida + SPICE en ventana externa.</li>
   <li><b>Pantalla completa</b> — VNC embebida que entra en pantalla completa al arrancar.</li>
 </ul>
+<p>Si cierras por error la ventana externa de SPICE/VNC, usa el botón <b>🖥</b> del panel de máquinas, el menú contextual de la VM o <b>F7</b> para volver a abrirla. La VM sigue encendida: no hay que reiniciarla.</p>
 <h3>Atajos del visor</h3>
 <ul>
   <li><b>F11</b> — alterna pantalla completa.</li>
@@ -318,6 +319,16 @@ _register(
   <li>Verifica el <b>protocolo</b> y el <b>modo de consola</b> en <b>Configuración VM → Pantalla</b>.</li>
   <li>Si el modo es externo, la imagen aparece en una ventana aparte del sistema.</li>
 </ul>
+<h2>Quiero la resolución de mi monitor dentro de la VM</h2>
+<p>En <b>Configuración VM → Pantalla</b> hay un campo <b>Resolución inicial</b> con las resoluciones reales de tus monitores. Se pasa a QEMU como <code>xres/yres</code> de la GPU virtual. Si además quieres que el guest siga el tamaño de la ventana, elige <b>Red Hat QXL 2D</b>, pon la VRAM en 128/256 MB, usa SPICE externa e instala <code>spice-vdagent</code> dentro del invitado.</p>
+<h2>Varias pantallas virtuales</h2>
+<p>En <b>Configuración VM → Pantalla</b> puedes elegir entre <b>1 y 4 monitores virtuales</b>. QEMU expone cada monitor como una salida independiente (<code>max_outputs</code>) y abre un servidor VNC/SPICE por cabeza.</p>
+<ul>
+  <li>Con <b>VNC embebido</b>, aparecen los botones <b>◀ Monitor / Monitor ▶</b> en la barra de la consola para cambiar de pantalla sin reconectar a mano.</li>
+  <li>Con <b>VNC en ventana externa</b>, se abre una ventana de <code>remote-viewer</code> por monitor, cada una con su título.</li>
+  <li>Con <b>SPICE externa</b>, se abre una ventana de <code>remote-viewer</code> por monitor, cada una con su título. Con varios monitores se desactiva el ratón de agente (<code>agent-mouse=off</code>) y los tablets se convierten en <b>USB Mouse</b>, porque SPICE envía movimientos relativos y un tablet solo entiende coordenadas absolutas.</li>
+  <li>Dentro del invitado debes activar los monitores extra en su configurador de pantalla (o <code>xrandr</code>/<code>display</code> en Linux) y aumentar la VRAM si vas a usar resoluciones altas.</li>
+</ul>
 <h2>La descarga de ISO falla</h2>
 <p>Microsoft bloquea la descarga automática de Windows: avisa la aplicación y hay que descargar la ISO manualmente desde su web. Para el resto de sistemas, si la descarga se interrumpe, vuelve a iniciar la VM: se reintentará.</p>
 <h2>Una VM queda en estado raro ("Apagando..." eterno)</h2>
@@ -325,7 +336,7 @@ _register(
 <h2>No hay sonido</h2>
 <p>Elige un dispositivo de audio en <b>Configuración VM → Dispositivos</b> (Intel HDA es el recomendado) y comprueba que el host tenga PulseAudio o PipeWire (<code>pactl</code>).</p>
 <h2>Los USB no aparecen en la VM</h2>
-<p>Instala las reglas udev (botón <b>🛠️ Reparar lo que falte</b> en <b>Configuración Host</b>) y vuelve a enchufar el dispositivo. El passthrough USB usa <code>usb-host</code> sobre XHCI.</p>
+<p>En Linux instala las reglas udev (botón <b>🛠️ Reparar lo que falte</b> en <b>Configuración Host</b>) y vuelve a enchufar el dispositivo. En Windows usa <b>🔌 Conectar Hardware (Hotplug) → Dispositivos USB</b>: QEMU necesita el driver <code>WinUSB/libusbK</code> (instalado con Zadig) y un puntero USB en Configuración VM para crear el bus XHCI. En ambos casos el passthrough USB usa <code>usb-host</code>.</p>
 <h2>Las carpetas compartidas no se montan</h2>
 <p>Instala <b>QEMU Guest Agent</b> dentro del sistema invitado y activa el canal en <b>Configuración VM → Compartición → Guest Tools</b>.</p>
 <h2>Algo más falla</h2>
@@ -433,7 +444,7 @@ class Plugin(PluginBase):
         # --- Cabecera ---
         header = QHBoxLayout()
         titles = QVBoxLayout()
-        lbl_title = QLabel(f"<h2>{APP_NAME} — Ayuda</h2>")
+        lbl_title = QLabel(tr("<h2>{} — Ayuda</h2>").format(APP_NAME))
         lbl_title.setTextFormat(Qt.TextFormat.RichText)
         titles.addWidget(lbl_title)
         titles.addWidget(QLabel(f"<span class='muted'>Versión {APP_VERSION} · documentación del sistema</span>"))

@@ -1,4 +1,5 @@
 import uuid
+import json
 import os
 import platform
 import sys
@@ -18,7 +19,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget, QGroupBox,
     QApplication, QProgressDialog, QAbstractItemView
 )
-from PyQt6.QtGui import QStandardItemModel
+from PyQt6.QtGui import QStandardItemModel, QGuiApplication
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QEventLoop
 from core.plugin_base import PluginBase
 from core.i18n import original_key, tr
@@ -33,6 +34,44 @@ from services.download_utils import HashTracker, save_checksum
 from ui_widgets.media_library_dialog import MediaLibraryDialog
 
 IS_WINDOWS = platform.system() == "Windows"
+
+# psutil.cpu_percent() devuelve 0.0 en la primera llamada: hay que "cebarlo".
+_CPU_PERCENT_PRIMED = False
+
+COLOR_OK = "#1b7f3a"
+COLOR_WARN = "#b26a00"
+COLOR_BAD = "#c62828"
+COLOR_UNKNOWN = "#666666"
+
+
+def _host_resolutions():
+    """Resoluciones reales de los monitores del host, de mayor a menor.
+
+    Devuelve una lista de ((ancho, alto), etiqueta). Se incluyen geometry y
+    availableGeometry porque en Windows la barra de tareas reduce la segunda.
+    """
+    encontradas = {}
+    try:
+        pantallas = list(QGuiApplication.screens())
+    except Exception:
+        pantallas = []
+    for numero, pantalla in enumerate(pantallas, 1):
+        for geometria in (pantalla.geometry(), pantalla.availableGeometry()):
+            size = geometria.size()
+            ancho, alto = size.width(), size.height()
+            if ancho >= 640 and alto >= 480:
+                encontradas.setdefault((ancho, alto), numero)
+
+    if not encontradas:  # headless / tests sin pantalla
+        return [((1920, 1080), "1920×1080 (típica)"),
+                ((1366, 768), "1366×768 (típica)"),
+                ((1280, 720), "1280×720 (típica)")]
+
+    ordenadas = sorted(encontradas.items(),
+                       key=lambda item: item[0][0] * item[0][1], reverse=True)
+    return [((ancho, alto), f"{ancho}×{alto} (monitor {numero})")
+            for (ancho, alto), numero in ordenadas]
+
 
 # Claves estables para el tipo de dispositivo. El texto visible se traduce,
 # pero la lógica nunca debe comparar textos traducidos.
@@ -219,9 +258,152 @@ def scan_pci_devices():
     return devices
 
 
+_USB_VENDORS_WIN = {
+    "0458": "Genius", "03F0": "HP", "046D": "Logitech", "0781": "SanDisk",
+    "0BDA": "Realtek", "0951": "Kingston", "090C": "Silicon Motion",
+    "13FE": "Phison", "8087": "Intel",
+}
+
+# Windows devuelve nombres genéricos para casi todo: no aportan al usuario.
+_GENERIC_USB_NOMBRES_WIN = {
+    "usb input device", "usb composite device", "usb device",
+    "usb mass storage device", "hid keyboard device", "hid-compliant mouse",
+    "hid-compliant device", "hid-compliant vendor-defined device",
+    "hid-compliant system controller", "hid-compliant consumer control device",
+    "generic usb hub", "usb hub", "usb root hub", "unknown usb device",
+}
+
+
+def _usb_categoria_win(nombres, clases):
+    """Devuelve (emoji, categoría) en español a partir de PnP class/FriendlyName."""
+    texto = " ".join(list(nombres) + list(clases)).lower()
+    teclado = any(x in texto for x in ("keyboard", "teclado"))
+    raton = any(x in texto for x in ("mouse", "ratón", "raton"))
+    if teclado and raton:
+        return "⌨️🖱️", "Teclado y ratón"
+    if teclado:
+        return "⌨️", "Teclado"
+    if raton:
+        return "🖱️", "Ratón"
+    if any(x in texto for x in ("camera", "webcam", "imaging", "cámara")):
+        return "📷", "Cámara"
+    if "bluetooth" in texto:
+        return "📶", "Bluetooth"
+    if any(x in texto for x in ("audio", "sound", "speaker", "microphone")):
+        return "🎧", "Audio"
+    if any(x in texto for x in ("mass storage", "storage", "disk", "pendrive")):
+        return "💾", "Almacenamiento"
+    if any(x in texto for x in ("printer", "impresora")):
+        return "🖨️", "Impresora"
+    if "hid" in texto:
+        return "🎮", "Dispositivo de entrada"
+    return "🔌", "Dispositivo USB"
+
+
+def _usb_nombre_amigable_win(vid, pid, nombres, clases):
+    """Convierte 'HID-compliant device' en algo que un usuario entienda."""
+    emoji, categoria = _usb_categoria_win(nombres, clases)
+    utiles = []
+    for nombre in nombres:
+        n = nombre.strip()
+        if n and n.lower() not in _GENERIC_USB_NOMBRES_WIN and n not in utiles:
+            utiles.append(n)
+    detalle = utiles[0] if utiles else ""
+    fabricante = _USB_VENDORS_WIN.get(vid, "")
+
+    if detalle and categoria.lower() in detalle.lower():
+        texto = f"{emoji} {detalle}"
+    elif detalle:
+        prefijo = f"{categoria} {fabricante}".strip()
+        texto = f"{emoji} {prefijo} · {detalle}"
+    else:
+        texto = f"{emoji} {categoria} {fabricante}".strip()
+    return f"{texto} ({vid}:{pid})"
+
+
+def _scan_usb_devices_windows():
+    """Enumera USB por VID/PID en Windows y agrupa los nodos PnP del mismo dispositivo.
+
+    Windows no tiene /sys/bus/usb. `Get-PnpDevice` da FriendlyName y Class, que
+    permiten poner etiquetas comprensibles; se agrupa por VID:PID porque un
+    mismo USB (teclado, cámara, etc.) crea varios nodos HID hijos.
+    """
+    script = r"""
+$filtro = 'VID_[0-9A-Fa-f]{4}&PID_[0-9A-Fa-f]{4}'
+$datos = @()
+try {
+    $datos = @(Get-PnpDevice -PresentOnly -ErrorAction Stop |
+        Where-Object { $_.InstanceId -match $filtro } |
+        Select-Object @{n='Name';e={$_.FriendlyName}}, @{n='Class';e={$_.Class}},
+                      @{n='Status';e={$_.Status}}, @{n='InstanceId';e={$_.InstanceId}})
+} catch { }
+if (-not $datos) {
+    $datos = @(Get-CimInstance Win32_PnPEntity |
+        Where-Object { $_.DeviceID -match $filtro } |
+        Select-Object Name, @{n='Class';e={$_.PNPClass}}, Status,
+                      @{n='InstanceId';e={$_.DeviceID}})
+}
+$datos | ConvertTo-Json -Compress -Depth 3
+"""
+    kwargs = dict(capture_output=True, text=True, timeout=20)
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden",
+             "-Command", script],
+            **kwargs
+        )
+        raw = proc.stdout.strip() if proc.returncode == 0 else ""
+        datos = json.loads(raw) if raw else []
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        log.warning("No se pudieron enumerar los USB de Windows: %s", e)
+        return []
+    if isinstance(datos, dict):
+        datos = [datos]
+
+    grupos = {}
+    for item in datos:
+        instance_id = str(item.get("InstanceId") or "")
+        match = re.search(r"VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})", instance_id)
+        if not match:
+            continue
+        vid, pid = match.group(1).upper(), match.group(2).upper()
+        nombre = str(item.get("Name") or "Dispositivo USB").strip()
+        clase = str(item.get("Class") or "").strip()
+        estado = str(item.get("Status") or "").strip()
+        # Capturar un hub robaría también todo lo que cuelga de él.
+        if re.search(r"\bhub\b|concentrador", f"{nombre} {clase}", re.IGNORECASE):
+            continue
+        clave = f"{vid}:{pid}"
+        grupo = grupos.setdefault(clave, {"nombres": [], "clases": set(), "estados": set()})
+        if nombre:
+            grupo["nombres"].append(nombre)
+        if clase:
+            grupo["clases"].add(clase.lower())
+        if estado:
+            grupo["estados"].add(estado.lower())
+
+    devices = []
+    for clave, grupo in grupos.items():
+        vid, pid = clave.split(":")
+        estados = grupo["estados"]
+        devices.append({
+            "type": "USB",
+            "id": clave,
+            "vid_did": clave,
+            "mode": "vidpid",
+            "desc": _usb_nombre_amigable_win(vid, pid, grupo["nombres"], grupo["clases"]),
+            "detalle": " · ".join(grupo["nombres"]),
+            "iommu": "N/A",
+            "status": "Listo" if estados <= {"ok", ""} else f"Estado: {', '.join(sorted(estados))}",
+        })
+    return devices
+
+
 def scan_usb_devices():
     if IS_WINDOWS:
-        return []
+        return _scan_usb_devices_windows()
     devices = []
     usb_path = "/sys/bus/usb/devices"
     if not os.path.exists(usb_path): return devices
@@ -910,6 +1092,126 @@ class Plugin(PluginBase):
         self._network_data = []
 
     # ------------------------------------------------------------------
+    # Semáforo de RAM / CPU: capacidad del host en este momento
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _gb(mb: int) -> str:
+        return f"{mb / 1024:.1f}".rstrip("0").rstrip(".")
+
+    def _host_capacity(self) -> dict:
+        """RAM total/libre y núcleos totales/libres del host ahora mismo."""
+        global _CPU_PERCENT_PRIMED
+        host = getattr(self, "host", None)
+        total_ram_mb = getattr(host, "total_ram_mb", 0) or 0
+        available_ram_mb = 0
+        total_cores = os.cpu_count() or 1
+        free_cores = total_cores
+
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            total_ram_mb = mem.total // (1024 * 1024)
+            available_ram_mb = mem.available // (1024 * 1024)
+            if not _CPU_PERCENT_PRIMED:
+                psutil.cpu_percent(interval=None, percpu=True)
+                _CPU_PERCENT_PRIMED = True
+            per_cpu = psutil.cpu_percent(interval=None, percpu=True)
+            if per_cpu:
+                free_cores = sum(1 for uso in per_cpu if uso < 50)
+        except Exception:
+            if not total_ram_mb:
+                try:
+                    with open("/proc/meminfo", "r") as f:
+                        for line in f:
+                            if line.startswith("MemTotal:"):
+                                total_ram_mb = int(line.split()[1]) // 1024
+                                break
+                except Exception:
+                    pass
+
+        if not total_ram_mb:
+            total_ram_mb = 8192
+        if not available_ram_mb:
+            available_ram_mb = total_ram_mb
+        free_cores = max(0, min(total_cores, free_cores))
+
+        # Margen "verde": deja ~20% de RAM y ~25% de núcleos para el host.
+        reserve_ram = max(2048, total_ram_mb // 5)
+        safe_ram_mb = max(1024, total_ram_mb - reserve_ram)
+        reserve_cores = max(1, total_cores // 4)
+        safe_cores = max(1, total_cores - reserve_cores)
+
+        return {
+            "total_ram_mb": total_ram_mb,
+            "available_ram_mb": available_ram_mb,
+            "safe_ram_mb": safe_ram_mb,
+            "reserve_ram_mb": total_ram_mb - safe_ram_mb,
+            "total_cores": total_cores,
+            "free_cores": free_cores,
+            "safe_cores": safe_cores,
+            "reserve_cores": total_cores - safe_cores,
+        }
+
+    @classmethod
+    def _capacity_status(cls, kind: str, value: int, cap: dict):
+        """Devuelve (color, mensaje) para RAM o CPU."""
+        if kind == "ram":
+            total = cap.get("total_ram_mb", 0)
+            available = cap.get("available_ram_mb", 0)
+            safe = cap.get("safe_ram_mb", 0)
+            reserve = cap.get("reserve_ram_mb", 0)
+            value_mb = value * 1024  # el slider está en GB, el capacity en MB
+            if not total:
+                return COLOR_UNKNOWN, tr("No se pudo detectar la RAM del host")
+            if value_mb > total:
+                return COLOR_BAD, tr(
+                    "Excede la RAM física ({} GB > {} GB): overcommit").format(
+                        value, cls._gb(total))
+            if value_mb <= safe:
+                return COLOR_OK, tr(
+                    "Margen seguro: deja {} GB para el host").format(cls._gb(reserve))
+            if value_mb <= available:
+                return COLOR_WARN, tr(
+                    "Cabe en la RAM libre actual ({} GB), pero sin margen").format(
+                        cls._gb(available))
+            return COLOR_WARN, tr(
+                "Dentro de la RAM física, pero por encima de la libre ({} GB): habrá swap"
+            ).format(cls._gb(available))
+
+        total = cap.get("total_cores", 0)
+        free = cap.get("free_cores", 0)
+        safe = cap.get("safe_cores", 0)
+        reserve = cap.get("reserve_cores", 0)
+        if not total:
+            return COLOR_UNKNOWN, tr("No se pudo detectar la CPU del host")
+        if value > total:
+            return COLOR_BAD, tr("Excede los {} núcleos lógicos del host").format(total)
+        if value <= safe:
+            return COLOR_OK, tr("Margen seguro: deja {} núcleos al host").format(reserve)
+        if value <= free:
+            return COLOR_WARN, tr(
+                "Cabe en los núcleos libres ahora ({}), pero sin margen").format(free)
+        return COLOR_WARN, tr(
+            "Dentro de los {} núcleos, pero solo {} están libres ahora").format(
+                total, free)
+
+    def _refresh_capacity_status(self):
+        """Actualiza los dos indicadores con la capacidad actual del host."""
+        if not hasattr(self, "lbl_ram_status") or not hasattr(self, "slider_ram"):
+            return
+        cap = self._host_capacity()
+        for kind, slider, label in (
+            ("ram", getattr(self, "slider_ram", None), self.lbl_ram_status),
+            ("cpu", getattr(self, "slider_cores", None), getattr(self, "lbl_cores_status", None)),
+        ):
+            if slider is None or label is None:
+                continue
+            color, msg = self._capacity_status(kind, slider.value(), cap)
+            label.setText(f"● {msg}")
+            label.setStyleSheet(f"color: {color}; font-weight: bold;")
+            label.setToolTip(msg)
+
+    # ------------------------------------------------------------------
     # Almacenamiento: identificadores estables (nunca texto traducido)
     # ------------------------------------------------------------------
     def _storage_type(self, item):
@@ -1029,6 +1331,8 @@ class Plugin(PluginBase):
 
         self._build_pages()
         self._on_platform_changed(trigger_fetch=False)
+        self._apply_macos_mandatory()
+        self._refresh_capacity_status()
         return [("Configuración VM", main_widget)]
 
     def _on_platform_changed(self, trigger_fetch=True):
@@ -1043,6 +1347,160 @@ class Plugin(PluginBase):
         self.combo_so.blockSignals(False)
         self.combo_version.blockSignals(False)
         self._on_so_changed(trigger_fetch)
+        self._apply_macos_mandatory()
+
+    def _on_graphics_changed(self, idx):
+        """El usuario eligio otro grafico estando en macOS: es opt-in."""
+        if self.combo_platform.currentText() == "macOS" and idx != 6:
+            self._macos_graphics_opt_in = True
+        self._update_macos_graphics_warning()
+
+    def _update_macos_graphics_warning(self):
+        """Muestra el aviso de VGA recomendado / dispositivo experimental."""
+        if not hasattr(self, "lbl_graphics_macos"):
+            return
+        if self.combo_platform.currentText() != "macOS":
+            self.lbl_graphics_macos.setVisible(False)
+            self.combo_graphics.setToolTip(tr(
+                "Dispositivo gráfico virtual. 3D (VirGL/Venus) requiere remote-viewer con "
+                "soporte OpenGL; si la ventana SPICE queda en negro, usa 'VirtIO-GPU 2D "
+                "(compatible)' o 'Automático'."))
+            return
+        actual = self.combo_graphics.currentIndex()
+        if actual == 6:
+            self.lbl_graphics_macos.setText(tr(
+                "macOS: VGA estándar es el <b>recomendado</b> (el más fiable con OpenCore). "
+                "Los demás dispositivos son experimentales: pueden dejar la pantalla en negro."))
+        else:
+            nombre = self.combo_graphics.itemText(actual)
+            self.lbl_graphics_macos.setText(tr(
+                "macOS: <b>{}</b> es experimental y puede fallar. "
+                "Si la pantalla queda en negro, vuelve a <b>VGA estándar</b> (recomendado)."
+            ).format(nombre))
+        self.lbl_graphics_macos.setVisible(True)
+        self.combo_graphics.setToolTip(tr(
+            "En macOS, VGA estándar es el recomendado. VMware SVGA, QXL y VirtIO 2D son "
+            "experimentales: pueden dar pantalla negra o resolución limitada. 3D y sin video no aplican."))
+
+    def _apply_macos_mandatory(self):
+        """Fija los valores que macOS EXIGE, avisa de los graficos y deshabilita lo demas.
+
+        El runner de VMs macOS usa Q35 + VGA estandar (recomendado, default)
+        con 128 MB como minimo + EHCI. Otros dispositivos graficos estan
+        permitidos como opcion experimental elegida explicitamente. SPICE y
+        VNC funcionan (SPICE transporta VGA estandar sin driver QXL), pero no
+        asi el portapapeles (spice-vdagent), el multimonitor (requiere driver
+        QXL) ni 9p/VirtioFS (requieren drivers de los que macOS carece; solo
+        SMB es factible).
+        """
+        if not hasattr(self, "combo_graphics"):
+            return
+        es_macos = self.combo_platform.currentText() == "macOS"
+
+        # macOS no reescala solo: puede caer a 800x600 con modos que el EDID de
+        # QEMU no ofrece (p.ej. 1600x900). Se avisa aqui, sin reescribir el
+        # valor elegido, para que el log y la configuracion coincidan.
+        if hasattr(self, "combo_resolution"):
+            tooltip = (
+                "Resolución inicial del monitor virtual. Incluye tus monitores reales y modos estándar, "
+                "y se pasa a QEMU como xres/yres. El sistema invitado puede cambiarla después desde su "
+                "configuración de pantalla."
+            )
+            if es_macos:
+                tooltip += (
+                    "\n\nmacOS (driver AppleBochVGAFB) solo ofrece estos modos: "
+                    "640×480, 800×600, 1024×768, 1280×720, 1280×800, 1600×900, "
+                    "1920×1080, 2048×1152, 2560×1440, 5120×2880."
+                    "\n\nVerificados: 1280×720, 1280×800, 3840×2160 (se ajusta). "
+                    "Fallan: 1600×900 (cae a 800×600) y 1360×768 (distorsiona)."
+                )
+            self.combo_resolution.setToolTip(tooltip)
+
+        # _update_display_options rehabilita los graficos segun el protocolo;
+        # hay que llamarlo ANTES de aplicar las restricciones de macOS para
+        # que estas no queden sobrescritas (p.ej. SPICE habilita todo el 3D).
+        self._update_display_options()
+
+        # 1) Chipset: Q35 obligatorio (indice 1). i440FX no aplica.
+        if hasattr(self, "combo_chipset"):
+            model = self.combo_chipset.model()
+            model.item(0).setEnabled(not es_macos)
+            if es_macos:
+                self.combo_chipset.blockSignals(True)
+                self.combo_chipset.setCurrentIndex(1)
+                self.combo_chipset.blockSignals(False)
+
+        # 2) Graficos: VGA estandar (indice 6) es el RECOMENDADO porque es el
+        #    unico que OpenCore inicializa de forma fiable. Los demas tipos
+        #    siguen disponibles, pero solo se respetan si el usuario los eligio
+        #    explicitamente (opt-in). El runner avisa en el log si puede fallar.
+        model_gfx = self.combo_graphics.model()
+        for i in range(model_gfx.rowCount()):
+            model_gfx.item(i).setEnabled(True)
+        if es_macos:
+            # 3D requiere OpenGL en el host y 'sin video' deja a OpenCore sin
+            # framebuffer: no son opciones utiles en macOS.
+            for i in (2, 3, 7):
+                model_gfx.item(i).setEnabled(False)
+            if not getattr(self, "_macos_graphics_opt_in", False):
+                actual = self.combo_graphics.currentIndex()
+                if actual < 0 or actual != 6:
+                    self.combo_graphics.blockSignals(True)
+                    self.combo_graphics.setCurrentIndex(6)
+                    self.combo_graphics.blockSignals(False)
+        self._update_macos_graphics_warning()
+
+        # 3) VRAM: nunca por debajo de 128 MB (indice 1). El runner ya aplica
+        #    este suelo; aqui lo reflejamos y deshabilitamos la opcion de 64 MB.
+        if hasattr(self, "combo_vram"):
+            model_vram = self.combo_vram.model()
+            model_vram.item(0).setEnabled(not es_macos)
+            if es_macos and self.combo_vram.currentIndex() < 1:
+                self.combo_vram.blockSignals(True)
+                self.combo_vram.setCurrentIndex(1)
+                self.combo_vram.blockSignals(False)
+
+        # 4) Un solo monitor: la VGA estandar no expone varios heads de forma
+        #    fiable en macOS y SPICE necesitaria driver QXL para multimonitor.
+        if hasattr(self, "combo_monitors"):
+            self.combo_monitors.setEnabled(not es_macos)
+            if es_macos:
+                self.combo_monitors.blockSignals(True)
+                self.combo_monitors.setCurrentIndex(0)
+                self.combo_monitors.blockSignals(False)
+
+        # 5) Sin spice-vdagent ni qemu-ga en macOS: el portapapeles y el
+        #    agente invitado no funcionan, asi que se deshabilitan y se
+        #    desmarcan para no guardar valores engañosos.
+        if hasattr(self, "chk_clipboard"):
+            self.chk_clipboard.setEnabled(not es_macos)
+            if es_macos:
+                self.chk_clipboard.setChecked(False)
+        if hasattr(self, "check_ga"):
+            self.check_ga.setEnabled(not es_macos)
+            if es_macos:
+                self.check_ga.setChecked(False)
+
+        # 6) Carpetas compartidas: solo SMB. Reflejamos el cambio en la tabla
+        #    para que el usuario vea el metodo que realmente se va a aplicar.
+        if hasattr(self, "tree_shared"):
+            for i in range(self.tree_shared.topLevelItemCount()):
+                item = self.tree_shared.topLevelItem(i)
+                if es_macos and item.text(2) != "SMB":
+                    item.setText(2, "SMB")
+
+        # SMB requiere el smbd de Samba en el host (QEMU no lo incluye), que
+        # normalmente falta en Windows. Si no esta, deshabilitamos la pestaña
+        # para no ofrecer una opcion que impediria arrancar la VM.
+        if hasattr(self, "tabs_sharing"):
+            sin_smbd = shutil.which("smbd") is None
+            self.tabs_sharing.setTabEnabled(0, not (es_macos and sin_smbd))
+            if es_macos and sin_smbd:
+                self.tabs_sharing.setTabToolTip(
+                    0, "macOS solo admite carpetas por SMB y QEMU necesita "
+                       "'smbd' (Samba) en el host, que no esta instalado.")
+            else:
+                self.tabs_sharing.setTabToolTip(0, "")
 
     def _on_so_changed(self, trigger_fetch=True):
         """Rellena combo_version.
@@ -1179,10 +1637,15 @@ class Plugin(PluginBase):
         self.slider_cores.setTickInterval(2)
         self.slider_cores.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.lbl_cores = QLabel("2 núcleos"); self.lbl_cores.setStyleSheet("font-weight: bold;")
+        self.lbl_cores_status = QLabel("")
+        self.lbl_cores_status.setObjectName("lbl_cores_status")
+        self.lbl_cores_status.setWordWrap(True)
+        self.lbl_cores_status._nvm_retranslate = self._refresh_capacity_status
         self.slider_cores.valueChanged.connect(self._update_cores_label)
         l2.addWidget(QLabel("<b>Núcleos lógicos (vCPU)</b>"))
         l2.addWidget(self.slider_cores)
         l2.addWidget(self.lbl_cores)
+        l2.addWidget(self.lbl_cores_status)
 
         self.check_cpu_topology = QCheckBox("Configurar la topología manualmente (sockets / cores / threads)")
         self.check_cpu_topology.setToolTip("Define manualmente la distribución de sockets, cores y threads por vCPU")
@@ -1209,6 +1672,7 @@ class Plugin(PluginBase):
         topo_form.addRow("Threads por core:", self.spin_threads_per_core)
 
         self.lbl_topology_summary = QLabel("")
+        self.lbl_topology_summary._nvm_retranslate = self._update_topology_summary
         self.lbl_topology_summary.setStyleSheet("color: #888; font-size: 11px;")
         topo_form.addRow("", self.lbl_topology_summary)
 
@@ -1233,10 +1697,15 @@ class Plugin(PluginBase):
         self.slider_ram.setTickInterval(4)
         self.slider_ram.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.lbl_ram = QLabel("4 GB"); self.lbl_ram.setStyleSheet("font-weight: bold;")
+        self.lbl_ram_status = QLabel("")
+        self.lbl_ram_status.setObjectName("lbl_ram_status")
+        self.lbl_ram_status.setWordWrap(True)
+        self.lbl_ram_status._nvm_retranslate = self._refresh_capacity_status
         self.slider_ram.valueChanged.connect(self._update_ram_label)
         l3.addWidget(QLabel("<b>RAM asignada (GB)</b>"))
         l3.addWidget(self.slider_ram)
         l3.addWidget(self.lbl_ram)
+        l3.addWidget(self.lbl_ram_status)
         self.check_hugepages = QCheckBox("Usar hugepages del host")
         self.check_hugepages.setToolTip("Usa páginas de memoria grandes del host para mejorar el rendimiento")
         self.check_prealloc = QCheckBox("Reservar toda la RAM al arrancar (prealloc)")
@@ -1277,6 +1746,7 @@ class Plugin(PluginBase):
         l4.addWidget(self.combo_console_mode)
 
         self.combo_graphics = QComboBox()
+        self.combo_graphics.setObjectName("combo_graphics")
         self.combo_graphics.setToolTip("Dispositivo gráfico virtual. 3D (VirGL/Venus) requiere remote-viewer con soporte OpenGL; si la ventana SPICE queda en negro, usa 'VirtIO-GPU 2D (compatible)' o 'Automático'.")
         self.combo_graphics.addItems([
             "Automático (recomendado) → VirtIO-GPU 2D",
@@ -1288,13 +1758,60 @@ class Plugin(PluginBase):
             "VGA estándar",
             "Sin video / Headless"
         ])
+        self.combo_graphics.currentIndexChanged.connect(self._on_graphics_changed)
+        # macOS arranca con VGA recomendada salvo que el usuario elija
+        # explicitamente otro dispositivo (se guarda en vms.json).
+        self._macos_graphics_opt_in = False
         l4.addWidget(QLabel("<b>Gráficos / GPU</b>"))
         l4.addWidget(self.combo_graphics)
+        self.lbl_graphics_macos = QLabel("")
+        self.lbl_graphics_macos._nvm_retranslate = self._update_macos_graphics_warning
+        self.lbl_graphics_macos.setObjectName("lbl_graphics_macos")
+        self.lbl_graphics_macos.setWordWrap(True)
+        self.lbl_graphics_macos.setVisible(False)
+        l4.addWidget(self.lbl_graphics_macos)
 
         self.combo_vram = QComboBox(); self.combo_vram.setToolTip("Memoria de video (VRAM) asignada a la tarjeta gráfica virtual")
         self.combo_vram.addItems(["64 MB", "128 MB", "256 MB", "512 MB"])
         l4.addWidget(QLabel("<b>Memoria de video</b>"))
         l4.addWidget(self.combo_vram)
+
+        self.combo_resolution = QComboBox()
+        self.combo_resolution.setToolTip(
+            "Resolución inicial del monitor virtual. Incluye tus monitores reales y modos estándar, "
+            "y se pasa a QEMU como xres/yres. El sistema invitado puede cambiarla después desde su "
+            "configuración de pantalla."
+        )
+        self.combo_resolution.addItem("Automático (QEMU: 1280×800)", "")
+        valores_res = set()
+        for (ancho, alto), etiqueta in _host_resolutions():
+            self.combo_resolution.addItem(etiqueta, f"{ancho}x{alto}")
+            valores_res.add((ancho, alto))
+        # Modos estándar añadidos aunque no los reporte ningún monitor: permiten
+        # probar otras resoluciones en invitados que no reescalan solos (macOS).
+        # Se omiten los que ya aparecen para no duplicar entradas.
+        for ancho, alto in (
+            (1280, 720), (1280, 800), (1366, 768), (1440, 900),
+            (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160),
+        ):
+            if (ancho, alto) in valores_res:
+                continue
+            self.combo_resolution.addItem(
+                tr("{}×{} (estándar)").format(ancho, alto), f"{ancho}x{alto}")
+            valores_res.add((ancho, alto))
+        l4.addWidget(QLabel("<b>Resolución inicial</b>"))
+        l4.addWidget(self.combo_resolution)
+
+        self.combo_monitors = QComboBox()
+        self.combo_monitors.setToolTip(
+            "Número de monitores virtuales que expone la GPU al invitado. "
+            "Con VNC embebido podrás cambiar entre ellos desde la consola."
+        )
+        self.combo_monitors.addItems([
+            "1 monitor", "2 monitores", "3 monitores", "4 monitores",
+        ])
+        l4.addWidget(QLabel("<b>Monitores virtuales</b>"))
+        l4.addWidget(self.combo_monitors)
 
         lbl_hint = QLabel(
             "F11 alterna pantalla completa · Ctrl+Alt+F sale · Ctrl+Alt+G libera el teclado del guest.\n"
@@ -1355,23 +1872,25 @@ class Plugin(PluginBase):
         p7 = QWidget(); l7 = QVBoxLayout(p7)
         self.combo_audio = QComboBox(); self.combo_audio.setToolTip("Dispositivo de audio virtual de la VM")
         self.combo_audio.addItems(["Intel HDA (recomendado)", "AC97", "Sound Blaster", "Ninguno"])
-        self.combo_pointer = QComboBox(); self.combo_pointer.setToolTip("Dispositivo de señalización (ratón/teclado) virtual de la VM")
+        self.combo_pointer = QComboBox(); self.combo_pointer.setToolTip("Dispositivo de señalización (ratón/teclado) virtual de la VM. Con SPICE y varios monitores los tablets se convierten automáticamente en USB Mouse, porque SPICE usa eventos relativos.")
         self.combo_pointer.addItems(["Automático (recomendado)", "USB Tablet", "USB Mouse", "USB Keyboard + Tablet", "VirtIO Tablet", "PS/2", "Ninguno"])
         l7.addWidget(QLabel("<b>Audio</b>")); l7.addWidget(self.combo_audio)
         l7.addWidget(QLabel("<b>Señalización</b>")); l7.addWidget(self.combo_pointer)
         l7.addStretch()
 
-        p8 = QWidget(); l8 = QVBoxLayout(p8)
-        info_pt = QLabel("Passthrough de hardware físico. PCI usa VFIO; USB usa usb-host sobre XHCI.")
-        info_pt.setStyleSheet("color: #888; font-size: 11px;"); info_pt.setWordWrap(True)
-        l8.addWidget(info_pt)
-        self.tree_passthrough = QTreeWidget()
-        self.tree_passthrough.setHeaderLabels(["Usar", "Tipo", "Dispositivo", "IOMMU / Driver", "Estado"])
-        l8.addWidget(self.tree_passthrough)
-        b8 = QHBoxLayout()
-        btn_pt_detect = QPushButton("🔍 Detectar dispositivos")
-        btn_pt_detect.clicked.connect(self._detect_passthrough)
-        b8.addWidget(btn_pt_detect); b8.addStretch(); l8.addLayout(b8); l8.addStretch()
+        # VFIO/usb-host no existen en Windows: no se crea ni la página.
+        if not IS_WINDOWS:
+            p8 = QWidget(); l8 = QVBoxLayout(p8)
+            info_pt = QLabel("Passthrough de hardware físico. PCI usa VFIO; USB usa usb-host sobre XHCI.")
+            info_pt.setStyleSheet("color: #888; font-size: 11px;"); info_pt.setWordWrap(True)
+            l8.addWidget(info_pt)
+            self.tree_passthrough = QTreeWidget()
+            self.tree_passthrough.setHeaderLabels(["Usar", "Tipo", "Dispositivo", "IOMMU / Driver", "Estado"])
+            l8.addWidget(self.tree_passthrough)
+            b8 = QHBoxLayout()
+            btn_pt_detect = QPushButton("🔍 Detectar dispositivos")
+            btn_pt_detect.clicked.connect(self._detect_passthrough)
+            b8.addWidget(btn_pt_detect); b8.addStretch(); l8.addLayout(b8); l8.addStretch()
 
         p9 = QWidget(); l9 = QVBoxLayout(p9)
         info_sh = QLabel("Integración Host ↔ Guest.")
@@ -1422,7 +1941,10 @@ class Plugin(PluginBase):
 
         l9.addWidget(self.tabs_sharing)
 
-        pages = [("🖥️ Sistema", p1), ("⚙️ Procesador", p2), ("🧠 Memoria", p3), ("🖼️ Pantalla", p4), ("💾 Almacenamiento", p5), ("🌐 Red", p6), ("🎛️ Dispositivos", p7), ("🔌 Passthrough", p8), ("📂 Compartición", p9)]
+        pages = [("🖥️ Sistema", p1), ("⚙️ Procesador", p2), ("🧠 Memoria", p3), ("🖼️ Pantalla", p4), ("💾 Almacenamiento", p5), ("🌐 Red", p6), ("🎛️ Dispositivos", p7)]
+        if not IS_WINDOWS:
+            pages.append(("🔌 Passthrough", p8))
+        pages.append(("📂 Compartición", p9))
         for name, w in pages:
             self.list_menu.addItem(QListWidgetItem(name))
             scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(w)
@@ -1431,6 +1953,9 @@ class Plugin(PluginBase):
     def _update_display_options(self):
         proto_idx = self.combo_console_proto.currentIndex()
 
+        # SPICE tambien esta disponible en macOS: el manual oficial indica
+        # que SPICE transporta VGA estandar sin driver QXL, que es exactamente
+        # el dispositivo que usa OSX-KVM. Se respeta la eleccion del usuario.
         model_mode = self.combo_console_mode.model()
         if proto_idx in (1, 2):
             model_mode.item(0).setEnabled(False)
@@ -1456,8 +1981,13 @@ class Plugin(PluginBase):
             for i in range(model_gfx.rowCount()):
                 model_gfx.item(i).setEnabled(True)
 
-    def _update_cores_label(self, val): self.lbl_cores.setText(f"{val} {tr('núcleos')}")
-    def _update_ram_label(self, val): self.lbl_ram.setText(f"{val} GB")
+    def _update_cores_label(self, val):
+        self.lbl_cores.setText(f"{val} {tr('núcleos')}")
+        self._refresh_capacity_status()
+
+    def _update_ram_label(self, val):
+        self.lbl_ram.setText(f"{val} GB")
+        self._refresh_capacity_status()
 
     def _toggle_cpu_topology(self, checked):
         self.widget_topology.setVisible(checked)
@@ -1473,11 +2003,13 @@ class Plugin(PluginBase):
         c = self.spin_cores_per_socket.value()
         t = self.spin_threads_per_core.value()
         total = s * c * t
-        self.lbl_topology_summary.setText(f"Total vCPUs: {total} ({s} sockets × {c} cores × {t} threads)")
+        self.lbl_topology_summary.setText(tr(
+            "Total vCPUs: {} ({} sockets × {} cores × {} threads)").format(total, s, c, t))
         if 2 <= total <= 32 and total % 2 == 0:
             self.slider_cores.blockSignals(True)
             self.slider_cores.setValue(total)
             self.slider_cores.blockSignals(False)
+        self._refresh_capacity_status()
 
     # ------------------------------------------------------------------
     # Helpers para saber si un SO soporta descarga automática
@@ -2888,8 +3420,16 @@ pause
             del self._network_data[idx]
             self._rebuild_net_list()
 
+    def _shared_dialog(self, data=None):
+        """Dialogo de carpeta compartida con SMB forzado para macOS."""
+        dlg = SharedFolderDialog(self.app.parent(), data)
+        if self.combo_platform.currentText() == "macOS":
+            dlg.combo_method.setCurrentText("SMB")
+            dlg.combo_method.setEnabled(False)
+        return dlg
+
     def _add_shared(self):
-        dlg = SharedFolderDialog(self.app.parent())
+        dlg = self._shared_dialog()
         if dlg.exec() == QDialog.DialogCode.Accepted:
             item = QTreeWidgetItem(self.tree_shared)
             item.setText(0, dlg.input_host.text()); item.setText(1, dlg.input_label.text()); item.setText(2, dlg.combo_method.currentText()); item.setText(3, dlg.combo_mount.currentText()); item.setText(4, "Solo lectura" if dlg.check_ro.isChecked() else "Lectura/Escritura")
@@ -2897,7 +3437,7 @@ pause
     def _mod_shared(self):
         item = self.tree_shared.currentItem()
         if item:
-            dlg = SharedFolderDialog(self.app.parent(), {"host": item.text(0)})
+            dlg = self._shared_dialog({"host": item.text(0)})
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 item.setText(0, dlg.input_host.text()); item.setText(1, dlg.input_label.text()); item.setText(2, dlg.combo_method.currentText()); item.setText(3, dlg.combo_mount.currentText()); item.setText(4, "Solo lectura" if dlg.check_ro.isChecked() else "Lectura/Escritura")
 
@@ -2906,6 +3446,8 @@ pause
         if item: self.tree_shared.takeTopLevelItem(self.tree_shared.indexOfTopLevelItem(item))
 
     def _detect_passthrough(self):
+        if IS_WINDOWS or not hasattr(self, "tree_passthrough"):
+            return
         self.tree_passthrough.clear()
         for d in (scan_pci_devices() + scan_usb_devices()):
             item = QTreeWidgetItem(self.tree_passthrough)
@@ -2969,6 +3511,7 @@ pause
         ram_mb = vm.get("ram", 4096)
         ram_gb = max(1, ram_mb // 1024)
         self.slider_ram.setValue(ram_gb)
+        self._refresh_capacity_status()
 
         self.check_hugepages.setChecked(vm.get("hugepages", False))
         self.check_prealloc.setChecked(vm.get("prealloc", False))
@@ -2976,10 +3519,31 @@ pause
 
         self.check_free_page_reporting.setChecked(vm.get("free_page_reporting", True))
 
-        self.combo_console_proto.setCurrentIndex(vm.get("console_proto_idx", 0))
-        self.combo_console_mode.setCurrentIndex(vm.get("console_mode_idx", 0))
-        self.combo_graphics.setCurrentIndex(vm.get("graphics_idx", 0))
+        # vms.json de VMs antiguas puede tener estos campos a None: sin
+        # normalizar, setCurrentIndex(None) deja el combo en -1 y se guarda
+        # de nuevo como None, por lo que la consola nunca respeta la elección.
+        self.combo_console_proto.setCurrentIndex(vm.get("console_proto_idx") or 0)
+        self.combo_console_mode.setCurrentIndex(vm.get("console_mode_idx") or 0)
+        # Un VMware/QXL/headless guardado por una version anterior cuenta como
+        # eleccion explicita; los indices 0-3 son el default generico y en
+        # macOS se cambian a VGA salvo que exista el flag de opt-in.
+        old_gfx = vm.get("graphics_idx", 0)
+        self._macos_graphics_opt_in = bool(vm.get("macos_graphics_experimental")) or old_gfx in (4, 5, 7)
+        self.combo_graphics.blockSignals(True)
+        self.combo_graphics.setCurrentIndex(old_gfx)
+        self.combo_graphics.blockSignals(False)
         self.combo_vram.setCurrentIndex(vm.get("vram_idx", 0))
+        # Una VM macOS puede tener valores incompatibles guardados por una
+        # version anterior (qemu64, 64 MB, SPICE...). Los forzamos aqui antes
+        # de mostrarlos para que se guarden corregidos al volver a guardar.
+        self._apply_macos_mandatory()
+        idx_res = self.combo_resolution.findData(vm.get("initial_resolution", "") or "")
+        self.combo_resolution.setCurrentIndex(idx_res if idx_res >= 0 else 0)
+        try:
+            num_monitores = max(1, min(4, int(vm.get("monitor_count", 1))))
+        except (TypeError, ValueError):
+            num_monitores = 1
+        self.combo_monitors.setCurrentIndex(num_monitores - 1)
 
         self._update_display_options()
 
@@ -3077,24 +3641,25 @@ pause
         self.chk_clipboard.setChecked(vm.get("share_clipboard", True))
         self.check_ga.setChecked(vm.get("guest_agent", False))
 
-        self._detect_passthrough()
-        saved_pt = vm.get("passthrough_devices", [])
-        if saved_pt:
-            for i in range(self.tree_passthrough.topLevelItemCount()):
-                item = self.tree_passthrough.topLevelItem(i)
-                d = item.data(2, Qt.ItemDataRole.UserRole) or {}
-                dev_id = d.get("id", "")
-                vid_did = d.get("vid_did", "")
-                for saved in saved_pt:
-                    if saved.get("id") == dev_id:
-                        item.setCheckState(0, Qt.CheckState.Checked)
-                        break
-                    if vid_did and saved.get("vid_did") == vid_did:
-                        item.setCheckState(0, Qt.CheckState.Checked)
-                        break
-                    if vid_did and saved.get("id") == vid_did:
-                        item.setCheckState(0, Qt.CheckState.Checked)
-                        break
+        if not IS_WINDOWS:
+            self._detect_passthrough()
+            saved_pt = vm.get("passthrough_devices", [])
+            if saved_pt:
+                for i in range(self.tree_passthrough.topLevelItemCount()):
+                    item = self.tree_passthrough.topLevelItem(i)
+                    d = item.data(2, Qt.ItemDataRole.UserRole) or {}
+                    dev_id = d.get("id", "")
+                    vid_did = d.get("vid_did", "")
+                    for saved in saved_pt:
+                        if saved.get("id") == dev_id:
+                            item.setCheckState(0, Qt.CheckState.Checked)
+                            break
+                        if vid_did and saved.get("vid_did") == vid_did:
+                            item.setCheckState(0, Qt.CheckState.Checked)
+                            break
+                        if vid_did and saved.get("id") == vid_did:
+                            item.setCheckState(0, Qt.CheckState.Checked)
+                            break
 
     # ------------------------------------------------------------------
     # DESCARGA DE ISO
@@ -3224,42 +3789,47 @@ pause
             item = self.tree_shared.topLevelItem(i)
             shared_folders.append({"host": item.text(0), "guest": item.text(1), "method": original_key(item.text(2)), "mount": original_key(item.text(3)), "ro": original_key(item.text(4)) == "Solo lectura"})
 
-        checked_vga_groups = set()
-        for i in range(self.tree_passthrough.topLevelItemCount()):
-            item = self.tree_passthrough.topLevelItem(i)
-            if item.checkState(0) == Qt.CheckState.Checked:
+        if IS_WINDOWS:
+            # No hay página de passthrough: no sobrescribir la config existente.
+            vm_actual = self.app.get_vm(self.current_vm_id) or {}
+            pt_devices = vm_actual.get("passthrough_devices", [])
+        else:
+            checked_vga_groups = set()
+            for i in range(self.tree_passthrough.topLevelItemCount()):
+                item = self.tree_passthrough.topLevelItem(i)
+                if item.checkState(0) == Qt.CheckState.Checked:
+                    d = item.data(2, Qt.ItemDataRole.UserRole) or {}
+                    if d.get("type") == "PCI" and d.get("is_vga"):
+                        iommu_str = d.get("iommu", "")
+                        if "Grupo" in iommu_str:
+                            checked_vga_groups.add(iommu_str)
+
+            for i in range(self.tree_passthrough.topLevelItemCount()):
+                item = self.tree_passthrough.topLevelItem(i)
                 d = item.data(2, Qt.ItemDataRole.UserRole) or {}
-                if d.get("type") == "PCI" and d.get("is_vga"):
-                    iommu_str = d.get("iommu", "")
-                    if "Grupo" in iommu_str:
-                        checked_vga_groups.add(iommu_str)
 
-        for i in range(self.tree_passthrough.topLevelItemCount()):
-            item = self.tree_passthrough.topLevelItem(i)
-            d = item.data(2, Qt.ItemDataRole.UserRole) or {}
+                if item.checkState(0) != Qt.CheckState.Checked:
+                    if d.get("type") == "PCI" and d.get("is_audio"):
+                        if any(d.get("iommu") == grp for grp in checked_vga_groups):
+                            item.setCheckState(0, Qt.CheckState.Checked)
+                            log.info(f"Auto-seleccionando dispositivo de audio {d.get('id')} para GPU passthrough.")
 
-            if item.checkState(0) != Qt.CheckState.Checked:
-                if d.get("type") == "PCI" and d.get("is_audio"):
-                    if any(d.get("iommu") == grp for grp in checked_vga_groups):
-                        item.setCheckState(0, Qt.CheckState.Checked)
-                        log.info(f"Auto-seleccionando dispositivo de audio {d.get('id')} para GPU passthrough.")
+            pt_devices = []
+            for i in range(self.tree_passthrough.topLevelItemCount()):
+                item = self.tree_passthrough.topLevelItem(i)
+                if item.checkState(0) == Qt.CheckState.Checked:
+                    d = item.data(2, Qt.ItemDataRole.UserRole) or {}
+                    pt_devices.append({
+                        "type": d.get("type", item.text(1)),
+                        "id": d.get("id", ""),
+                        "desc": d.get("desc", item.text(2)),
+                        "vid_did": d.get("vid_did", ""),
+                        "is_vga": d.get("is_vga", False),
+                    })
 
-        pt_devices = []
-        for i in range(self.tree_passthrough.topLevelItemCount()):
-            item = self.tree_passthrough.topLevelItem(i)
-            if item.checkState(0) == Qt.CheckState.Checked:
-                d = item.data(2, Qt.ItemDataRole.UserRole) or {}
-                pt_devices.append({
-                    "type": d.get("type", item.text(1)),
-                    "id": d.get("id", ""),
-                    "desc": d.get("desc", item.text(2)),
-                    "vid_did": d.get("vid_did", ""),
-                    "is_vga": d.get("is_vga", False),
-                })
-
-        for d in pt_devices:
-            if d["type"] == "PCI" and d.get("vid_did"):
-                host_passthrough.add_pci_udev_rule(d["vid_did"])
+            for d in pt_devices:
+                if d["type"] == "PCI" and d.get("vid_did"):
+                    host_passthrough.add_pci_udev_rule(d["vid_did"])
 
         boot_order = []
         for i in range(self.list_boot.count()):
@@ -3304,6 +3874,8 @@ pause
             "free_page_reporting": self.check_free_page_reporting.isChecked(),
             "graphics_idx": self.combo_graphics.currentIndex(),
             "vram_idx": self.combo_vram.currentIndex(),
+            "initial_resolution": self.combo_resolution.currentData() or "",
+            "monitor_count": self.combo_monitors.currentIndex() + 1,
             "console_proto_idx": self.combo_console_proto.currentIndex(),
             "console_mode_idx": self.combo_console_mode.currentIndex(),
             "shared_folders": shared_folders,
@@ -3317,6 +3889,26 @@ pause
             "disk_path": None, "iso_path": None, "floppy_path": None,
             "disk_bus": "sata", "optical_drives": []
         }
+
+        # Valores obligados de macOS: se graban en vms.json aunque la UI
+        # hubiera quedado en un estado inconsistente (VM importada, etc.).
+        # SPICE y VNC se respetan; lo que no aplica se fuerza a desactivado.
+        if data["platform"] == "macOS":
+            data["chipset_idx"] = 1          # Q35
+            # VGA estandar (6) es el recomendado y el default. Solo se respeta
+            # otro dispositivo si el usuario lo eligio explicitamente.
+            data["macos_graphics_experimental"] = bool(
+                getattr(self, "_macos_graphics_opt_in", False))
+            if not data["macos_graphics_experimental"] and data["graphics_idx"] in (0, 1, 2, 3):
+                data["graphics_idx"] = 6
+            if data.get("graphics_idx") is None:
+                data["graphics_idx"] = 6
+            data["vram_idx"] = max(1, data.get("vram_idx") or 0)  # minimo 128 MB
+            data["monitor_count"] = 1        # VGA estandar: un solo head fiable
+            data["share_clipboard"] = False  # no hay spice-vdagent en macOS
+            data["guest_agent"] = False      # no hay qemu-ga en macOS
+            for sh in data["shared_folders"]:
+                sh["method"] = "SMB"          # unico metodo con cliente en macOS
 
         current_vm = self.app.get_vm(self.current_vm_id)
         existing_iso = current_vm.get("iso_path") if current_vm else None

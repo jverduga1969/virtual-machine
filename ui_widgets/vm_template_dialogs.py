@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 )
 
 from services.vm_templates import ICONOS
+from core.i18n import tr
 
 
 class SaveTemplateDialog(QDialog):
@@ -114,10 +115,12 @@ class TemplatePickerDialog(QDialog):
         plantilla = self.manager.get_template(actual.data(0x0100))
         if plantilla:
             config = plantilla.get("config", {})
-            self.lbl_detalle.setText(
-                f"{plantilla.get('description', '')} · "
-                f"{config.get('cores', '?')} núcleos · {config.get('ram', '?')} MB · "
-                f"Disco {config.get('disk_size', '?')}")
+            self.lbl_detalle.setText(tr(
+                "{} · {} núcleos · {} MB · Disco {}").format(
+                    plantilla.get('description', ''),
+                    config.get('cores', '?'),
+                    config.get('ram', '?'),
+                    config.get('disk_size', '?')))
         self._actualizar_placeholder()
 
     def _actualizar_placeholder(self, *_args):
@@ -125,7 +128,8 @@ class TemplatePickerDialog(QDialog):
         if actual and not self.input_name.text().strip():
             plantilla = self.manager.get_template(actual.data(0x0100))
             if plantilla:
-                self.input_name.setPlaceholderText(f"VM desde {plantilla['name']}")
+                self.input_name.setPlaceholderText(
+                    tr("VM desde {}").format(plantilla['name']))
 
     def _validar(self):
         if not self.lista.currentItem():

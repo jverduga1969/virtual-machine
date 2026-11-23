@@ -55,6 +55,14 @@ class FakeRunner:
         self.active_processes[vm["id"]] = object()
         return self.active_processes[vm["id"]]
 
+    def pause_vm(self, vm_id):
+        self.calls.append(("pause", vm_id))
+        return True
+
+    def resume_vm(self, vm_id):
+        self.calls.append(("resume", vm_id))
+        return True
+
     def change_iso(self, vm_id, iso_path):
         self.calls.append(("change_iso", vm_id, iso_path))
         return True

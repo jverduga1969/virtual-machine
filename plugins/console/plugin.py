@@ -22,6 +22,10 @@ class ConsoleWidget(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self.plugin._try_connect_vnc()
+        # MainWindow cambia de pestaña justo después de encender la VM y ese
+        # cambio le roba el foco al widget recién creado. Reclamarlo cuando
+        # ya es visible evita que el teclado se quede en la pestaña anterior.
+        QTimer.singleShot(0, self.plugin._focus_vnc_widget)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -39,6 +43,8 @@ class Plugin(PluginBase):
         self.current_zoom = None
         self.is_connected = False
         self._fs_window = None
+        self.vnc_heads = {}
+        self.current_head = 0
 
     def get_tabs(self):
         main_widget = ConsoleWidget(self)
@@ -78,6 +84,24 @@ class Plugin(PluginBase):
         self.btn_real.setToolTip("Mostrar la consola al tamaño real (100 % de zoom)")
         self.btn_real.clicked.connect(self._zoom_real)
         toolbar.addWidget(self.btn_real)
+
+        self.btn_prev_monitor = QPushButton("◀ Monitor")
+        self.btn_prev_monitor.setToolTip("Mostrar el monitor virtual anterior")
+        self.btn_prev_monitor.clicked.connect(lambda: self._switch_monitor(-1))
+        self.btn_prev_monitor.setVisible(False)
+        toolbar.addWidget(self.btn_prev_monitor)
+
+        self.lbl_monitor = QLabel("1/1")
+        self.lbl_monitor.setToolTip("Monitor virtual visible en la consola")
+        self.lbl_monitor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_monitor.setVisible(False)
+        toolbar.addWidget(self.lbl_monitor)
+
+        self.btn_next_monitor = QPushButton("Monitor ▶")
+        self.btn_next_monitor.setToolTip("Mostrar el monitor virtual siguiente")
+        self.btn_next_monitor.clicked.connect(lambda: self._switch_monitor(1))
+        self.btn_next_monitor.setVisible(False)
+        toolbar.addWidget(self.btn_next_monitor)
 
         toolbar.addStretch()
 
@@ -126,6 +150,9 @@ class Plugin(PluginBase):
     def _on_vm_selected(self, vm_id: str):
         if self.current_vm_id != vm_id:
             self.current_vm_id = vm_id
+            self.vnc_heads = {}
+            self.current_head = 0
+            self._update_monitor_buttons()
             self._disconnect_vnc()
             vm = self.app.get_vm(vm_id)
             if vm:
@@ -152,11 +179,14 @@ class Plugin(PluginBase):
             return
 
         if vm.get("state") != "Running":
+            self.vnc_heads = {}
+            self.current_head = 0
+            self._update_monitor_buttons()
             self._safe_set_text(f"VM: {vm.get('name')}\nLa VM no está encendida.")
             return
 
-        proto_idx = vm.get("console_proto_idx", 0)
-        mode_idx = vm.get("console_mode_idx", 0)
+        proto_idx = vm.get("console_proto_idx") or 0
+        mode_idx = vm.get("console_mode_idx") or 0
 
         # Embebemos VNC cuando:
         #   * proto=VNC + mode ∈ {Embebida(0), Pantalla completa(3)}
@@ -167,6 +197,9 @@ class Plugin(PluginBase):
         )
 
         if not embed_vnc:
+            self.vnc_heads = {}
+            self.current_head = 0
+            self._update_monitor_buttons()
             if proto_idx == 1 and mode_idx == 1:
                 self._safe_set_text(f"VM: {vm.get('name')}\nSPICE en ventana externa (remote-viewer).")
             elif proto_idx == 0 and mode_idx == 1:
@@ -175,7 +208,22 @@ class Plugin(PluginBase):
                 self._safe_set_text(f"VM: {vm.get('name')}\nEsta VM no usa visor embebido.")
             return
 
-        vnc_port = vm.get("vnc_port")
+        # El runner expone un puerto VNC por monitor (vnc_heads). Si la VM
+        # se inició con una versión anterior, solo existe vnc_port.
+        heads = {}
+        for key, port in (vm.get("vnc_heads") or {}).items():
+            try:
+                heads[int(str(key).split("_")[-1])] = port
+            except (TypeError, ValueError):
+                continue
+        self.vnc_heads = dict(sorted(heads.items()))
+        if self.vnc_heads:
+            self.current_head = min(self.current_head, max(self.vnc_heads))
+        else:
+            self.current_head = 0
+        self._update_monitor_buttons()
+
+        vnc_port = self.vnc_heads.get(self.current_head) or vm.get("vnc_port")
         if not vnc_port:
             self._safe_set_text("Esperando puerto VNC...")
             return
@@ -191,7 +239,7 @@ class Plugin(PluginBase):
             self._apply_zoom()
             self.scroll_area.setWidget(self.vnc_widget)
             self.vnc_widget.start()
-            self.vnc_widget.setFocus()
+            QTimer.singleShot(0, self._focus_vnc_widget)
             self.is_connected = True
 
             # Conectar señales de fullscreen
@@ -209,8 +257,45 @@ class Plugin(PluginBase):
             self._safe_set_text(f"Error al conectar VNC: {e}")
             log.exception("Error conectando VNC")
 
+    def _update_monitor_buttons(self):
+        total = len(self.vnc_heads) or 1
+        visible = total > 1
+        for nombre in ("btn_prev_monitor", "lbl_monitor", "btn_next_monitor"):
+            boton = getattr(self, nombre, None)
+            if boton is not None:
+                boton.setVisible(visible)
+        etiqueta = getattr(self, "lbl_monitor", None)
+        if etiqueta is not None:
+            etiqueta.setText(f"{self.current_head + 1}/{total}")
+
+    def _switch_monitor(self, delta: int):
+        if not self.vnc_heads:
+            return
+        siguiente = (self.current_head + delta) % len(self.vnc_heads)
+        if siguiente == self.current_head:
+            return
+        self.current_head = siguiente
+        self._update_monitor_buttons()
+        self._disconnect_vnc()
+        self._try_connect_vnc()
+
+    def _focus_vnc_widget(self):
+        """Dar el foco al visor VNC una vez la pestaña ya es visible."""
+        widget = getattr(self, "vnc_widget", None)
+        if widget is None:
+            return
+        try:
+            widget.setFocus(Qt.FocusReason.OtherFocusReason)
+        except Exception:
+            pass
+
     def _disconnect_vnc(self):
         if self.vnc_widget:
+            if self._fs_window is not None:
+                try:
+                    self._exit_fullscreen_impl()
+                except Exception:
+                    pass
             try:
                 self.vnc_widget.stop()
                 self.vnc_widget.deleteLater()
@@ -324,7 +409,7 @@ class Plugin(PluginBase):
             return
         if self.current_zoom is None:
             pct = self._get_current_percentage()
-            lbl.setText(f"Ajustado ({pct}%)")
+            lbl.setText(self.plugin.app.tr("Ajustado ({}%)").format(pct))
         else:
             lbl.setText(f"{self.current_zoom}%")
 
