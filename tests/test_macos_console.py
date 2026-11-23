@@ -122,7 +122,9 @@ def test_spice_en_macos_usa_spice_real_y_sin_vdagent(tmp_path, monkeypatch):
     assert "-vnc" not in unido
     assert "com.redhat.spice.0" not in unido
     assert "-display" in cmd and cmd[cmd.index("-display") + 1] == "none"
-    assert vm["_pending_external_viewer"]["type"] == "spice_unix"
+    # El QEMU de Windows no compila SPICE sobre socket UNIX: usa TCP en loopback.
+    tipo_local = "spice_tcp" if vr.IS_WINDOWS else "spice_unix"
+    assert vm["_pending_external_viewer"]["type"] == tipo_local
     assert vm["_pending_external_viewer"]["head"] == 0
 
 
@@ -169,7 +171,8 @@ def test_hibrida_en_macos_tambien_levanta_visor_externo(tmp_path, monkeypatch):
     cmd = _command(vm, tmp_path, monkeypatch)
     assert "-vnc" in cmd
     assert "-spice" in cmd
-    assert vm["_pending_external_viewer"]["type"] == "spice_unix"
+    tipo_local = "spice_tcp" if vr.IS_WINDOWS else "spice_unix"
+    assert vm["_pending_external_viewer"]["type"] == tipo_local
 
 
 def test_vnc_embedida_no_lanza_visor(tmp_path, monkeypatch):
